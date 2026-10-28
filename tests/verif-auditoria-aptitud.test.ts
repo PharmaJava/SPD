@@ -416,7 +416,8 @@ test('aptitud: rendimiento y sin regex catastróficas (1 MB)', () => {
     const t0 = performance.now();
     clasificarMedicamento({ nombre: t, formaFarmaceutica: t, principioActivo: t });
     const dt = performance.now() - t0;
-    assert.ok(dt < 200, `lento (${dt.toFixed(0)} ms) con entrada de ${t.length} chars`);
+    // Umbral holgado a propósito: una regex catastrófica tarda segundos o más; 200 ms daba falsos rojos con la máquina ocupada.
+    assert.ok(dt < 1000, `lento (${dt.toFixed(0)} ms) con entrada de ${t.length} chars`);
   }
 });
 
