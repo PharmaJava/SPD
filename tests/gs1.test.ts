@@ -77,3 +77,12 @@ test('normalizarCN acepta las formas habituales y NO valida el dígito del CN', 
   assert.equal(normalizarCN(GTIN), '712729');
   assert.equal(normalizarCN('12345'), null);
 });
+
+test('lectura ambigua: NO se adivina el lote ni la serie (regla 1)', () => {
+  const r = parsearGS1(`01${GTIN}1728053110AB1221SER9`, { hoy: HOY });
+  assert.equal(r.ambiguo, true);
+  assert.equal(r.lote, undefined);
+  assert.equal(r.serie, undefined);
+  assert.equal(r.caducidad, '2028-05-31');   // lo que es igual en todas las candidatas sí se rellena
+  assert.equal(r.cn, '712729');
+});

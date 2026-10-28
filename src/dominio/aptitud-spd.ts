@@ -83,7 +83,7 @@ export const FORMAS_NO_APTAS: ReglaForma[] = [
     motivo: 'Vía inyectable / conservación especial: no emblistable.' },
   { pat: /refriger|nevera|termolabil/,
     motivo: 'Termolábil: requiere conservación en nevera (2-8 ºC); no se emblista.' },
-  { pat: /liberacion (modificada|prolongada|retardada|sostenida|controlada)|\bretard\b|\boros\b|\bmatrix\b|\bsr\b|\bmr\b|\bxl\b|\bxr\b/,
+  { pat: /liberacion (modificada|prolongada|retardada|sostenida|controlada)|\bretard\b|\boros\b|\bmatrix\b|\bsr\b|\bmr\b|\bxl\b|\bxr\b|\blp\b/,
     estado: 'precaucion',
     motivo: 'Liberación modificada/prolongada: no se puede fraccionar y puede quedar excluida; valora la estabilidad (criterios SEFAC).' },
   { pat: /masticable/,
@@ -215,7 +215,26 @@ export function clasificarMedicamento(entrada: EntradaMedicamento): Clasificacio
   const e = entrada ?? {};
   const porForma = clasificarPorForma(e.formaFarmaceutica ?? '') ?? clasificarPorForma(e.nombre ?? '');
   if (porForma) return porForma;
+  // ⚠️ Combinaciones («tramadol/paracetamol», «metformina + sitagliptina»): si algún
+  // componente no está en el dataset NO se hereda la ficha del que sí está
+  // (sería dar por apto un medicamento del que no se sabe nada): null → decide el farmacéutico.
+  for (const texto of [e.principioActivo ?? '', e.nombre ?? '']) {
+    const comp = componentes(texto);
+    if (comp.length >= 2) {
+      const fichas = comp.map(buscarEnDataset);
+      if (fichas.some(f => f === null)) return null;
+      return (fichas as Clasificacion[]).reduce((a, b) => GRAVEDAD[b.estado] > GRAVEDAD[a.estado] ? b : a);
+    }
+  }
   return buscarEnDataset(e.principioActivo ?? '') ?? buscarEnDataset(e.nombre ?? '');
+}
+
+const GRAVEDAD: Record<EstadoAptitud, number> = { apto: 0, precaucion: 1, no_apto: 2 };
+
+/** Componentes de un medicamento combinado: trozos con palabras (≥4 letras) separados por «/» o «+». Un trozo que empieza por cifra es continuación de una dosis («850/1000 mg comprimidos») y no cuenta. */
+function componentes(texto: unknown): string[] {
+  if (typeof texto !== 'string') return [];
+  return texto.split(/[\/+]/).map(t => t.trim()).filter(t => /^\p{L}/u.test(t) && /\p{L}{4,}/u.test(t));
 }
 
 // ─── Idoneidad del paciente ──────────────────────────────────────────────────

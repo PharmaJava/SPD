@@ -181,10 +181,25 @@ export function parsearGS1(entrada: string, op: OpcionesGS1 = {}): LecturaGS1 {
     }
   }
   if (!out.cn) out.avisos.push('El GTIN no es español (847000…): el CN no se puede deducir. Introdúcelo a mano.');
-  if (p['17']) out.caducidad = fechaGS1(p['17'], hoy) ?? undefined;
-  else out.errores.push('El código no trae caducidad (17).');
-  if (p['11']) out.fabricacion = fechaGS1(p['11'], hoy) ?? undefined;
-  if (p['10']) out.lote = p['10']; else out.errores.push('El código no trae lote (10).');
-  if (p['21']) out.serie = p['21'];
+  // Con lectura ambigua sólo se rellena lo que es IGUAL en todas las candidatas:
+  // nunca se adivina un lote (regla 1 del proyecto). El lote y la serie quedan
+  // vacíos y la interfaz pide confirmarlos mirando la caja.
+  const comun = (ai: string): string | undefined => {
+    const v = validas.map(c => c[ai]);
+    return v.every(x => x === v[0]) ? v[0] : undefined;
+  };
+  const cad = comun('17');
+  if (cad) out.caducidad = fechaGS1(cad, hoy) ?? undefined;
+  else if (!validas.some(c => c['17'])) out.errores.push('El código no trae caducidad (17).');
+  const fab = comun('11');
+  if (fab) {
+    out.fabricacion = fechaGS1(fab, hoy) ?? undefined;
+    if (!out.fabricacion) out.avisos.push('La fecha de fabricación (11) del código no es válida y se ha ignorado.');
+  }
+  const lote = comun('10');
+  if (lote) out.lote = lote;
+  else if (!validas.some(c => c['10'])) out.errores.push('El código no trae lote (10).');
+  const serie = comun('21');
+  if (serie) out.serie = serie;
   return out;
 }

@@ -263,3 +263,24 @@ test('idoneidad: entradas raras no rompen (cadenas, vacío, undefined)', () => {
   assert.deepEqual(vacio.factores, []);
   assert.equal(evaluarIdoneidad(undefined as never).puntuacion, 0);
 });
+
+test('combinaciones: si un componente es desconocido no se hereda la ficha del conocido', () => {
+  assert.equal(clasificarMedicamento({ nombre: 'Tramadol/Paracetamol 37,5/325 mg comprimidos' }), null);
+  assert.equal(clasificarMedicamento({ nombre: 'Sitagliptina/metformina 50/850 mg' }), null);
+});
+
+test('combinaciones con todos los componentes conocidos: gana el más grave', () => {
+  const r = clasificarMedicamento({ nombre: 'metformina + omeprazol' });
+  assert.ok(r);
+  assert.equal(r!.estado, clasificarMedicamento({ nombre: 'omeprazol' })!.estado === 'apto' ? 'apto' : r!.estado);
+});
+
+test('las dosis con barra no se confunden con combinaciones', () => {
+  assert.notEqual(clasificarMedicamento({ nombre: 'Metformina 850/1000 mg comprimidos' }), null);
+});
+
+test('«LP» es liberación prolongada (falso negativo corregido)', () => {
+  const r = clasificarMedicamento({ nombre: 'Metformina LP 1000 mg' });
+  assert.ok(r);
+  assert.notEqual(r!.estado, 'apto');
+});

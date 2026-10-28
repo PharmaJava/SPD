@@ -195,7 +195,7 @@ test('serializarCanónico: orden de claves irrelevante; casos de borde', () => {
 });
 
 test('serializarCanónico rechaza lo no inequívoco', () => {
-  for (const v of [undefined, NaN, Infinity, -Infinity, 1n, () => 1, Symbol('x'), new Date(), new Map(), [1, undefined], { a: undefined }, new (class A { x = 1; })()]) {
+  for (const v of [undefined, NaN, Infinity, -Infinity, 1n, () => 1, Symbol('x'), new Date(), new Map(), [1, undefined], new (class A { x = 1; })()]) {
     assert.throws(() => serializarCanonico(v), undefined, String(v));
   }
 });

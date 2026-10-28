@@ -118,6 +118,8 @@ const TIPOS: readonly string[] = ['texto', 'tabla_tomas', 'aparte', 'codigo'];
 const SIMBOLOGIAS: readonly string[] = ['qrcode', 'datamatrix', 'code128'];
 const COLUMNAS_TABLA: readonly string[] = ['medicamento', 'descripcion', 'momentos', 'lote_caducidad'];
 const TOL = 0.001;
+/** Tamaño de letra máximo aceptado (pt): por encima no es una etiqueta, es un error de la plantilla. */
+export const TAM_PT_MAXIMO = 200;
 
 // ───────────────────────── utilidades ─────────────────────────
 
@@ -129,6 +131,13 @@ function mm(n: number): string {
 }
 function esNum(v: unknown): v is number {
   return typeof v === 'number' && Number.isFinite(v);
+}
+/** true si el texto no tiene nada visible (vacío, espacios, controles, U+200B, marcas bidi sueltas…). */
+function sinContenido(t: string): boolean {
+  return t.replace(/[\p{Cc}\p{Cf}\p{Z}]/gu, '') === '';
+}
+function textoDe(v: unknown): string {
+  return typeof v === 'string' ? v : (typeof v === 'number' && Number.isFinite(v) ? String(v) : '');
 }
 function esObjeto(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -157,7 +166,7 @@ function valorEnRuta(datos: Record<string, unknown>, ruta: string): string | und
     if (!esObjeto(actual) || !Object.prototype.hasOwnProperty.call(actual, parte)) return undefined;
     actual = actual[parte];
   }
-  if (typeof actual === 'string') return actual.trim() === '' ? undefined : actual;
+  if (typeof actual === 'string') return sinContenido(actual) ? undefined : actual;
   if (typeof actual === 'number' && Number.isFinite(actual)) return String(actual);
   return undefined;
 }
@@ -236,7 +245,8 @@ export function ajustarTexto(
   if (!(anchoMm > 0) || !(altoMm > 0) || !(tamPtInicial > 0)) {
     return { tamPt: Math.max(minimo, 0), cabe: false, lineas: contarLineas(texto, Math.max(anchoMm, 0.0001), Math.max(minimo, 0.1)) };
   }
-  let pt = tamPtInicial;
+  // Tope: un tam_pt absurdo (1e9) no debe convertir la reducción en medio millón de pasos.
+  let pt = Math.min(tamPtInicial, TAM_PT_MAXIMO);
   for (;;) {
     const lineas = contarLineas(texto, anchoMm, pt);
     if (lineas * pt * PT_MM * INTERLINEADO <= altoMm + 1e-9) return { tamPt: pt, cabe: true, lineas };
@@ -256,8 +266,8 @@ export function filasTablaTomas(tomas: TomaEntrada[]): FilaTomas[] {
   const filas: FilaTomas[] = [];
   for (const t of tomas) {
     for (const m of t.medicamentos) {
-      const lote = (m.lote ?? '').trim();
-      const cad = (m.caducidad ?? '').trim();
+      const lote = sinContenido(textoDe(m.lote)) ? '' : textoDe(m.lote).trim();
+      const cad = sinContenido(textoDe(m.caducidad)) ? '' : textoDe(m.caducidad).trim();
       filas.push({
         fecha: t.fecha,
         momento: t.momentoNombre,
@@ -272,8 +282,30 @@ export function filasTablaTomas(tomas: TomaEntrada[]): FilaTomas[] {
   return filas;
 }
 
+/** Celdas de una fila: ningún dato ausente se imprime en blanco ni como «undefined»/«NaN». */
+function celdasFila(f: FilaTomas): { fecha: string; momento: string; medicamento: string; unidades: string; lote: string; caducidad: string; faltan: string[] } {
+  const falta: string[] = [];
+  const t = (v: unknown, marca: string, nombre: string) => {
+    const x = textoDe(v);
+    if (sinContenido(x)) { falta.push(nombre); return `⟦${marca}⟧`; }
+    return x;
+  };
+  const unidadesOk = typeof f.unidades === 'number' && Number.isFinite(f.unidades) && f.unidades > 0;
+  if (!unidadesOk) falta.push('unidades');
+  return {
+    fecha: t(f.fecha, 'fecha', 'fecha'),
+    momento: t(f.momento, 'toma', 'momento'),
+    medicamento: t(f.medicamento, 'medicamento', 'medicamento'),
+    unidades: unidadesOk ? String(f.unidades) : '⟦unidades⟧',
+    lote: f.lote || '⟦lote⟧',
+    caducidad: f.caducidad || '⟦caducidad⟧',
+    faltan: falta,
+  };
+}
+
 function textoFila(f: FilaTomas): string {
-  return `${f.fecha} ${f.momento} · ${f.medicamento} ×${f.unidades} · Lote ${f.lote || '⟦lote⟧'} · Cad ${f.caducidad || '⟦caducidad⟧'}`;
+  const c = celdasFila(f);
+  return `${c.fecha} ${c.momento} · ${c.medicamento} ×${c.unidades} · Lote ${c.lote} · Cad ${c.caducidad}`;
 }
 
 // ───────────────────────── validación ─────────────────────────
@@ -338,7 +370,7 @@ export function validarPlantilla(def: unknown): string[] {
   const anchoUtil = ancho - mi - md;
   const altoUtil = alto - ms - mb;
   if (Number.isFinite(anchoUtil) && (anchoUtil <= 0 || altoUtil <= 0)) e.push('margenes_mm: no dejan área útil');
-  if (!esNum(def.fuente_base_pt) || def.fuente_base_pt <= 0) e.push('fuente_base_pt: debe ser un número > 0');
+  if (!esNum(def.fuente_base_pt) || def.fuente_base_pt <= 0 || def.fuente_base_pt > TAM_PT_MAXIMO) e.push(`fuente_base_pt: debe ser un número entre 0 y ${TAM_PT_MAXIMO}`);
   if (def.plancha !== null && def.plancha !== undefined) {
     e.push(...validarPlancha(def.plancha, esObjeto(pg) ? pg : null));
   }
@@ -361,7 +393,7 @@ export function validarPlantilla(def: unknown): string[] {
       if ((b.x as number) + (b.w as number) > anchoUtil + TOL) e.push(`${id}: se sale de la página por la derecha (x+w = ${redondear((b.x as number) + (b.w as number))} > ${redondear(anchoUtil)} mm útiles)`);
       if ((b.y as number) + (b.h as number) > altoUtil + TOL) e.push(`${id}: se sale de la página por abajo (y+h = ${redondear((b.y as number) + (b.h as number))} > ${redondear(altoUtil)} mm útiles)`);
     }
-    if (b.tam_pt !== undefined && (!esNum(b.tam_pt) || b.tam_pt <= 0)) e.push(`${id}: tam_pt debe ser un número > 0`);
+    if (b.tam_pt !== undefined && (!esNum(b.tam_pt) || b.tam_pt <= 0 || b.tam_pt > TAM_PT_MAXIMO)) e.push(`${id}: tam_pt debe ser un número entre 0 y ${TAM_PT_MAXIMO}`);
     if (b.tipo === 'texto' || b.tipo === 'codigo') {
       if (typeof b.contenido !== 'string' || b.contenido === '') e.push(`${id}: falta contenido`);
       else {
@@ -427,7 +459,7 @@ export function posicionesPlancha(plancha: Plancha, opciones: { todas?: boolean 
 const ESTILO_BASE =
   'html,body{margin:0;padding:0}body{font-family:Arial,Helvetica,sans-serif;color:#000}' +
   '.etq{position:relative;overflow:hidden;box-sizing:border-box}' +
-  '.b{position:absolute;box-sizing:border-box;overflow:visible;line-height:1.2;white-space:pre-wrap}' +
+  '.b{position:absolute;box-sizing:border-box;overflow:visible;line-height:1.2;white-space:pre-wrap;overflow-wrap:anywhere}' +
   '.b.nocabe{outline:0.3mm solid #d00}' +
   '.hoja{position:relative;width:210mm;height:297mm;overflow:hidden;page-break-after:always}' +
   '.hoja>.etq{position:absolute}' +
@@ -465,7 +497,11 @@ function renderFragmento(def: Plantilla, datos: Record<string, unknown>): Fragme
         plano = crudo.texto;
         html = resolver(b.contenido ?? '', datos, true).texto;
       } else {
-        const aparte = Array.isArray(datos.aparte) ? (datos.aparte as unknown[]).filter((x): x is string => typeof x === 'string' && x.trim() !== '') : [];
+        // Lo que no es una lista de textos (o trae elementos que no son texto) se señala: un medicamento
+        // «aparte» descartado en silencio es un medicamento que falta en la etiqueta.
+        const bruto = Array.isArray(datos.aparte) ? (datos.aparte as unknown[]) : undefined;
+        if (bruto === undefined || bruto.some((x) => x !== null && x !== undefined && typeof x !== 'string')) anotarFaltan(['aparte']);
+        const aparte = (bruto ?? []).filter((x): x is string => typeof x === 'string' && !sinContenido(x));
         plano = aparte.length > 0 ? `ADMINISTRAR APARTE: ${aparte.join('; ')}` : '';
         html = escaparHtml(plano);
       }
@@ -487,12 +523,15 @@ function renderFragmento(def: Plantilla, datos: Record<string, unknown>): Fragme
         faltan.push('tomas');
       }
       filas.forEach((f, k) => {
-        if (f.faltaTraza && !faltan.includes(`tomas[${k + 1}].lote_caducidad`)) faltan.push(`tomas[${k + 1}].lote_caducidad`);
+        if (f.faltaTraza) anotarFaltan([`tomas[${k + 1}].lote_caducidad`]);
+        for (const x of celdasFila(f).faltan) anotarFaltan([`tomas[${k + 1}].${x}`]);
       });
       medida = filas.map(textoFila).join('\n');
-      const trs = filas.map((f) =>
-        `<tr><td>${escaparHtml(f.fecha)}</td><td>${escaparHtml(f.momento)}</td><td>${escaparHtml(f.medicamento)} ×${escaparHtml(String(f.unidades))}</td>` +
-        `<td>Lote ${escaparHtml(f.lote || '⟦lote⟧')} · Cad ${escaparHtml(f.caducidad || '⟦caducidad⟧')}</td></tr>`).join('');
+      const trs = filas.map((f) => {
+        const c = celdasFila(f);
+        return `<tr><td>${escaparHtml(c.fecha)}</td><td>${escaparHtml(c.momento)}</td><td>${escaparHtml(c.medicamento)} ×${escaparHtml(c.unidades)}</td>` +
+          `<td>Lote ${escaparHtml(c.lote)} · Cad ${escaparHtml(c.caducidad)}</td></tr>`;
+      }).join('');
       interior = `<table class="tomas"><tbody>${trs}</tbody></table>`;
     }
 

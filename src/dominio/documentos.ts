@@ -52,7 +52,7 @@ export interface DocumentoRenderizado {
   faltan: string[];
   /** SHA-256 hex del texto resultante. */
   hash: string;
-  /** Falta algún dato o queda un «[A COMPLETAR …]» literal en la plantilla → false. */
+  /** Falta algún dato, queda un «[A COMPLETAR …]», llaves sin resolver o un valor se recortó → false. */
   imprimibleDefinitivo: boolean;
   /** La plantilla traía un comentario con la palabra BORRADOR: imprimir marcado «BORRADOR». */
   esBorrador: boolean;
@@ -79,11 +79,25 @@ export function variablesDe(plantilla: string): string[] {
   return [...vistas];
 }
 
-const neutralizarLlaves = (s: string) => s.replace(/\{\{/g, '{ {').replace(/\}\}/g, '} }');
+/**
+ * Rompe TODA pareja de llaves consecutivas (también en «{{{» o «}}}», donde un
+ * simple reemplazo de «{{» deja otra pareja nueva): cada llave seguida de otra
+ * lleva un espacio detrás.
+ */
+const neutralizarLlaves = (s: string) => s.replace(/\{(?=\{)/g, '{ ').replace(/\}(?=\})/g, '} ');
 
-function limpiarValor(ruta: string, bruto: string, avisos: string[]): string {
+/** Quita espacios, controles y caracteres de formato (U+200B, bidi, NUL…): lo que no se ve no es un valor. */
+const sinInvisibles = (s: string) => s.replace(/[\p{Cc}\p{Cf}\p{Z}]/gu, '');
+
+function limpiarValor(ruta: string, bruto: string, avisos: string[], estado: { recortado: boolean }): string {
   const esBloque = VARIABLES_BLOQUE.includes(ruta);
-  let v = bruto.replace(/\r\n?/g, '\n');
+  let v = bruto;
+  if (!v.isWellFormed()) {
+    // Un sustituto suelto se codificaría como U+FFFD y dos textos distintos tendrían el mismo hash.
+    avisos.push(`«${ruta}»: el valor tenía caracteres Unicode inválidos y se han sustituido por «\uFFFD».`);
+    v = v.toWellFormed();
+  }
+  v = v.replace(/\r\n?/g, '\n');
   if (esBloque) {
     v = v.split('\n').map(l => l.replace(/[\u2028\u2029]/g, ' ').trimEnd()).join('\n').trim();
   } else {
@@ -96,7 +110,9 @@ function limpiarValor(ruta: string, bruto: string, avisos: string[]): string {
   const limite = esBloque ? LIMITE_VALOR_BLOQUE : LIMITE_VALOR;
   if (v.length > limite) {
     avisos.push(`«${ruta}»: el valor tenía ${v.length} caracteres y se ha recortado a ${limite}.`);
-    v = v.slice(0, limite);
+    estado.recortado = true;
+    const ultimo = v.charCodeAt(limite - 1);
+    v = v.slice(0, ultimo >= 0xD800 && ultimo <= 0xDBFF ? limite - 1 : limite); // no partir un par sustituto
   }
   return v;
 }
@@ -110,28 +126,38 @@ export function renderizarDocumento(
   const avisos: string[] = [];
   const ya = new Set<string>();
   const avisados = new Set<string>();
+  const estado = { recortado: false };
+  const comentarioSinCerrar = sinComentarios.includes('<!--');
 
   // Una sola pasada sobre la PLANTILLA: lo insertado no se vuelve a evaluar.
   const texto = sinComentarios.replace(RE_VARIABLE, (_m, rutaCruda: string) => {
     const ruta = rutaCruda.trim();
     const bruto = Object.prototype.hasOwnProperty.call(datos, ruta) ? datos[ruta] : undefined;
-    const crudo = bruto === null || bruto === undefined ? '' : String(bruto);
-    if (crudo.trim() === '') {
+    // Solo texto o números finitos son valores: un objeto, un booleano o NaN no se imprimen («[object Object]»).
+    const crudo = typeof bruto === 'string' ? bruto : (typeof bruto === 'number' && Number.isFinite(bruto) ? String(bruto) : '');
+    if (sinInvisibles(crudo) === '') {
       if (VARIABLES_OPCIONALES.includes(ruta)) return TEXTO_OPCIONAL_VACIO;
       if (!ya.has(ruta)) { ya.add(ruta); faltan.push(ruta); }
       return `⟦${ruta}⟧`;
     }
     const primera = !avisados.has(ruta);
     avisados.add(ruta);
-    return limpiarValor(ruta, crudo, primera ? avisos : []);
+    return limpiarValor(ruta, crudo, primera ? avisos : [], estado);
   });
 
-  const sinCompletar = [...texto.matchAll(/\[A COMPLETAR[^\]]*\]/g)].map(m => m[0]);
+  const sinCompletar = [...texto.matchAll(/\[\s*A\s+COMPLETAR[^\]]*\]?/gi)]
+    .map(m => (m[0].endsWith(']') ? m[0] : `${m[0].slice(0, 80)}…`));
+  // Los valores ya vienen sin «{{»/«}}»: lo que quede son llaves de la propia plantilla sin variable válida.
+  for (const m of texto.matchAll(/\{\{|\}\}/g)) {
+    const i = m.index ?? 0;
+    sinCompletar.push(`[llaves sin resolver: «${texto.slice(Math.max(0, i - 12), i + 20).replace(/\s+/g, ' ')}»]`);
+  }
+  if (comentarioSinCerrar) sinCompletar.push('[comentario «<!--» sin cerrar en la plantilla]');
   return {
     texto,
     faltan,
     hash: createHash('sha256').update(texto, 'utf8').digest('hex'),
-    imprimibleDefinitivo: faltan.length === 0 && sinCompletar.length === 0,
+    imprimibleDefinitivo: faltan.length === 0 && sinCompletar.length === 0 && !estado.recortado,
     esBorrador,
     sinCompletar,
     avisos,
@@ -164,14 +190,15 @@ export function estadoConsentimientos(
   const faltan: string[] = [];
   const desactualizados: string[] = [];
   const revocados: string[] = [];
-  for (const codigo of requeridos) {
+  for (const codigo of [...new Set(requeridos)]) {
     const propios = firmados.filter(f => f.codigo === codigo);
     if (propios.length === 0) { faltan.push(codigo); continue; }
     const maxVersion = Math.max(...propios.map(f => f.version));
     const enMax = propios.filter(f => f.version === maxVersion);
     const revocado = (f: ConsentimientoFirmado) => f.revocadoEn !== null && f.revocadoEn !== undefined && f.revocadoEn !== '';
     if (enMax.every(revocado)) { revocados.push(codigo); continue; }
-    const vigente = plantillasVigentes.find(p => p.codigo === codigo);
+    const versiones = plantillasVigentes.filter(p => p.codigo === codigo);
+    const vigente = versiones.length === 0 ? undefined : { codigo, version: Math.max(...versiones.map(p => p.version)) };
     if (!vigente) { faltan.push(codigo); continue; }          // no hay versión vigente que dar por buena
     if (maxVersion < vigente.version) desactualizados.push(codigo);
   }

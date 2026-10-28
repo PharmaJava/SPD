@@ -97,7 +97,10 @@ export function serializarCanonico(valor: unknown, ruta = '$'): string {
     return '[' + Array.from(valor, (x, i) => serializarCanonico(x, `${ruta}[${i}]`)).join(',') + ']';
   }
   if (esObjetoPlano(valor)) {
-    const claves = Object.keys(valor).sort();
+    // Una clave con valor undefined se OMITE (igual que JSON.stringify): los resultados del
+    // dominio la producen (p.ej. caducidadSpd en un rechazo) y justo lo rechazado hay que auditarlo.
+    // En un array sí lanza: ahí un hueco cambiaría las posiciones.
+    const claves = Object.keys(valor).filter(k => valor[k] !== undefined).sort();
     return '{' + claves.map(k => JSON.stringify(k) + ':' + serializarCanonico(valor[k], `${ruta}.${k}`)).join(',') + '}';
   }
   throw new Error(`Objeto no plano en ${ruta} (Date, Map, clase…): conviértelo antes`);

@@ -66,7 +66,8 @@ test('canónico rechaza NaN, Infinity, undefined, función, BigInt, symbol', () 
   assert.throws(() => serializarCanonico(-Infinity), /no finito/);
   assert.throws(() => serializarCanonico(undefined), /undefined/);
   assert.throws(() => serializarCanonico([1, undefined]), /\[1\]/);
-  assert.throws(() => serializarCanonico({ a: { b: undefined } }), /\$\.a\.b/);
+  // Una clave con undefined se omite (como JSON.stringify): los rechazos del dominio la producen y hay que poder auditarlos.
+  assert.equal(serializarCanonico({ a: { b: undefined, c: 1 } }), '{"a":{"c":1}}');
   assert.throws(() => serializarCanonico(() => 1), /Función/);
   assert.throws(() => serializarCanonico(10n), /BigInt/);
   assert.throws(() => serializarCanonico(Symbol('x')), /Symbol/);
