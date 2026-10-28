@@ -48,7 +48,11 @@ export interface MapaBlister {
 const DIA_MS = 86_400_000;
 const esFecha = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s) && new Date(s + 'T00:00:00Z').toISOString().slice(0, 10) === s;
 const aDia = (s: string) => Math.round(Date.parse(s + 'T00:00:00Z') / DIA_MS);
-const deDia = (n: number) => new Date(n * DIA_MS).toISOString().slice(0, 10);
+const MAX_DIA = 2_932_896; // 9999-12-31: más allá toISOString da '+010000-…' (corrupto)
+const deDia = (n: number) => {
+  if (n > MAX_DIA) throw new RangeError('El periodo se sale del año 9999.');
+  return new Date(n * DIA_MS).toISOString().slice(0, 10);
+};
 function diaSemana(f: string): number { const d = new Date(f + 'T00:00:00Z').getUTCDay(); return d === 0 ? 7 : d; }
 
 export const MAX_DIAS_PERIODO = 366;

@@ -40,6 +40,7 @@ function exigirDia(fecha: unknown, que: string): number {
 }
 
 function diaISO(n: number): string {
+  if (n > 2_932_896) throw new Error('El periodo se sale del año 9999.'); // 9999-12-31
   return new Date(n * MS_DIA).toISOString().slice(0, 10);
 }
 
