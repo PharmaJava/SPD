@@ -14,8 +14,14 @@
  * FUNCIONES PURAS: sin disco, red ni reloj; fechas ISO AAAA-MM-DD.
  */
 import type { Envase } from './tipos.ts';
+import { envasesAfectados, type AlertaCalidad } from './alertas-calidad.ts';
 
-export interface OpcionesReparto { fechaPreparacion: string; fechaFinPeriodo: string }
+export interface OpcionesReparto {
+  fechaPreparacion: string;
+  fechaFinPeriodo: string;
+  /** Alertas de calidad vigentes: las cajas afectadas NO se reparten (se avisa). Opcional. */
+  alertas?: AlertaCalidad[];
+}
 export interface Asignacion { envaseId: number; unidades: number }
 export interface ResultadoReparto {
   ok: boolean;
@@ -96,8 +102,20 @@ function prepararCajas(envases: Envase[], op: OpcionesReparto): Preparadas {
     errores.push('Las cajas pertenecen a tratamientos distintos');
   }
 
+  const bloqueadas = new Map<number, string>();
+  if (op.alertas && op.alertas.length > 0) {
+    const r = envasesAfectados(enUso, op.alertas);
+    avisos.push(...r.avisos);
+    for (const a of r.afectados) bloqueadas.set(a.envase.id, a.alertas.map((x) => x.referencia).join(', '));
+  }
+
   const cajas: CajaInterna[] = [];
   for (const e of enUso) {
+    const ref = bloqueadas.get(e.id);
+    if (ref !== undefined) {
+      avisos.push(`La caja ${e.id} (lote ${e.lote}) tiene alerta de calidad (${ref}): no se usa. Apártala.`);
+      continue;
+    }
     const c = aCuartos(e.unidadesRestantes);
     if (c === null) {
       errores.push(`Unidades restantes no válidas en la caja ${e.id} (lote ${e.lote}): ${e.unidadesRestantes}`);
