@@ -34,6 +34,47 @@ Si no cabe todo, la etiqueta lleva lo esencial y un **QR a la hoja A4**, que
 se entrega junto al blíster con los prospectos. Opción braille (vía
 impresora/servicio externo; la etiqueta indica que se ha solicitado).
 
+## 7.2 bis Etiqueta resumida
+
+Si las tomas del periodo (hasta 14 días) no caben en la etiqueta, **no se
+recorta nada**: el bloque `tabla_tomas` con `"modo": "auto"` pasa solo al
+**resumen por medicamento** y la etiqueta lleva el QR/código a la hoja A4 (el
+bloque `codigo` ya existente) con el detalle de cada toma.
+
+Una línea por medicamento, siempre con **todos** los lotes y caducidades:
+
+```
+RESUMEN DEL PERIODO · detalle de cada toma en la hoja A4 (código)
+Metformina 850 mg — 2 al día — lotes: L1 (cad 05/2028), L2 (cad 11/2027) — Comprimido blanco, redondo
+```
+
+- `elegirModoEtiqueta(plantilla, tomas)` decide: tabla completa si cabe (letra
+  ≥ 6 pt); si no, resumen. Devuelve `cabe:false` si ni el resumen cabe: la
+  etiqueta **no es imprimible** (nunca se recorta en silencio).
+- Modos de `tabla_tomas`: `"completa"` (por defecto, comportamiento histórico),
+  `"resumen"` y `"auto"`. El tipo `resumen_periodo` es siempre resumen.
+- Un lote con otra caducidad es otro par: no se fusionan. Si la pauta no es
+  igual todos los días no se inventa un «al día»: «29 en 14 días (pauta variable)».
+- El resumen sin bloque `codigo` en la plantilla **bloquea** la impresión: la
+  hoja A4 no sería alcanzable.
+- `PLANTILLA_DOC07_RESUMIBLE` es la plantilla de §7.3 (100×150 mm) con todo esto activado.
+
+### Tomas ausentes, descripción física y formato
+
+- **`unidadesEsperadas`** (opcional, en los datos de `renderizarEtiqueta`): la
+  suma de unidades que dice la pauta. Si las filas de la etiqueta no suman lo
+  mismo (faltan o sobran tomas), `imprimible:false`. Un valor no numérico, o
+  una plantilla sin bloque de tomas, también bloquea (no se puede comprobar).
+- **Descripción física**: cada medicamento de `TomaEntrada` admite
+  `descripcion` (de `resumenDescripcion`). La columna `descripcion` la imprime
+  si alguna toma la trae. Si falta, la etiqueta avisa (`avisos`) sin bloquear;
+  con **`exigirDescripcion: true`** (en el bloque o en la plantilla) y la
+  columna incluida, su ausencia es un dato faltante y bloquea.
+- **`formato_es: true`** (plantilla; por defecto `false` por compatibilidad):
+  en lo impreso, fechas `dd/mm/aaaa`, caducidades `mm/aaaa` y decimales con
+  coma (`×0,25 (¼)`, `×1,5 (1½)`). Los datos y el contenido de los códigos no
+  se tocan. Una fecha imposible se deja tal cual para que se vea.
+
 ## 7.3 Diseñador de plantillas
 
 La plantilla es un JSON (`plantilla_etiqueta.definicion`):
