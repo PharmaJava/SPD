@@ -28,6 +28,20 @@
   incrusta: tiene una **lista de comprobación por comunidad autónoma**,
   editable, que se rellena cuando se contraste cada norma.
 
+### Andalucía (comunidad de partida) — por confirmar
+
+- **No he encontrado** (búsqueda del 28-oct-2026) una norma andaluza
+  específica del SPD ni su declaración responsable. Sí consta que el
+  **Consejo Andaluz de Colegios de Farmacéuticos** lanzó el servicio en 2013
+  con farmacias acreditadas por sus colegios, distintivo y un **PNT común**
+  ([Redacción Médica](https://www.redaccionmedica.com/autonomias/andalucia/20130409/las-farmacias-andaluzas-implantan-el-sistema-personalizado-de-dosificacion-medicamentos/318288_0.html)).
+  Es una fuente antigua y no dice qué está vigente hoy.
+- **Qué hacer:** pedir al colegio provincial el PNT y los requisitos de
+  acreditación actuales, y buscar en el BOJA. Con eso se rellena la lista de
+  comprobación andaluza del programa.
+- Otras comunidades sí la tienen y sirven de referencia comparada: Cataluña
+  (Decreto 15/2025, declaración responsable), Madrid y Navarra.
+
 ## 8.2 ¿Es el programa un producto sanitario?
 
 El Reglamento (UE) 2017/745 (MDR) y la guía MDCG 2019-11 distinguen:
@@ -47,6 +61,16 @@ El Reglamento (UE) 2017/745 (MDR) y la guía MDCG 2019-11 distinguen:
   programa (Acerca de) y en el contrato de uso.
 
 ## 8.3 Protección de datos (RGPD y LOPDGDD)
+
+### Programa gratuito
+
+Al regalarse, el autor **no accede a los datos** de las farmacias (todo es
+local, sin telemetría), por lo que **no es encargado del tratamiento**: la
+farmacia es la única responsable. Esto se mantiene sólo mientras no haya
+soporte remoto ni copias en servidores del autor. La licencia
+(`LICENSE.txt`) deja clara la ausencia de garantía y la responsabilidad del
+usuario, pero hay que revisarla con un abogado porque el programa trata datos
+de salud.
 
 ### Quién es quién
 | Papel | Quién |

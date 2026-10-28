@@ -20,6 +20,8 @@ gestiona su servicio de SPD de principio a fin:
 - **Legal**: consentimientos del servicio y de protección de datos
   imprimibles, registro de auditoría, copias cifradas, derechos RGPD.
 
+> **Programa gratuito (freeware)**: ver [LICENSE.txt](LICENSE.txt). Ámbito inicial: Andalucía.
+
 > Estado: **fase de diseño**. Lo escrito hasta ahora es la especificación
 > (`docs/`), el esquema de base de datos (`db/schema.sql`), las plantillas de
 > consentimiento y el primer módulo de dominio con pruebas (lectura de
@@ -40,7 +42,8 @@ gestiona su servicio de SPD de principio a fin:
 | [docs/09-consentimientos.md](docs/09-consentimientos.md) | Documentos que se imprimen y firman |
 | [docs/10-seguridad.md](docs/10-seguridad.md) | Cifrado, usuarios, auditoría, copias |
 | [docs/11-roadmap.md](docs/11-roadmap.md) | Fases de desarrollo |
-| [docs/12-decisiones-pendientes.md](docs/12-decisiones-pendientes.md) | Lo que tiene que decidir Antonio |
+| [docs/12-decisiones-pendientes.md](docs/12-decisiones-pendientes.md) | Decisiones tomadas y pendientes |
+| [docs/13-interfaz.md](docs/13-interfaz.md) | Diseño de la interfaz |
 
 ## Pruebas
 

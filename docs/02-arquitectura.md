@@ -27,8 +27,7 @@
 ## Decisión
 
 **Electron + TypeScript + SQLite cifrada (SQLCipher)**, con la interfaz en
-HTML/CSS y un framework ligero de compilación (**Svelte 5**) o JS sin
-framework si Antonio lo prefiere (ver doc 12).
+**Svelte 5** (decidido, ver doc 13).
 
 Motivos, por orden de peso:
 1. **Impresión**: es el corazón del producto (etiquetas de tamaños
@@ -67,8 +66,9 @@ Motivos, por orden de peso:
 ## Base de datos
 
 - **SQLite** en un único fichero, cifrado con SQLCipher
-  (`better-sqlite3-multiple-ciphers`). Clave derivada de la contraseña de
-  la farmacia (ver doc 10), nunca guardada en claro.
+  (`better-sqlite3-multiple-ciphers`). Clave de datos aleatoria envuelta
+  con la contraseña de la farmacia y exportable como clave de recuperación
+  (doc 10), nunca guardada en claro.
 - Modo WAL, claves foráneas activas, migraciones numeradas en `db/`.
 - Fechas en ISO-8601 (texto), importes en céntimos (entero).
 - **Una capa de repositorios** para que, en fase 2, el mismo servicio pueda

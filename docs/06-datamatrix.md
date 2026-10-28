@@ -66,3 +66,16 @@ La etiqueta lleva un **QR o DataMatrix propio** con el identificador del SPD
 (`preparacion.id_publico`, un UUID), **nunca datos personales**. Al
 escanearlo en la farmacia se abre la preparación: contenido, lotes, quién la
 preparó. Librería prevista: `bwip-js` (genera DataMatrix/QR en SVG, sin red).
+
+## 6.6 Lector adaptable (decidido: no se fija un modelo)
+
+Ajustes → Lector, con asistente y prueba:
+- **Modo:** teclado (por defecto, funciona con cualquier lector) o puerto
+  serie (elegir COM, velocidad, terminador).
+- **Separador** que el lector manda en lugar de GS (o ninguno), prefijo y
+  sufijo a quitar, y distribución de teclado (los lectores en modo teclado
+  mandan teclas, no caracteres: con el teclado en español, símbolos como `-`
+  o `/` pueden cambiar).
+- La prueba enseña los bytes recibidos y lo que se ha entendido, para poder
+  ajustar sin conocer el lector. Si una lectura sale ambigua, el programa lo
+  dice (6.2) en vez de adivinar.

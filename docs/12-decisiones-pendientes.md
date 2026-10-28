@@ -1,16 +1,24 @@
-# 12. Decisiones pendientes (para Antonio)
+# 12. Decisiones
 
-| # | Pregunta | Propuesta por defecto | Por qué importa |
-|---|---|---|---|
-| 1 | ¿Uso propio o para vender a otras farmacias? | Diseñar para vender, empezar por la tuya | Cambia licencia, soporte, contrato de encargado, multi-farmacia en ajustes |
-| 2 | Interfaz con **Svelte** o **JavaScript sin framework** | Svelte 5 | Muchas pantallas con formularios y estado; Svelte compila a JS simple, pero es una dependencia más |
-| 3 | Clave de la base: **contraseña al arrancar** o **ligada a la cuenta de Windows** | Contraseña al arrancar + PIN por usuario | Seguridad frente a comodidad (doc 10) |
-| 4 | ¿Un solo farmacéutico puede preparar **y** validar? | Sí, con ajuste explícito y registro | Muchas farmacias tienen un solo farmacéutico de turno |
-| 5 | Validez por defecto del SPD | 14 días | Lo que dicen los documentos de referencia; tu comunidad puede decir otra cosa |
-| 6 | Momentos de toma por defecto | Desayuno, comida, cena, acostarse | Hay farmacias con «media mañana» y «merienda» |
-| 7 | Plazo de conservación tras la baja | 5 años, configurable | Pendiente de abogado (doc 08) |
-| 8 | Lector y etiquetadora que vas a usar | — | Para probar el modo serie y la plantilla de partida |
-| 9 | Comunidad autónoma de tu farmacia | — | Para escribir su lista de requisitos de SPD |
-| 10 | ¿Cajas que trae el paciente (no dispensadas aquí)? | Permitidas, marcadas | Hay que confirmar con el Colegio |
-| 11 | Firma de código: certificado (OV ~200-400 €/año) | Sí, antes de la primera instalación fuera de tu ordenador | Sin firma, Windows bloquea o asusta al instalar |
-| 12 | Dónde se publican las actualizaciones | Releases de GitHub de un repo público de binarios, o servidor propio | El repo SPD es privado |
+## Tomadas (28-oct-2026)
+
+| # | Decisión | Consecuencia |
+|---|---|---|
+| 1 | **Se regala; licencia freeware** (gratis, redistribuible sin modificar, no vendible). Ver `LICENSE.txt` | Sin soporte ni garantía obligatorios; el texto legal hay que revisarlo con un abogado. Una farmacia es responsable de sus propios datos, no el autor |
+| 2 | Interfaz: la elige Claude, **bonita y sencilla** → Svelte 5 (doc 13) | |
+| 3 | **Contraseña al arrancar**, configurable en el primer uso, con **clave de recuperación exportable** (texto para imprimir y URI de app de autenticación) | Doc 10 §10.1 |
+| 4 | Lector e impresora: **adaptables** | Lector serie o teclado con separador configurable; impresoras por driver con perfil y calibración |
+| 5 | **Andalucía** de momento | Ver abajo |
+
+## Pendientes
+
+| # | Pregunta | Propuesta por defecto |
+|---|---|---|
+| A | **Requisitos andaluces de SPD** | Ver doc 08 §8.1: hay que localizarlos en el BOJA y con el Consejo Andaluz de Colegios. Sé que en 2013 el Consejo lanzó un servicio con farmacias acreditadas y un PNT común; **no he podido confirmar la norma vigente** |
+| B | ¿Un solo farmacéutico puede preparar y validar? | Sí, con ajuste explícito y registro |
+| C | Validez por defecto del SPD | 14 días |
+| D | Momentos de toma por defecto | Desayuno, comida, cena, acostarse |
+| E | Plazo de conservación tras la baja | 5 años, configurable (abogado) |
+| F | ¿Cajas que trae el paciente? | Permitidas y marcadas; confirmar con el Colegio |
+| G | Distribución del instalador sin certificado de firma | El instalador sin firmar muestra avisos de Windows SmartScreen. Para un regalo, valorar firma gratuita para código abierto (no aplica si es freeware cerrado) o certificado de pago |
+| H | ¿Sigue privado el repo? | Freeware = binarios públicos; el código puede seguir privado. Los binarios se publicarían en un repo/release público aparte |

@@ -1,18 +1,33 @@
 # 10. Seguridad
 
-## 10.1 Cifrado
+## 10.1 Cifrado y claves (decidido)
 
-- Base de datos con **SQLCipher** (AES-256). La clave se deriva con
-  **Argon2id** de una **contraseña de la farmacia** que se pide al arrancar,
-  o se guarda protegida con **DPAPI de Windows** (`safeStorage` de Electron)
-  ligada a la cuenta de Windows del puesto. Lo segundo es más cómodo; lo
-  primero aguanta el robo del ordenador con la sesión de Windows abierta.
-  Decisión en doc 12.
-- **Clave de recuperación** impresa al instalar (24 palabras), para guardar
-  en la caja fuerte. Sin ella, una contraseña olvidada es la pérdida de
-  todos los datos.
-- Los adjuntos (escaneos, fotos) van dentro de la base cifrada, no sueltos
-  en disco.
+- Base de datos con **SQLCipher** (AES-256) y una **clave de datos aleatoria
+  de 256 bits**, que nunca se guarda en claro.
+- La clave de datos se guarda **envuelta** con una clave derivada de la
+  **contraseña de la farmacia** (Argon2id). La contraseña se pide **al
+  arrancar el programa** y se configura en el primer uso. Cambiar la
+  contraseña sólo rehace la envoltura; no hay que recifrar la base.
+- **Clave de recuperación**: en el primer uso se muestra la clave de datos en
+  dos formatos y no se deja continuar hasta confirmar que se ha guardado
+  (comprobación tecleando tres grupos):
+  1. **Texto en grupos de 4** (Base32 con 2 caracteres de control que detectan
+     erratas), para imprimir y guardar en la caja fuerte.
+  2. **QR / URI `otpauth://`**, que se puede escanear con **Google
+     Authenticator, Aegis, 2FAS u otra app de autenticación** para tenerla
+     en el móvil.
+  ⚠️ Las apps de autenticación guardan secretos pensados para códigos de 6
+  cifras: **el código que enseñan no sirve**; lo que vale es el secreto, que
+  se recupera exportando la entrada desde la app (y depende de que la app
+  permita exportar: Google Authenticator lo permite con «Exportar cuentas»).
+  Antes de fiarse de este formato hay que **probarlo con cada app** y con
+  secretos de 52 caracteres; por eso el texto impreso es la copia principal
+  y la app, una comodidad.
+- Sin contraseña **ni** clave de recuperación, los datos son irrecuperables
+  (es la propiedad que se busca). La pantalla de bloqueo lo dice.
+- Implementado y probado: `src/dominio/clave-recuperacion.ts`.
+- Rate limit a los intentos de contraseña (espera creciente).
+- Los adjuntos (escaneos, fotos) van dentro de la base cifrada.
 
 ## 10.2 Usuarios
 

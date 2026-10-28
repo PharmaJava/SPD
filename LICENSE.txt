@@ -1,0 +1,35 @@
+LICENCIA DE USO FREEWARE — SPD (borrador, pendiente de revisión jurídica)
+
+Copyright (c) 2026 Antonio. Todos los derechos reservados salvo los que aquí
+se conceden.
+
+1. CONCESIÓN. Se concede a cualquier persona o farmacia el derecho gratuito,
+   no exclusivo e indefinido de instalar y usar el programa, en tantos
+   equipos como necesite, y de copiarlo y redistribuirlo SIN modificar y SIN
+   cobrar por ello.
+
+2. LO QUE NO SE PUEDE HACER. Vender el programa o cobrar por su acceso;
+   incluirlo en un producto de pago; modificarlo, descompilarlo o crear obras
+   derivadas; quitar este aviso o el nombre del autor.
+
+3. NATURALEZA DEL PROGRAMA. Es una herramienta de registro, organización e
+   impresión. No es un producto sanitario, no decide dosis ni tratamientos y
+   no sustituye el criterio del farmacéutico ni la ficha técnica. El usuario
+   es el único responsable de verificar cada preparación, de la exactitud de
+   los datos que introduce y del cumplimiento de la normativa sanitaria y de
+   protección de datos que le sea aplicable. La farmacia que lo usa es la
+   responsable del tratamiento de los datos de sus pacientes.
+
+4. SIN GARANTÍA. El programa se ofrece «tal cual», sin garantía de ningún
+   tipo, expresa o implícita, incluida la de idoneidad para un fin concreto.
+   En la medida máxima que permita la ley, el autor no responderá de daños
+   derivados del uso del programa, incluida la pérdida de datos. El usuario
+   debe mantener sus propias copias de seguridad.
+
+5. SIN SOPORTE. El autor no está obligado a dar soporte ni actualizaciones.
+
+6. TERMINACIÓN. La licencia termina si se incumplen estas condiciones.
+
+Aviso: este texto es un borrador. Antes de distribuir el programa a terceros
+debe revisarlo un abogado (limitación de responsabilidad frente a
+consumidores y normativa aplicable).
