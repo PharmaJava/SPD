@@ -25,6 +25,7 @@ import { avisosPauta, MAX_DIAS_PERIODO, tomasDelPeriodoVersiones, validarPauta }
 import { construirMapas, ubicarToma } from './disposicion-blister.ts';
 import type { MapaBlister, OpcionesDisposicion } from './disposicion-blister.ts';
 import { repartirTomas } from './consumo-envases.ts';
+import type { AlertaCalidad } from './alertas-calidad.ts';
 import { calcularCaducidadSpd, DIAS_VALIDEZ_ESTANDAR, periodoCabe, puedeValidar } from './caducidad-spd.ts';
 import type { ResultadoCaducidad, Rol } from './caducidad-spd.ts';
 
@@ -70,6 +71,8 @@ export interface EntradaPreparacion {
   consentimiento: boolean | EstadoConsentimientos;
   /** Disposición del blíster (inicio de día, rotación…). */
   disposicion?: Partial<OpcionesDisposicion>;
+  /** Alertas de calidad vigentes: las cajas afectadas NO se reparten (y se avisa con la referencia). */
+  alertas?: AlertaCalidad[];
 }
 
 // ───────────────────────── salida ─────────────────────────
@@ -283,7 +286,7 @@ function evaluar(entrada: EntradaPreparacion, res: ResultadoPreparacion): void {
 
     // 3.4 reparto FEFO
     if (!preparacionOk) continue; // sin fecha de preparación no se puede repartir (ya bloqueado)
-    const r = repartirTomas(propios, tomas, { fechaPreparacion, fechaFinPeriodo: fin });
+    const r = repartirTomas(propios, tomas, { fechaPreparacion, fechaFinPeriodo: fin, alertas: entrada.alertas });
     r.errores.forEach((x) => bloquear('REPARTO_ERROR', `${nombre}: ${x}`));
     const porId = new Map(propios.map((e) => [e.id, e]));
     for (const e of propios) {

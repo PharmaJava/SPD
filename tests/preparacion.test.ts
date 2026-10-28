@@ -583,3 +583,22 @@ test('las tomas devueltas coinciden con las de la pauta (TomaDia) y llevan su tr
   const m: TomaDia[] = r.tomas.filter(t => t.tratamientoId === 1).map(({ fecha, momentoId, unidades }) => ({ fecha, momentoId, unidades }));
   assert.deepEqual(m, tomasDelPeriodo(PAUTA_METFORMINA, INICIO, FIN_14));
 });
+
+// ── Alertas de calidad sobre cajas ya custodiadas ──
+test('una alerta de calidad sobre una caja en uso la excluye del reparto y bloquea si faltan unidades', () => {
+  const base = {
+    desde: '2026-11-03', dias: 7, fechaPreparacion: '2026-11-02',
+    momentos: [{ id: 1, nombre: 'Desayuno', orden: 1 }],
+    rolValida: 'farmaceutico' as const, consentimiento: true,
+    tratamientos: [{
+      tratamientoId: 1, nombre: 'Metformina',
+      versiones: [{ vigenteDesde: '2026-01-01', patron: 'diario' as const, dosis: [{ momentoId: 1, unidades: 1 }] }],
+      envases: [{ id: 10, tratamientoId: 1, cn: '712729', lote: 'L1', caducidad: '2028-01-31', unidadesRestantes: 30, estado: 'en_uso' as const }],
+    }],
+  };
+  assert.equal(evaluarPreparacion(base).validable, true);
+  const r = evaluarPreparacion({ ...base, alertas: [{ referencia: 'R_99/2026', cn: '712729', lote: 'L1' }] });
+  assert.equal(r.validable, false);
+  assert.ok(r.bloqueos.some(b => b.codigo === 'UNIDADES_INSUFICIENTES'));
+  assert.ok(r.avisos.concat(r.bloqueos as never[]).some((a: { texto: string }) => /R_99\/2026/.test(a.texto)));
+});
