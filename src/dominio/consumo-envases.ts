@@ -34,8 +34,13 @@ export interface ResultadoTomas {
   errores: string[];
 }
 
-const esFecha = (s: unknown): s is string =>
-  typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(s + 'T00:00:00Z'));
+// Ojo: V8 acepta «2026-02-31» en Date.parse (lo desborda a marzo), por eso se
+// comprueba que la fecha sobreviva a la ida y vuelta ISO.
+const esFecha = (s: unknown): s is string => {
+  if (typeof s !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  const t = Date.parse(s + 'T00:00:00Z');
+  return !Number.isNaN(t) && new Date(t).toISOString().slice(0, 10) === s;
+};
 
 function sumarDias(fecha: string, dias: number): string {
   const d = new Date(fecha + 'T00:00:00Z');

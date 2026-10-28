@@ -174,6 +174,9 @@ export function validarEntradaEnvase(entrada: EntradaEnvase, contexto: ContextoE
     if (loteTeclado !== '' && loteTeclado !== loteCodigo) {
       atender('LOTE_CONTRADICE_CODIGO', `El lote tecleado («${loteTeclado}») no coincide con el del DataMatrix («${loteCodigo}»). Se usa el del código.`);
     }
+  } else if (loteTeclado !== '' && !/[\p{L}\p{N}]/u.test(loteTeclado)) {
+    // «,,,» o «-» no son un lote: es como no haberlo leído.
+    bloquear('LOTE_INVALIDO', `El lote «${loteTeclado}» no contiene letras ni cifras. Es obligatorio: léelo en la caja.`);
   } else if (loteTeclado !== '') {
     lote = loteTeclado;
     if (loteTeclado !== loteTecleadoCrudo) {
@@ -216,6 +219,9 @@ export function validarEntradaEnvase(entrada: EntradaEnvase, contexto: ContextoE
       const limite = contexto.diasAvisoCaducidad ?? DIAS_AVISO_CADUCIDAD_POR_DEFECTO;
       if (dias <= limite) {
         atender('CADUCA_PRONTO', `Caduca en ${dias} día${dias === 1 ? '' : 's'} (${caducidad}). Confírmalo antes de admitirlo.`);
+      }
+      if (dias > 3650) {
+        atender('CADUCIDAD_LEJANA', `La caducidad (${caducidad}) está a más de 10 años: probablemente es un error al teclear el año. Compárala con la caja.`);
       }
       if (contexto.finPrevistoPeriodo && caducidad < contexto.finPrevistoPeriodo) {
         atender('CADUCA_ANTES_DEL_PERIODO', `Caduca (${caducidad}) antes del fin previsto del periodo (${contexto.finPrevistoPeriodo}).`);
