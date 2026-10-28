@@ -92,6 +92,7 @@ CREATE TABLE paciente (
   alta_en            TEXT NOT NULL DEFAULT (date('now')),
   baja_en            TEXT,
   bloqueado_en       TEXT,   -- supresión RGPD solicitada pero con obligación de conservar
+  proxima_revision   TEXT,   -- revisión periódica del tratamiento (por defecto, semestral)
   notas              TEXT
 );
 CREATE INDEX paciente_nombre ON paciente(apellido1, apellido2, nombre);
@@ -173,7 +174,10 @@ CREATE TABLE medicamento (
   spd_decidido_por   INTEGER REFERENCES usuario(id),
   cima_json          TEXT,          -- respuesta cruda, para auditar de dónde salió
   cima_actualizado_en TEXT,
-  creado_manual      INTEGER NOT NULL DEFAULT 0   -- dado de alta sin CIMA
+  creado_manual      INTEGER NOT NULL DEFAULT 0,  -- dado de alta sin CIMA
+  -- Estado de la ficha de aspecto: una ficha incompleta se ve y se puede completar
+  descripcion_estado TEXT NOT NULL DEFAULT 'sin_datos'
+                     CHECK (descripcion_estado IN ('sin_datos','propuesta','confirmada'))
 );
 CREATE INDEX medicamento_nombre ON medicamento(nombre);
 
@@ -199,6 +203,9 @@ CREATE TABLE tratamiento (
   indicacion       TEXT,
   emblistable      INTEGER NOT NULL DEFAULT 1,  -- 0 = va aparte pero sale en la etiqueta
   motivo_no_emblistable TEXT,
+  -- Nota del FARMACÉUTICO (no la deduce el programa): «tomar en ayunas, separada
+  -- de las demás», «no mezclar con…». Se imprime en la hoja y se enseña al preparar.
+  nota_farmaceutico TEXT,
   creado_en        TEXT NOT NULL DEFAULT (datetime('now')),
   finalizado_en    TEXT,
   motivo_fin       TEXT
@@ -270,6 +277,11 @@ CREATE TABLE plantilla_blister (     -- formatos físicos: 7 × 4, 28 alvéolos�
   dias          INTEGER NOT NULL,      -- columnas
   tomas         INTEGER NOT NULL,      -- filas
   capacidad_alveolo REAL,              -- nº máx. de unidades por alvéolo
+  -- Disposición (ver src/dominio/disposicion-blister.ts)
+  inicio_dia    TEXT NOT NULL DEFAULT 'convencional' CHECK (inicio_dia IN ('convencional','cronologico')),
+  rotar_180     INTEGER NOT NULL DEFAULT 0,
+  sentido_tomas TEXT NOT NULL DEFAULT 'izquierda_derecha' CHECK (sentido_tomas IN ('izquierda_derecha','derecha_izquierda')),
+  posicion_inicial TEXT NOT NULL DEFAULT 'izquierda' CHECK (posicion_inicial IN ('izquierda','derecha')),
   notas         TEXT
 );
 
@@ -333,6 +345,23 @@ CREATE TABLE entrega (
   firma           BLOB,                        -- tableta de firma, opcional
   prospectos_entregados INTEGER NOT NULL DEFAULT 1,
   observaciones   TEXT
+);
+
+-- Albarán de entrega a un centro (residencia): agrupa varios blísteres
+CREATE TABLE albaran_entrega (
+  id              INTEGER PRIMARY KEY,
+  id_publico      TEXT NOT NULL UNIQUE,
+  centro_id       INTEGER NOT NULL REFERENCES centro(id),
+  fecha           TEXT NOT NULL,
+  entregado_por   INTEGER NOT NULL REFERENCES usuario(id),
+  recibido_por    TEXT,                    -- nombre de quien recibe en el centro
+  firma           BLOB,
+  observaciones   TEXT
+);
+CREATE TABLE albaran_linea (
+  albaran_id      INTEGER NOT NULL REFERENCES albaran_entrega(id),
+  entrega_id      INTEGER NOT NULL REFERENCES entrega(id),
+  PRIMARY KEY (albaran_id, entrega_id)
 );
 
 -- ─── Seguimiento ─────────────────────────────────────────────────────────────

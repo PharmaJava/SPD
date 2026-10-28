@@ -45,6 +45,7 @@ gestiona su servicio de SPD de principio a fin:
 | [docs/12-decisiones-pendientes.md](docs/12-decisiones-pendientes.md) | Decisiones tomadas y pendientes |
 | [docs/13-interfaz.md](docs/13-interfaz.md) | Diseño de la interfaz |
 | [docs/14-distribucion.md](docs/14-distribucion.md) | Releases en GitHub, actualizaciones, firma |
+| [docs/15-analisis-programa-comercial.md](docs/15-analisis-programa-comercial.md) | Qué aprender de un programa comercial de SPD |
 
 ## Pruebas
 

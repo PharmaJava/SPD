@@ -20,6 +20,9 @@ Todo en `src/dominio/`, puro y probado:
 - Analizador de la sección 3 de la ficha técnica (color, forma, grabado).
 - Motor de plantillas de etiqueta: JSON → HTML en mm, con detección de
   desbordamiento.
+- Disposición del blíster (rotación, sentido de tomas, día de inicio).
+- Informe de consumo y cobertura; lista de reposición; aviso de medicamentos
+  de aspecto parecido; importación/exportación CSV (ideas de doc 15).
 - Cadena de hash de la auditoría.
 
 ## Fase 2 — Aplicación mínima usable (un puesto)
