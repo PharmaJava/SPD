@@ -60,6 +60,13 @@ export interface Diferencia {
 
 const RE_MOMENTO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
+/** Formato ISO con milisegundos Y fecha real (rechaza «2026-13-01» y «2026-02-31»). */
+function momentoValido(m: string): boolean {
+  if (typeof m !== 'string' || !RE_MOMENTO.test(m)) return false;
+  const t = new Date(m).getTime();
+  return Number.isFinite(t) && new Date(t).toISOString() === m;
+}
+
 function esObjetoPlano(v: unknown): v is Record<string, unknown> {
   if (v === null || typeof v !== 'object' || Array.isArray(v)) return false;
   const p = Object.getPrototypeOf(v);
@@ -85,7 +92,9 @@ export function serializarCanonico(valor: unknown, ruta = '$'): string {
     case 'symbol': throw new Error(`Symbol en ${ruta}: no se puede serializar`);
   }
   if (Array.isArray(valor)) {
-    return '[' + valor.map((x, i) => serializarCanonico(x, `${ruta}[${i}]`)).join(',') + ']';
+    // Array.from (no .map): los huecos de un array disperso se leen como undefined y lanzan,
+    // en vez de producir «[1,,3]», que no es JSON válido.
+    return '[' + Array.from(valor, (x, i) => serializarCanonico(x, `${ruta}[${i}]`)).join(',') + ']';
   }
   if (esObjetoPlano(valor)) {
     const claves = Object.keys(valor).sort();
@@ -118,7 +127,11 @@ export function enmascarar(valor: unknown, camposOcultos: readonly string[] = []
     if (Array.isArray(v)) return v.map(rec);
     if (esObjetoPlano(v)) {
       const out: Record<string, unknown> = {};
-      for (const k of Object.keys(v)) out[k] = ocultos.has(k) ? MASCARA : rec(v[k]);
+      for (const k of Object.keys(v)) {
+        // defineProperty: `out['__proto__'] = x` (clave propia que viene de JSON.parse) cambiaría
+        // el prototipo y haría desaparecer la clave en lugar de copiarla.
+        Object.defineProperty(out, k, { value: ocultos.has(k) ? MASCARA : rec(v[k]), enumerable: true, writable: true, configurable: true });
+      }
       return out;
     }
     return v;
@@ -127,7 +140,7 @@ export function enmascarar(valor: unknown, camposOcultos: readonly string[] = []
 }
 
 export function crearEntrada(datos: DatosEntrada, hashPrevio: string): EntradaAuditoria {
-  if (!RE_MOMENTO.test(datos.momento)) {
+  if (!momentoValido(datos.momento)) {
     throw new Error(`Momento inválido «${datos.momento}»: se espera ISO UTC con milisegundos (AAAA-MM-DDThh:mm:ss.mmmZ)`);
   }
   if (!/^[0-9a-f]{64}$/.test(hashPrevio)) throw new Error('hashPrevio debe ser un SHA-256 en hexadecimal minúscula (64 caracteres)');
@@ -148,6 +161,9 @@ export function crearEntrada(datos: DatosEntrada, hashPrevio: string): EntradaAu
 export function verificarCadena(entradas: EntradaAuditoria[]): ResultadoCadena {
   for (let i = 0; i < entradas.length; i++) {
     const e = entradas[i];
+    if (e === null || typeof e !== 'object' || typeof e.hash !== 'string') {
+      return { ok: false, primerError: { indice: i, motivo: 'hash_incorrecto' } };
+    }
     if (i === 0) {
       if (e.hashPrevio !== HASH_GENESIS) return { ok: false, primerError: { indice: i, motivo: 'genesis' } };
     } else if (e.hashPrevio !== entradas[i - 1].hash) {
@@ -168,11 +184,16 @@ export function verificarCadena(entradas: EntradaAuditoria[]): ResultadoCadena {
   return { ok: true };
 }
 
+function escaparClave(k: string): string {
+  return k.replace(/[\\.]/g, m => '\\' + m);
+}
+
 function aplanar(v: unknown, ruta: string, salida: Map<string, unknown>): void {
   if (Array.isArray(v) && v.length > 0) {
     v.forEach((x, i) => aplanar(x, ruta ? `${ruta}.${i}` : String(i), salida));
   } else if (esObjetoPlano(v) && Object.keys(v).length > 0) {
-    for (const k of Object.keys(v)) aplanar(v[k], ruta ? `${ruta}.${k}` : k, salida);
+    // Se escapan «\» y «.» de la clave: sin ello {a:{b:1}} y {'a.b':1} comparten ruta y un cambio se pierde.
+    for (const k of Object.keys(v)) aplanar(v[k], ruta ? `${ruta}.${escaparClave(k)}` : escaparClave(k), salida);
   } else if (ruta === '' && (Array.isArray(v) || esObjetoPlano(v))) {
     // raíz vacía: no hay campos
   } else {

@@ -67,7 +67,7 @@ export const FORMAS_NO_APTAS: ReglaForma[] = [
     motivo: 'Comprimido bucodispersable/liofilizado: se deshace con la humedad.' },
   { pat: /sobres?\b|granulado|polvo para|\bpolvo\b/,
     motivo: 'Sobres/granulado/polvo: no es forma sólida unitaria emblistable.' },
-  { pat: /colirio|oftalmic|otic|nasal|spray|esteril|bano ocular|banos oculares/,
+  { pat: /colirio|oftalmic|\botic|nasal|spray|esteril|bano ocular|banos oculares/,
     motivo: 'Vía oftálmica/ótica/nasal o estéril: no emblistable.' },
   { pat: /jarabe|solucion|suspension|gotas|elixir|emulsion/,
     motivo: 'Forma líquida oral: no emblistable.' },
@@ -189,11 +189,16 @@ export function clasificarPorForma(textoLibre: string): Clasificacion | null {
 function buscarEnDataset(texto: string): Clasificacion | null {
   const n = normalizar(texto);
   if (!n) return null;
-  if (DATOS_SPD[n]) return ficha(n);
-  if (ALIAS_SPD[n] && DATOS_SPD[ALIAS_SPD[n]]) return ficha(ALIAS_SPD[n]);
+  // Object.hasOwn: «constructor» o «__proto__» no son claves del dataset (devolverían una ficha vacía).
+  if (Object.hasOwn(DATOS_SPD, n)) return ficha(n);
+  if (Object.hasOwn(ALIAS_SPD, n) && Object.hasOwn(DATOS_SPD, ALIAS_SPD[n])) return ficha(ALIAS_SPD[n]);
+  // Por subcadena gana la clave MÁS LARGA que case, y a igualdad la primera del dataset:
+  // «esomeprazol» contiene «omeprazol» y no debe heredar su ficha.
+  let mejor: string | null = null;
   for (const k of Object.keys(DATOS_SPD)) {
-    if (n.includes(k)) return ficha(k);
+    if (n.includes(k) && (mejor === null || k.length > mejor.length)) mejor = k;
   }
+  if (mejor) return ficha(mejor);
   for (const a of Object.keys(ALIAS_SPD)) {
     if (a.length >= LONGITUD_MIN_SUBCADENA && n.includes(a)) return ficha(ALIAS_SPD[a]);
   }
