@@ -50,7 +50,15 @@ export interface ResultadoCaducidad {
   errores: string[];
 }
 
-const esFecha = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(s + 'T00:00:00Z'));
+/**
+ * Fecha ISO REAL de calendario. ⚠️ `Date.parse('2026-02-30T00:00:00Z')` NO da NaN
+ * (V8 lo desborda a marzo), así que se comprueba la ida y vuelta.
+ */
+const esFecha = (s: unknown): s is string => {
+  if (typeof s !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  const d = new Date(s + 'T00:00:00Z');
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
+};
 
 function sumarDias(fecha: string, dias: number): string {
   const d = new Date(fecha + 'T00:00:00Z');
@@ -61,7 +69,7 @@ function sumarDias(fecha: string, dias: number): string {
 export function calcularCaducidadSpd(e: EntradaCaducidad): ResultadoCaducidad {
   const r: ResultadoCaducidad = { ok: false, fueraDeEstandar: false, avisos: [], errores: [] };
   if (!esFecha(e.fechaPreparacion)) r.errores.push('Fecha de preparación no válida.');
-  if (e.caducidadesLotes.length === 0 || !e.caducidadesLotes.every(esFecha)) r.errores.push('Falta la caducidad de algún lote.');
+  if (!Array.isArray(e.caducidadesLotes) || e.caducidadesLotes.length === 0 || !e.caducidadesLotes.every(esFecha)) r.errores.push('Falta la caducidad de algún lote.');
   if (!Number.isInteger(e.diasValidez) || e.diasValidez < 1) r.errores.push('La validez debe ser un número entero de días.');
   if (r.errores.length) return r;
 
@@ -97,5 +105,7 @@ export function calcularCaducidadSpd(e: EntradaCaducidad): ResultadoCaducidad {
 
 /** ¿El último día de administración cabe dentro de la caducidad del SPD? */
 export function periodoCabe(fechaFinAdministracion: string, caducidadSpd: string): boolean {
+  // Una fecha ausente o mal formada NUNCA puede decir que «cabe» ('' <= '2026-…' es true).
+  if (!esFecha(fechaFinAdministracion) || !esFecha(caducidadSpd)) return false;
   return fechaFinAdministracion <= caducidadSpd;
 }

@@ -16,6 +16,9 @@
  * FUNCIONES PURAS (sólo codificación); el azar lo pone quien llama.
  */
 
+/** Separadores que se ignoran: espacios, guion y sus variantes tipográficas, y caracteres invisibles. */
+const SEPARADORES = /[\s\-\u2010-\u2015\u2212\u200b-\u200d\u2060\ufeff]/g;
+
 const ALFABETO = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 
 export function aBase32(bytes: Uint8Array): string {
@@ -29,7 +32,7 @@ export function aBase32(bytes: Uint8Array): string {
 }
 
 export function deBase32(s: string): Uint8Array {
-  const limpio = s.toUpperCase().replace(/[\s-]/g, '');
+  const limpio = s.toUpperCase().replace(SEPARADORES, '');
   let bits = 0, valor = 0; const out: number[] = [];
   for (const c of limpio) {
     const i = ALFABETO.indexOf(c);
@@ -57,7 +60,7 @@ export function textoRecuperacion(clave: Uint8Array): string {
 
 /** Texto de recuperación → clave de datos. Falla si hay una errata. */
 export function claveDesdeTexto(texto: string): Uint8Array {
-  const plano = texto.toUpperCase().replace(/[\s-]/g, '');
+  const plano = texto.toUpperCase().replace(SEPARADORES, '');
   if (plano.length !== 54) throw new Error('La clave de recuperación no tiene la longitud esperada.');
   const b = plano.slice(0, 52);
   if (control(b) !== plano.slice(52)) throw new Error('La clave de recuperación tiene una errata.');

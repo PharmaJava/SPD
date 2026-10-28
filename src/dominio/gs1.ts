@@ -79,6 +79,7 @@ export function cnDesdeGtin(gtin: string): string | null {
  * rechazaría CN buenos (lección de conveniodefarmacia.com, entrada #92).
  */
 export function normalizarCN(entrada: string): string | null {
+  if (typeof entrada !== 'string') return null;
   const limpio = entrada.replace(/c\.?\s*n\.?/i, '').trim();
   const digitos = limpio.replace(/\D/g, '');
   if (digitos.length === 13 || digitos.length === 14) return cnDesdeGtin(digitos);
@@ -95,6 +96,7 @@ export function fechaGS1(aammdd: string, hoy: Date = new Date()): string | null 
   if (mm < 1 || mm > 12) return null;
   // Ventana de siglo GS1: de −49 a +50 años respecto al año en curso.
   const actual = hoy.getUTCFullYear();
+  if (!Number.isFinite(actual)) return null;       // `hoy` inválido: no se inventa un año
   const siglo = Math.floor(actual / 100) * 100;
   let anio = siglo + aa;
   const dif = anio - actual;
@@ -148,6 +150,10 @@ function particiones(t: string): Record<string, string>[] {
 export function parsearGS1(entrada: string, op: OpcionesGS1 = {}): LecturaGS1 {
   const hoy = op.hoy ?? new Date();
   const out: LecturaGS1 = { ambiguo: false, candidatas: [], avisos: [], errores: [] };
+  if (typeof entrada !== 'string') {
+    out.errores.push('No se ha recibido ningún código.');
+    return out;
+  }
   let t = quitarPrefijo(entrada.replace(/[\r\n]+$/, ''));
   for (const s of op.separadores ?? []) if (s) t = t.split(s).join(GS);
   if (t.startsWith(GS)) t = t.slice(1);          // FNC1 inicial
