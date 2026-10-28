@@ -29,7 +29,7 @@ Escanear DataMatrix ─► leer GS1 (CN, lote, caducidad, serie)
       └─ Unidades del envase (de CIMA, editable) ─► guardar
 ```
 
-Si no hay lector o no se lee: entrada manual con los mismos controles.
+Si no hay lector o no se lee: entrada manual con los mismos controles. **Lote y caducidad son obligatorios**; el DataMatrix (y con él el nº de serie) es opcional.
 
 ## 4.3 Preparar un periodo
 

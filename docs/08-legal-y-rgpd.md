@@ -28,19 +28,15 @@
   incrusta: tiene una **lista de comprobación por comunidad autónoma**,
   editable, que se rellena cuando se contraste cada norma.
 
-### Andalucía (comunidad de partida) — por confirmar
+### Ámbito: España (decidido)
 
-- **No he encontrado** (búsqueda del 28-oct-2026) una norma andaluza
-  específica del SPD ni su declaración responsable. Sí consta que el
-  **Consejo Andaluz de Colegios de Farmacéuticos** lanzó el servicio en 2013
-  con farmacias acreditadas por sus colegios, distintivo y un **PNT común**
-  ([Redacción Médica](https://www.redaccionmedica.com/autonomias/andalucia/20130409/las-farmacias-andaluzas-implantan-el-sistema-personalizado-de-dosificacion-medicamentos/318288_0.html)).
-  Es una fuente antigua y no dice qué está vigente hoy.
-- **Qué hacer:** pedir al colegio provincial el PNT y los requisitos de
-  acreditación actuales, y buscar en el BOJA. Con eso se rellena la lista de
-  comprobación andaluza del programa.
-- Otras comunidades sí la tienen y sirven de referencia comparada: Cataluña
-  (Decreto 15/2025, declaración responsable), Madrid y Navarra.
+El programa se diseña a nivel **nacional**: no incorpora requisitos de una
+comunidad concreta. Cada farmacia debe cumplir la normativa de **su**
+comunidad (declaración responsable, protocolo, etiquetado adicional). Como
+referencia comparada existen normas autonómicas (p. ej., Cataluña, Decreto
+15/2025; Madrid; Navarra) y el protocolo del Consejo Andaluz de Colegios de
+Farmacéuticos. Lo que cada comunidad pida de más se resuelve con la lista de
+comprobación editable (8.1), no con código.
 
 ## 8.2 ¿Es el programa un producto sanitario?
 

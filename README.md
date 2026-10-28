@@ -20,7 +20,7 @@ gestiona su servicio de SPD de principio a fin:
 - **Legal**: consentimientos del servicio y de protección de datos
   imprimibles, registro de auditoría, copias cifradas, derechos RGPD.
 
-> **Programa gratuito (freeware)**: ver [LICENSE.txt](LICENSE.txt). Ámbito inicial: Andalucía.
+> **Programa gratuito (freeware)**: ver [LICENSE.txt](LICENSE.txt). Ámbito: España (nacional).
 
 > Estado: **fase de diseño**. Lo escrito hasta ahora es la especificación
 > (`docs/`), el esquema de base de datos (`db/schema.sql`), las plantillas de

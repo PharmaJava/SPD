@@ -1,5 +1,7 @@
 # 6. DataMatrix y lectores
 
+> **El DataMatrix es opcional; el lote y la fecha de caducidad son obligatorios.** Sin lector (o si la caja no lo trae) se teclean. Nunca se guarda una caja sin lote o sin caducidad.
+
 Implementado y probado en [`src/dominio/gs1.ts`](../src/dominio/gs1.ts)
 (`npm test`).
 

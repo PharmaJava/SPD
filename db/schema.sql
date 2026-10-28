@@ -244,8 +244,8 @@ CREATE TABLE envase (
   tratamiento_id   INTEGER REFERENCES tratamiento(id),  -- a qué línea abastece
   cn               TEXT NOT NULL REFERENCES medicamento(cn),
   gtin             TEXT,                 -- AI (01) tal como se leyó
-  lote             TEXT NOT NULL,
-  caducidad        TEXT NOT NULL,        -- AAAA-MM-DD (día 00 del GS1 → último del mes)
+  lote             TEXT NOT NULL CHECK (length(trim(lote)) > 0),          -- OBLIGATORIO
+  caducidad        TEXT NOT NULL CHECK (caducidad GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),  -- OBLIGATORIA (día 00 del GS1 → último del mes)
   numero_serie     TEXT,                 -- AI (21)
   datamatrix_crudo TEXT,                 -- lectura original, por si hay que revisarla
   origen_lectura   TEXT NOT NULL CHECK (origen_lectura IN ('datamatrix','manual')),
