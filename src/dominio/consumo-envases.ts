@@ -90,11 +90,8 @@ function prepararCajas(envases: Envase[], op: OpcionesReparto): Preparadas {
   }
 
   const enUso = envases.filter((e) => e.estado === 'en_uso');
-  const lotes = new Set<string>();
-  for (const e of enUso) {
-    if (lotes.has(e.lote)) errores.push(`Lote repetido entre las cajas en uso: ${e.lote}`);
-    lotes.add(e.lote);
-  }
+  // Dos cajas del MISMO lote son normales (se dispensan juntas): se distinguen por
+  // id y número de serie. Sólo un id repetido (arriba) es un dato corrupto.
   if (new Set(enUso.map((e) => e.tratamientoId)).size > 1) {
     errores.push('Las cajas pertenecen a tratamientos distintos');
   }

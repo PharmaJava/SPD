@@ -109,11 +109,10 @@ test('retirada con lote igual a una en uso no provoca error de lote repetido', (
   assert.equal(r.ok, true);
 });
 
-test('lote repetido entre cajas en uso es error', () => {
-  const r = repartirUnidades([caja(1, 'A', '2027-01-31', 9), caja(2, 'A', '2028-01-31', 9)], 2, op);
-  assert.equal(r.ok, false);
-  assert.match(r.errores.join(' '), /Lote repetido/);
-  assert.deepEqual(r.asignaciones, []);
+test('dos cajas del mismo lote en uso son válidas y el reparto sigue FEFO', () => {
+  const r = repartirUnidades([caja(2, 'A', '2028-01-31', 9), caja(1, 'A', '2027-01-31', 9)], 10, op);
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.asignaciones, [{ envaseId: 1, unidades: 9 }, { envaseId: 2, unidades: 1 }]);
 });
 
 test('ids duplicados es error', () => {
@@ -200,11 +199,11 @@ test('tomas: fracciones 0.5 exactas', () => {
   assert.ok(r.lineas.every((l) => Number.isInteger(l.unidades * 4)));
 });
 
-test('tomas: unidad inválida o lote repetido es error sin líneas', () => {
+test('tomas: unidad inválida o envase con id repetido es error sin líneas', () => {
   const a = repartirTomas([caja(1, 'A', '2027-01-31', 9)], [{ fecha: '2026-11-02', momentoId: 1, unidades: 0.3 }], op);
   assert.equal(a.ok, false);
   assert.deepEqual(a.lineas, []);
-  const b = repartirTomas([caja(1, 'A', '2027-01-31', 9), caja(2, 'A', '2028-01-31', 9)], tomas(1), op);
+  const b = repartirTomas([caja(1, 'A', '2027-01-31', 9), caja(1, 'B', '2028-01-31', 9)], tomas(1), op);
   assert.equal(b.ok, false);
 });
 
