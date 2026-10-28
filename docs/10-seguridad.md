@@ -33,7 +33,7 @@
 
 - Cada persona con su usuario y clave (argon2id). Nada de usuario común.
 - Roles: titular (todo, incluidos ajustes y exportaciones), farmacéutico
-  (preparar, validar, pautas), técnico (preparar, envases; no valida ni
+  (preparar, **validar**, pautas), técnico (preparar, envases; **no valida** ni
   cambia pautas), administrativo (datos de contacto, consentimientos).
 - **Cambio rápido de usuario** con PIN para el día a día y bloqueo por
   inactividad (5 min por defecto): en el mostrador la pantalla se queda

@@ -56,9 +56,8 @@ En España la verificación y desactivación del identificador único se hace al
 **dispensar**, desde el programa de gestión de la farmacia conectado al
 nodo SEVeM. El programa de SPD **no desactiva** nada: lee el código para
 registrar CN, lote, caducidad y serie, y comprobar que la misma caja no entra
-dos veces. Si la farmacia prepara con cajas que no ha dispensado ella (las
-trae el paciente), eso se registra (`procedencia`) y conviene revisar con el
-Colegio el tratamiento correcto.
+dos veces. El programa **no admite cajas que traiga el paciente**: sólo medicación
+dispensada por la farmacia.
 
 ## 6.5 Generar códigos en las etiquetas
 

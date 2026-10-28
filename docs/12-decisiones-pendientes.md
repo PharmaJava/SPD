@@ -10,15 +10,18 @@
 | 4 | Lector e impresora: **adaptables** | Lector serie o teclado con separador configurable; impresoras por driver con perfil y calibración |
 | 5 | **Andalucía** de momento | Ver abajo |
 
+| 6 | **Sólo un farmacéutico (o el titular) valida** un SPD; el técnico puede preparar. El farmacéutico puede validar lo que él mismo ha preparado, con registro | Doc 03; `puedeValidar()` |
+| 7 | **Validez estándar 14 días; opción de hasta 30** (no recomendada por los documentos de referencia), apagada por defecto, con justificación por preparación y marcada como desviación | `src/dominio/caducidad-spd.ts`; doc 03 y 08 |
+| 8 | **Momentos de toma:** los define el farmacéutico en el primer uso (plantilla de partida editable) | Sin valores sembrados en la base |
+| 9 | **Conservación tras la baja: 2 años** | A confirmar con abogado (doc 08) |
+| 10 | **No se admiten cajas que traiga el paciente** | Eliminado `procedencia` del modelo |
+| 11 | **El instalador se distribuye desde las *releases* de GitHub** de tu repositorio | Ver doc 14 |
+
 ## Pendientes
 
-| # | Pregunta | Propuesta por defecto |
-|---|---|---|
-| A | **Requisitos andaluces de SPD** | Ver doc 08 §8.1: hay que localizarlos en el BOJA y con el Consejo Andaluz de Colegios. Sé que en 2013 el Consejo lanzó un servicio con farmacias acreditadas y un PNT común; **no he podido confirmar la norma vigente** |
-| B | ¿Un solo farmacéutico puede preparar y validar? | Sí, con ajuste explícito y registro |
-| C | Validez por defecto del SPD | 14 días |
-| D | Momentos de toma por defecto | Desayuno, comida, cena, acostarse |
-| E | Plazo de conservación tras la baja | 5 años, configurable (abogado) |
-| F | ¿Cajas que trae el paciente? | Permitidas y marcadas; confirmar con el Colegio |
-| G | Distribución del instalador sin certificado de firma | El instalador sin firmar muestra avisos de Windows SmartScreen. Para un regalo, valorar firma gratuita para código abierto (no aplica si es freeware cerrado) o certificado de pago |
-| H | ¿Sigue privado el repo? | Freeware = binarios públicos; el código puede seguir privado. Los binarios se publicarían en un repo/release público aparte |
+| # | Pregunta |
+|---|---|
+| A | **Requisitos andaluces de SPD** (BOJA y colegio provincial): ver doc 08 §8.1 |
+| B | Confirmar con abogado/Colegio: la validez de 30 días, los 2 años de conservación y la licencia |
+| C | Instalador sin firma de código: avisos de SmartScreen (doc 14) |
+| D | ¿El repo debe ser público para publicar releases? (doc 14) |

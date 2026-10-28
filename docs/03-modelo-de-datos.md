@@ -59,24 +59,38 @@ grave conocido.
 - `UNIQUE (cn, numero_serie)`: la misma caja no puede entrar dos veces.
 - Si no se lee el DataMatrix (cajas antiguas o aportadas por el paciente),
   se teclean CN, lote y caducidad y queda `origen_lectura = 'manual'`.
-- `procedencia`: si la caja la aportó el paciente en lugar de dispensarse
-  aquí, consta (doc 08, sobre quién puede preparar).
+- **No se admiten cajas que traiga el paciente**: toda la medicación que entra en un SPD la ha dispensado la farmacia (decisión de Antonio, 28-oct-2026). Si el paciente aparece con una caja, se dispensa de nuevo o queda fuera del blíster.
 
 ## Caducidad del SPD
 
 ```
 caducidad_spd = mínimo( caducidad de cada lote incluido,
-                        fecha de preparación + días de validez de la farmacia )
+                        fecha de preparación + días de validez )
 ```
-La validez por defecto es **14 días** (ajustable en `farmacia.dias_validez_spd`
-con justificación). El programa **no deja validar** un blíster cuyo último día
-de administración sea posterior a su caducidad.
 
-## Preparación con doble verificación
+- **Estándar: 14 días** (documentos de referencia). Es lo que viene activado.
+- **Opcional, hasta 30 días**: en la práctica algunas farmacias preparan para
+  un mes aunque los documentos de referencia no lo recomiendan. El programa
+  **lo permite si el titular lo activa** (`farmacia.validez_extendida_permitida`)
+  y, aun así, cada preparación de más de 14 días:
+  - exige una **justificación escrita** (mínimo 10 caracteres);
+  - queda marcada `fuera_de_estandar` y se ve en la ficha, la etiqueta
+    interna y la auditoría;
+  - nunca supera los 30 días ni la caducidad del lote que antes caduque.
+  El aviso del ajuste dice claramente que es una desviación asumida por la
+  farmacia. El programa informa; no oculta ni bloquea.
+- Implementado y probado: `src/dominio/caducidad-spd.ts`. Una preparación no
+  se puede validar si su último día de administración excede la caducidad.
 
-`preparado_por` y `validado_por` no pueden ser la misma persona (`CHECK`).
-Si la farmacia sólo tiene un farmacéutico, el programa lo permite con un
-ajuste explícito y lo deja escrito en la auditoría.
+## Validación
+
+**Sólo un farmacéutico (o el titular) puede validar** una preparación
+(`puedeValidar(rol)`); un técnico puede preparar pero no validar. Si quien
+prepara es un farmacéutico, puede validar lo que ha preparado él mismo (hay
+farmacias con un solo farmacéutico); queda en la auditoría como
+«validación por el mismo usuario». La regla se aplica en servicios; la base
+sólo garantiza validez entre 1 y 30 días y la justificación de las
+desviaciones.
 
 ## Trazabilidad inversa
 

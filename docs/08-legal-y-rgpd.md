@@ -103,14 +103,15 @@ de salud.
 | Derechos (arts. 15-22) | Exportación completa de un paciente (PDF legible + JSON), rectificación, bloqueo, y registro de solicitudes con su plazo de un mes |
 | Brechas (art. 33) | El registro de auditoría permite saber qué se vio y quién; guía de qué hacer en 72 h |
 
-### Conservación
-No hay un plazo claro para los registros de SPD. Referencias posibles: la
-normativa de la comunidad autónoma sobre SPD y la Ley 41/2002 (historia
-clínica), si la farmacia considera que estos registros forman parte de ella.
-**Por defecto, 5 años desde la baja** y configurable; tras el plazo, el
-programa propone la eliminación y la registra. Durante el plazo, una
-solicitud de supresión **bloquea** los datos (no se usan, pero se conservan
-para responder ante una reclamación o una inspección).
+### Conservación (decidido: 2 años tras la baja)
+
+Antonio ha fijado **2 años desde la baja** (`ajuste.conservacion_anios_tras_baja`,
+configurable). Pasado el plazo el programa propone la eliminación y la registra.
+Durante el plazo, una solicitud de supresión **bloquea** los datos (no se usan,
+pero se conservan). ⚠️ No he podido contrastar que 2 años encaje con las
+obligaciones de conservación sanitarias (si se considera historia clínica, la
+Ley 41/2002 y las normas autonómicas pueden exigir más) ni con las de
+responsabilidad civil: **confirmarlo con el abogado y el Colegio**.
 
 ### Personas que no pueden decidir por sí mismas
 Mayores con deterioro cognitivo son el paciente típico de SPD. Desde la
@@ -130,6 +131,7 @@ recoger el blíster.
 | Frente | Situación |
 |---|---|
 | **Estupefacientes y psicótropos** | Normativa propia de custodia y registro. El programa los marca (CIMA) y avisa; si la farmacia decide no emblistarlos, se marcan «aparte» |
+| **Validez de hasta 30 días** | Opcional y apagada por defecto (doc 03). Supera lo que recomiendan los documentos de referencia: es una desviación que asume la farmacia, queda registrada con su justificación y el abogado debería valorar el riesgo (responsabilidad por estabilidad y por inspección) |
 | **SEVeM** | La desactivación se hace en la dispensación, no aquí (doc 06) |
 | **Facturación del servicio** | Si el programa emitiera facturas entraría en el reglamento de sistemas de facturación (VERI*FACTU). **Fuera del alcance**: se factura con el programa de gestión |
 | **Distribución a otras farmacias** | Licencia de uso, limitación de responsabilidad, contrato de encargo si hay soporte con acceso, política de actualizaciones. Pendiente de abogado |

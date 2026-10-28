@@ -55,5 +55,6 @@ visible, contraste AA, tamaño de letra ajustable en Ajustes.
 
 Bienvenida → datos de la farmacia → **contraseña** → **clave de recuperación**
 (impresa/guardada; no se continúa hasta confirmar que se ha guardado, con una
-comprobación tecleando 3 grupos) → impresora y lector (con prueba) → momentos
-de toma → listo.
+comprobación tecleando 3 grupos) → impresora y lector (con prueba) → **momentos
+de toma (los define el farmacéutico; hay una plantilla de partida editable, p. ej. desayuno, comida, cena, acostarse)**
+→ listo.

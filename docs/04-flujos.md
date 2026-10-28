@@ -42,7 +42,7 @@ Si no hay lector o no se lee: entrada manual con los mismos controles.
    - de qué envase sale cada unidad (FEFO);
    - si falta medicación → no deja continuar hasta que se añada un envase o
      se marque la toma como pendiente con motivo;
-   - la caducidad del SPD;
+   - la caducidad del SPD (14 días; hasta 30 con el ajuste activo y justificación);
    - los avisos: fracciones, pautas semanales, medicamentos con precaución,
      cambio de aspecto.
 4. **Orden de preparación** en pantalla y opcionalmente impresa (hoja de
@@ -55,8 +55,8 @@ Si no hay lector o no se lee: entrada manual con los mismos controles.
 
 ## 4.4 Validar (segunda persona)
 
-Otra persona revisa el blíster contra el mapa (con la descripción física y
-la foto de cada comprimido en pantalla) y valida con su usuario. Hasta
+Un farmacéutico (o el titular) revisa el blíster contra el mapa (con la descripción física y
+la foto de cada comprimido en pantalla) y valida con su usuario. Un técnico no puede validar. Hasta
 entonces **no se puede imprimir la etiqueta definitiva** (sí un borrador con
 marca de agua «SIN VALIDAR»).
 
@@ -89,7 +89,7 @@ marca de agua «SIN VALIDAR»).
 
 - Motivo (fin del servicio, ingreso, fallecimiento, cambio de farmacia).
 - Envases en custodia: devolver al paciente (con recibí) o a SIGRE.
-- Los datos **no se borran**: se bloquean durante el plazo de conservación
+- Los datos **no se borran**: se bloquean durante **2 años** desde la baja
   (doc 08) y después se eliminan con registro.
 
 ## 4.9 Revisión periódica

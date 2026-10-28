@@ -38,7 +38,10 @@ CREATE TABLE farmacia (
   rgpd_responsable      TEXT,
   rgpd_contacto         TEXT,
   rgpd_dpd              TEXT,         -- delegado de protección de datos, si lo hay
-  dias_validez_spd      INTEGER NOT NULL DEFAULT 14,   -- tope por defecto
+  dias_validez_spd      INTEGER NOT NULL DEFAULT 14,   -- validez estándar
+  -- Opcional: permitir hasta 30 días (no es lo que recomiendan los documentos de
+  -- referencia). Apagado por defecto; lo activa el titular y cada uso se justifica.
+  validez_extendida_permitida INTEGER NOT NULL DEFAULT 0,
   creado_en             TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -248,8 +251,6 @@ CREATE TABLE envase (
   origen_lectura   TEXT NOT NULL CHECK (origen_lectura IN ('datamatrix','manual')),
   unidades_inicio  REAL NOT NULL CHECK (unidades_inicio > 0),
   unidades_restantes REAL NOT NULL CHECK (unidades_restantes >= 0),
-  procedencia      TEXT NOT NULL DEFAULT 'dispensado_farmacia'
-                   CHECK (procedencia IN ('dispensado_farmacia','aportado_paciente')),
   recibido_en      TEXT NOT NULL DEFAULT (datetime('now')),
   recibido_por     INTEGER NOT NULL REFERENCES usuario(id),
   estado           TEXT NOT NULL DEFAULT 'en_uso'
@@ -280,6 +281,9 @@ CREATE TABLE preparacion (
   fecha_inicio       TEXT NOT NULL,          -- primer día de administración
   fecha_fin          TEXT NOT NULL,
   caducidad_spd      TEXT NOT NULL,          -- min(caducidades, preparado + validez)
+  validez_dias       INTEGER NOT NULL DEFAULT 14,
+  fuera_de_estandar  INTEGER NOT NULL DEFAULT 0,  -- validez > 14 días: desviación registrada
+  justificacion_validez TEXT,                     -- obligatoria si fuera_de_estandar
   estado             TEXT NOT NULL DEFAULT 'borrador'
                      CHECK (estado IN ('borrador','preparado','validado','entregado','anulado')),
   preparado_por      INTEGER REFERENCES usuario(id),
@@ -291,7 +295,10 @@ CREATE TABLE preparacion (
   observaciones      TEXT,
   anulado_en         TEXT,
   motivo_anulacion   TEXT,
-  CHECK (validado_por IS NULL OR validado_por <> preparado_por)
+  CHECK (fuera_de_estandar = 0 OR length(trim(coalesce(justificacion_validez,''))) >= 10),
+  CHECK (validez_dias BETWEEN 1 AND 30)
+  -- Quién puede validar (sólo farmacéutico/titular) y si puede validar lo que
+  -- él mismo preparó se aplica en la capa de servicios (puedeValidar) y se audita.
 );
 
 -- Qué se puso, de qué envase, en qué alvéolo
@@ -447,8 +454,10 @@ CREATE TABLE ajuste (                 -- clave-valor de configuración
 
 -- ─── Datos iniciales ─────────────────────────────────────────────────────────
 
-INSERT INTO momento_toma (nombre, hora, orden) VALUES
-  ('Desayuno','08:00',1), ('Comida','14:00',2), ('Cena','21:00',3), ('Acostarse','23:00',4);
+-- Los momentos de toma NO se siembran: los define el farmacéutico en el primer
+-- uso (el asistente ofrece una plantilla de partida editable).
+
+INSERT INTO ajuste (clave, valor) VALUES ('conservacion_anios_tras_baja', '2');
 
 INSERT INTO plantilla_blister (nombre, dias, tomas) VALUES
   ('Semanal 7 días × 4 tomas', 7, 4);

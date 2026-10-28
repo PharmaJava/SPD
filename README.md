@@ -44,6 +44,7 @@ gestiona su servicio de SPD de principio a fin:
 | [docs/11-roadmap.md](docs/11-roadmap.md) | Fases de desarrollo |
 | [docs/12-decisiones-pendientes.md](docs/12-decisiones-pendientes.md) | Decisiones tomadas y pendientes |
 | [docs/13-interfaz.md](docs/13-interfaz.md) | Diseño de la interfaz |
+| [docs/14-distribucion.md](docs/14-distribucion.md) | Releases en GitHub, actualizaciones, firma |
 
 ## Pruebas
 
