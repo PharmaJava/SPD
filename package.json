@@ -1,0 +1,11 @@
+{
+  "name": "spd",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Gestión de Sistemas Personalizados de Dosificación para oficinas de farmacia (Windows)",
+  "type": "module",
+  "engines": { "node": ">=22.18" },
+  "scripts": {
+    "test": "node --test \"tests/**/*.test.ts\""
+  }
+}

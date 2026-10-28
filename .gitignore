@@ -1,0 +1,9 @@
+node_modules/
+dist/
+out/
+*.db
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+copias/
+.env
