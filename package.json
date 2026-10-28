@@ -1,11 +1,88 @@
 {
   "name": "spd",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "private": true,
   "description": "Gestión de Sistemas Personalizados de Dosificación para oficinas de farmacia (Windows)",
   "type": "module",
-  "engines": { "node": ">=22.18" },
+  "engines": {
+    "node": ">=22.18"
+  },
   "scripts": {
-    "test": "node --test \"tests/**/*.test.ts\""
+    "test": "node --test \"tests/**/*.test.ts\"",
+    "typecheck": "tsc -p .",
+    "gen:esquema": "node scripts/gen-esquema.mjs",
+    "build:principal": "esbuild src/principal/main.ts src/principal/preload.ts --bundle --platform=node --target=node24 --format=cjs --external:electron --outdir=dist/principal --out-extension:.js=.cjs --sourcemap",
+    "build:interfaz": "vite build --config vite.config.ts",
+    "build": "npm run gen:esquema && npm run build:principal && npm run build:interfaz && node scripts/copiar-recursos.mjs",
+    "start": "npm run build && electron .",
+    "dev:servidor": "node scripts/dev-servidor.mjs",
+    "dev:interfaz": "vite --config vite.config.ts",
+    "dist:win": "npm run build && electron-builder --win --publish never"
+  },
+  "dependencies": {
+    "bwip-js": "^4.11.4",
+    "sql.js": "^1.15.2"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^7.3.1",
+    "@types/node": "^26.6.6",
+    "@types/sql.js": "^1.4.11",
+    "electron": "^45.1.0",
+    "electron-builder": "^26.18.0",
+    "esbuild": "^0.28.2",
+    "svelte": "^5.57.3",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5"
+  },
+  "author": "Antonio",
+  "license": "SEE LICENSE IN LICENSE.txt",
+  "main": "dist/principal/main.cjs",
+  "build": {
+    "appId": "es.spd.gestion",
+    "productName": "SPD",
+    "copyright": "Copyright (c) 2026 Antonio",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "package.json",
+      "LICENSE.txt"
+    ],
+    "extraResources": [
+      {
+        "from": "dist/recursos",
+        "to": "recursos"
+      }
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "SPD-${version}-${os}-${arch}.${ext}",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "license": "LICENSE.txt",
+      "perMachine": false,
+      "language": "3082"
+    },
+    "portable": {
+      "artifactName": "SPD-${version}-portable.exe"
+    }
   }
 }

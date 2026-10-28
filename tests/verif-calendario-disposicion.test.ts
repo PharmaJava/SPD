@@ -154,8 +154,8 @@ test('hostiles: pautas inválidas lanzan, nunca adivinan', () => {
   ];
   for (const p of malas) {
     assert.ok(validarPauta(p).length > 0, 'validarPauta debía rechazar ' + JSON.stringify(p));
-    assert.throws(() => tomasDelPeriodo(p, '2026-01-01', '2026-01-10'), undefined, JSON.stringify(p));
-    assert.throws(() => unidadesTotales(p, '2026-01-01', '2026-01-10'), undefined, JSON.stringify(p));
+    assert.throws(() => tomasDelPeriodo(p, '2026-01-01', '2026-01-10'), () => true, JSON.stringify(p));
+    assert.throws(() => unidadesTotales(p, '2026-01-01', '2026-01-10'), () => true, JSON.stringify(p));
   }
   // si_precisa válido: nunca toca
   const sp: Pauta = { ...base, patron: 'si_precisa' };

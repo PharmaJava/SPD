@@ -307,7 +307,7 @@ test('clave: entradas hostiles', () => {
   const buena = textoRecuperacion(new Uint8Array(32).fill(7));
   for (const h of ['', '-', '0'.repeat(54), '1'.repeat(54), 'A'.repeat(54), buena + 'A', buena.slice(0, -1), buena.replace('-', '*'),
     '\u0000'.repeat(54), '😀'.repeat(27), 'A'.repeat(1024 * 1024), buena + '\u0000']) {
-    assert.throws(() => claveDesdeTexto(h), undefined, JSON.stringify(h.slice(0, 30)));
+    assert.throws(() => claveDesdeTexto(h), () => true, JSON.stringify(h.slice(0, 30)));
   }
   for (const v of [undefined, null, 5] as unknown[]) assert.throws(() => claveDesdeTexto(v as string));
   assert.throws(() => deBase32('AB1'));

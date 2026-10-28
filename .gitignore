@@ -7,3 +7,6 @@ out/
 *.sqlite-shm
 copias/
 .env
+release/
+*.log
+capturas/tmp/

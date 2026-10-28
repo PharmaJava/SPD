@@ -1,0 +1,35 @@
+/* Tokens de diseño de SPD. Claro y oscuro. Ver docs/13-interfaz.md.
+   Regla: ningún color suelto en los componentes; siempre var(--…). */
+:root {
+  --fondo: #f6f4ef;
+  --superficie: #ffffff;
+  --superficie-2: #efece5;
+  --borde: #d9d4c7;
+  --texto: #1f2a2e;
+  --texto-suave: #5b6a70;
+  --acento: #0f766e;          /* azul-verdoso sanitario */
+  --acento-fuerte: #0b5a54;
+  --acento-fondo: #d8efec;
+  --bloqueo: #b42318;  --bloqueo-fondo: #fde8e6;
+  --atencion: #b45309; --atencion-fondo: #fdf0d8;
+  --info: #1d5f8a;     --info-fondo: #e1eef7;
+  --ok: #15803d;       --ok-fondo: #dff3e4;
+  --sombra: 0 1px 2px rgba(31,42,46,.08), 0 4px 14px rgba(31,42,46,.06);
+  --radio: 12px; --radio-s: 8px;
+  --fuente: "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --base: 16px;               /* letra grande por defecto (ajustable en Ajustes) */
+  --alto-control: 44px;       /* objetivo táctil */
+  --lateral: 232px;
+  /* Paleta de medicamentos para el mapa del blíster: SIEMPRE color + letra */
+  --med-1: #2563eb; --med-2: #c2410c; --med-3: #7c3aed; --med-4: #0f766e;
+  --med-5: #be185d; --med-6: #a16207; --med-7: #475569; --med-8: #15803d;
+}
+:root[data-tema="oscuro"] {
+  --fondo: #14191b; --superficie: #1c2326; --superficie-2: #242d31; --borde: #34414a;
+  --texto: #e8eeef; --texto-suave: #9fb0b6;
+  --acento: #3fc1b4; --acento-fuerte: #6fd6cb; --acento-fondo: #17393a;
+  --bloqueo: #ff8a80; --bloqueo-fondo: #3a1d1b; --atencion: #f5b85a; --atencion-fondo: #3a2c14;
+  --info: #7cc0ec; --info-fondo: #14303f; --ok: #6fd18a; --ok-fondo: #163322;
+  --sombra: 0 1px 2px rgba(0,0,0,.4);
+}
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
