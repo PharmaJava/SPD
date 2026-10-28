@@ -221,6 +221,7 @@ function extraerMarcas(texto: string, avisos: Set<string>): { marcas: string[]; 
   const marcas: string[] = [];
   const out: string[] = [];
   let sinCerrar = false;
+  const revisadoHasta: Record<string, number> = {};
   const n = texto.length;
   let i = 0;
   let inicio = 0; // desde dónde copiar texto normal
@@ -230,10 +231,13 @@ function extraerMarcas(texto: string, avisos: Set<string>): { marcas: string[]; 
     if (cierres === undefined || (ch === "'" && esLetraONumero(texto[i - 1]))) { i++; continue; }
     let k = -1;
     const tope = Math.min(n - 1, i + MAX_MARCA + 1);
-    for (let j = i + 1; j <= tope; j++) {
-      if (cierres.includes(texto[j]) && !(ch === "'" && esLetraONumero(texto[j + 1]))) { k = j; break; }
+    // Lo ya mirado sin hallar cierre para este símbolo no se vuelve a mirar (evita coste cuadrático).
+    for (let j = Math.max(i + 1, (revisadoHasta[ch] ?? -1) + 1); j <= tope; j++) {
+      const cj = texto[j];
+      if ((cj === cierres[0] || cj === cierres[1]) && !(ch === "'" && esLetraONumero(texto[j + 1]))) { k = j; break; }
     }
     if (k < 0) {
+      revisadoHasta[ch] = Math.max(revisadoHasta[ch] ?? -1, tope);
       if (ch !== "'") sinCerrar = true;
       i++;
       continue;
