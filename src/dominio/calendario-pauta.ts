@@ -201,3 +201,29 @@ export function pautaVigenteEn(versiones: Pauta[], fecha: string): Pauta | null 
   }
   return mejor;
 }
+
+/**
+ * Tomas del rango inclusive de un tratamiento con VARIAS versiones de pauta.
+ * Cada día aplica UNA sola versión (la que da `pautaVigenteEn`): una versión
+ * antigua sin `vigenteHasta` no duplica el tramo de la siguiente.
+ * Ordenadas por fecha y momentoId. Mismas reglas de error que `tomasDelPeriodo`
+ * (fechas inválidas, rango invertido, más de MAX_DIAS_PERIODO días, pauta mal
+ * configurada: LANZA, nunca se adivina). Sin versiones, o sin ninguna vigente
+ * en el rango, devuelve [].
+ */
+export function tomasDelPeriodoVersiones(versiones: Pauta[], desde: string, hasta: string): TomaDia[] {
+  const d = exigirDia(desde, 'desde');
+  const h = exigirDia(hasta, 'hasta');
+  if (h < d) throw new Error(`Rango invertido: ${desde} es posterior a ${hasta}`);
+  if (h - d + 1 > MAX_DIAS_PERIODO) {
+    throw new Error(`El periodo supera el máximo de ${MAX_DIAS_PERIODO} días (${h - d + 1})`);
+  }
+  if (!Array.isArray(versiones)) throw new Error('Las versiones de pauta deben ser una lista');
+  const tomas: TomaDia[] = [];
+  for (let n = d; n <= h; n++) {
+    const iso = diaISO(n);
+    const pauta = pautaVigenteEn(versiones, iso);
+    if (pauta) tomas.push(...tomasDelPeriodo(pauta, iso, iso));
+  }
+  return tomas;
+}
