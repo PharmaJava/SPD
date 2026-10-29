@@ -160,7 +160,7 @@
       {:else if paso === 5 && resultado}
         <div class="zona-impresion">
           <h1>Clave de recuperación</h1>
-          <Aviso tipo="bloqueo" titulo="Se muestra una sola vez">Esta clave es la <strong>única forma de recuperar los datos</strong> si olvidas la contraseña. Imprímela y guárdala fuera de este ordenador (caja fuerte, sobre cerrado). No la guardes en el mismo equipo.</Aviso>
+          <Aviso tipo="atencion" titulo="Se muestra una sola vez">Esta clave es la <strong>única forma de recuperar los datos</strong> si olvidas la contraseña. Imprímela y guárdala fuera de este ordenador (caja fuerte, sobre cerrado). No la guardes en el mismo equipo.</Aviso>
           <div class="clave" aria-label="Clave de recuperación">{#each grupos as g, i}<span><small class="suave" style="font-size:.6rem;display:block">{i + 1}</small>{g}</span>{/each}</div>
           <div class="fila" style="margin-top:1rem; align-items:flex-start">
             {#if qr}<div class="qr" aria-label="Código QR de la clave">{@html qr}</div>{/if}

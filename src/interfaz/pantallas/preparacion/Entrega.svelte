@@ -5,7 +5,7 @@
   import '../../estilos/u2.css';
   import Modal from './Modal.svelte';
   import Nota from './Nota.svelte';
-  import { mensaje } from './util.ts';
+  import { corto, mensaje } from './util.ts';
 
   let { abierto = $bindable(false), preparacion, pacienteNombre, onEntregada }: {
     abierto?: boolean; preparacion: PreparacionDto; pacienteNombre: string; onEntregada: (p: PreparacionDto) => void;
@@ -32,7 +32,7 @@
 </script>
 
 <Modal titulo="Registrar la entrega" bind:abierto>
-  <p>Blíster <strong>{preparacion.idPublico}</strong> de {pacienteNombre}.</p>
+  <p>Blíster <strong>{corto(preparacion.idPublico)}</strong> de {pacienteNombre}.</p>
   <div class="campo"><label for="quien-recoge">¿Quién lo recoge?</label>
     <select id="quien-recoge" bind:value={quien} data-prueba="quien-recoge">
       <option value="paciente">El propio paciente ({pacienteNombre})</option>

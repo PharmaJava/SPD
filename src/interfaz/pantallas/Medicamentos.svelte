@@ -22,6 +22,7 @@
   const PERFILES = ['biconvexo', 'bicóncavo', 'convexo', 'plano'];
   const FORMAS_FARM = ['Comprimido', 'Comprimido recubierto con película', 'Comprimido de liberación prolongada', 'Comprimido bucodispersable', 'Comprimido efervescente', 'Cápsula dura', 'Cápsula blanda', 'Gragea', 'Solución oral', 'Sobres', 'Otra'];
   const APTITUD: Record<string, { t: string; c: string }> = { apto: { t: 'Apto para SPD', c: 'ok' }, precaucion: { t: 'Con precaución', c: 'atencion' }, no_apto: { t: 'No apto para SPD', c: 'bloqueo' } };
+  const APTITUD_CORTA: Record<string, string> = { apto: 'Apto', precaucion: 'Precaución', no_apto: 'No apto' };
   const ESTADO_FICHA: Record<string, { t: string; c: string }> = { sin_datos: { t: 'Sin datos de aspecto', c: '' }, propuesta: { t: 'Propuesta sin confirmar', c: 'atencion' }, confirmada: { t: 'Aspecto confirmado', c: 'ok' } };
 
   let sesion = $state<UsuarioPublico | null>(null);
@@ -167,7 +168,7 @@
                 <td><strong>{m.nombre}</strong><div class="suave pequeno">{m.formaFarmaceutica ?? ''}{m.unidadesEnvase ? ` · ${m.unidadesEnvase} ud.` : ''}</div></td>
                 <td class="pequeno">{[m.color, m.forma, m.ranurado ? 'ranurado' : ''].filter(Boolean).join(' · ') || '—'}</td>
                 <td><span class="etiqueta {ESTADO_FICHA[m.descripcionEstado].c}">{ESTADO_FICHA[m.descripcionEstado].t}</span></td>
-                <td>{#if m.spdAptitud}<span class="etiqueta {APTITUD[m.spdAptitud].c}">{APTITUD[m.spdAptitud].t}</span>{:else}<span class="suave pequeno">Sin evaluar</span>{/if}</td>
+                <td>{#if m.spdAptitud}<span class="etiqueta {APTITUD[m.spdAptitud].c}">{APTITUD_CORTA[m.spdAptitud]}</span>{:else}<span class="suave pequeno">Sin evaluar</span>{/if}</td>
               </tr>
             {/each}
           </tbody>
@@ -197,7 +198,7 @@
 
         {#if errorCima}<Nota gravedad="atencion">{errorCima}</Nota>{/if}
         {#if cima && !cima.disponible}
-          <Nota gravedad="info" id="cima-no">No he podido consultar CIMA ahora{cima.aviso ? ` (${cima.aviso})` : ''}. No pasa nada: puedes rellenar la ficha a mano, o pegar abajo el texto de la ficha técnica.</Nota>
+          <Nota gravedad="info" id="cima-no">No he podido consultar CIMA ahora. {cima.aviso ?? ''} Puedes rellenar la ficha a mano o pegar el texto de la ficha técnica.</Nota>
         {:else if cima}
           <Nota gravedad="info" id="cima-si">
             <strong>CIMA propone:</strong> {cima.medicamento?.nombre ?? sel.nombre}{cima.descripcion ? ` — ${resumenDescripcion(cima.descripcion) || 'sin descripción del aspecto'}` : ''}.
@@ -218,7 +219,7 @@
       <section class="tarjeta" aria-labelledby="t-aspecto">
         <h2 id="t-aspecto">Aspecto y aptitud</h2>
         {#each propuestaAvisos as a (a)}<Nota gravedad="atencion">{a}</Nota>{/each}
-        {#if propuestaRanura}<Nota gravedad="atencion">Tiene ranura, pero puede ser sólo para tragarlo mejor. Comprueba en la ficha técnica si se puede partir antes de contestar «sí».</Nota>{/if}
+        {#if propuestaRanura && !propuestaAvisos.some(a => /ranura/i.test(a))}<Nota gravedad="atencion">Tiene ranura, pero puede ser sólo para tragarlo mejor. Comprueba en la ficha técnica si se puede partir antes de contestar «sí».</Nota>{/if}
         <div class="dos-campos">
           <div class="campo"><label for="c1">Color</label><select id="c1" bind:value={f.color1} onchange={tocar} data-prueba="color"><option value="">Sin indicar</option>{#each COLORES as c (c)}<option>{c}</option>{/each}</select></div>
           <div class="campo"><label for="c2">Segundo color (cápsulas bicolor)</label><select id="c2" bind:value={f.color2} onchange={tocar}><option value="">—</option>{#each COLORES as c (c)}<option>{c}</option>{/each}</select></div>

@@ -773,3 +773,14 @@ test('hoja del paciente: borrador con marca de agua; validez extendida con su av
   assert.match(h.html, /marca-agua">SIN VALIDAR/);
   assert.match(h.html, /Validez de 20 días/);
 });
+
+test('cn: la leyenda lleva el CN preferente y cada línea el CN de la caja (vivo y guardado)', async () => {
+  const m = await montar();
+  const e = ok(await m.api.evaluarPreparacion(PARAMS));
+  assert.deepEqual(e.leyenda.map((l) => l.cn), ['654321', '123456']);
+  assert.ok(e.lineasReparto.every((l) => (l as { cn?: string }).cn === (l.tratamientoId === 1 ? '654321' : '123456')));
+  const v = await validada(m);
+  const snap = ok(await m.api.obtenerPreparacion(v.id)).evaluacion;
+  assert.deepEqual(snap.leyenda.map((l) => l.cn), ['654321', '123456']);
+  assert.ok(snap.lineasReparto.every((l) => typeof (l as { cn?: string }).cn === 'string'));
+});

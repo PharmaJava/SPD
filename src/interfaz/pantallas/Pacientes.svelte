@@ -32,7 +32,7 @@
 </div>
 
 <div class="herramientas">
-  <input class="grande" type="search" bind:value={texto} oninput={alEscribir} placeholder="Buscar por nombre, DNI o tarjeta sanitaria" aria-label="Buscar paciente" />
+  <input class="grande" type="search" bind:value={texto} oninput={alEscribir} placeholder="Buscar por nombre o DNI" aria-label="Buscar paciente" />
   <select bind:value={estado} aria-label="Estado"><option value="activo">Activos</option><option value="pausado">Pausados</option><option value="baja">De baja</option><option value="todos">Todos</option></select>
   {#if centros.length}<select bind:value={centro} aria-label="Centro"><option value="">Todos los centros</option>{#each centros as c (c.id)}<option value={String(c.id)}>{c.nombre}</option>{/each}</select>{/if}
 </div>

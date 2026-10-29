@@ -73,7 +73,7 @@
   <article class="tarjeta tratamiento" class:finalizado={!!t.finalizadoEn}>
     <div class="cabecera">
       <div style="flex:1">
-        <h3 class="sin-margen" style="font-size:1.15rem">{t.principioActivo}{#if t.dosisTexto} <span class="suave" style="font-weight:500">{t.dosisTexto}</span>{/if}</h3>
+        <h3 class="sin-margen" style="font-size:1.15rem">{t.principioActivo}{#if t.dosisTexto}<span class="suave" style="font-weight:500; margin-left:.4rem">{t.dosisTexto}</span>{/if}</h3>
         {#if t.indicacion}<div class="suave pequeno">Para: {t.indicacion}</div>{/if}
         {#if t.medicamento}<div class="pequeno">Medicamento: {t.medicamento.nombre} <span class="suave">(CN {t.medicamento.cn})</span></div>{/if}
       </div>

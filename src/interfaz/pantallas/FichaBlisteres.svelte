@@ -6,7 +6,7 @@
   import '../estilos/u2.css';
   import Modal from './preparacion/Modal.svelte';
   import Nota from './preparacion/Nota.svelte';
-  import { dejarPaso, ir, mensaje, rutas } from './preparacion/util.ts';
+  import { corto, dejarPaso, ir, mensaje, rutas } from './preparacion/util.ts';
 
   let { pacienteId }: { pacienteId: number } = $props();
   let lista = $state<PreparacionDto[]>([]); let cargando = $state(true); let error = $state('');
@@ -50,7 +50,7 @@
         {#each lista as p (p.id)}
           {@const e = ESTADOS[p.estado]}
           <tr>
-            <td class="negrita mono">{p.idPublico}</td>
+            <td class="negrita mono">{corto(p.idPublico)}</td>
             <td class="nowrap">{fecha(p.fechaInicio)} – {fecha(p.fechaFin)}</td>
             <td class="nowrap">{fecha(p.caducidadSpd)}{#if p.fueraDeEstandar} <span class="etiqueta atencion">ampliada</span>{/if}</td>
             <td><span class="etiqueta {e.c}">{e.t}</span></td>
@@ -67,7 +67,7 @@
 
 <Modal titulo="Anular el blíster" bind:abierto>
   {#if anulando}
-    <p>Vas a anular <strong>{anulando.idPublico}</strong> ({fecha(anulando.fechaInicio)} – {fecha(anulando.fechaFin)}). No se borra: queda en el historial con su motivo.</p>
+    <p>Vas a anular <strong>{corto(anulando.idPublico)}</strong> ({fecha(anulando.fechaInicio)} – {fecha(anulando.fechaFin)}). No se borra: queda en el historial con su motivo.</p>
     <div class="campo"><label for="motivo-anular">Motivo</label><textarea id="motivo-anular" bind:value={motivo}></textarea></div>
     {#if errorAnular}<Nota gravedad="bloqueo">{errorAnular}</Nota>{/if}
   {/if}

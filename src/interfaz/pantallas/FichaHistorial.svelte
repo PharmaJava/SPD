@@ -25,7 +25,7 @@
     <ul class="lista-plana" data-prueba="historial">
       {#each lista as a (a.id)}
         <li><span class="suave mono nowrap">{fechaHora(a.momento)}</span>
-          <span class="espacio"><strong>{accionHumana(a.accion)}</strong> · {a.usuario ?? 'sistema'}{#if a.motivo}<br /><span class="suave">Motivo: {a.motivo}</span>{/if}{#if a.resumen}<br /><span class="suave pequeno">{a.resumen}</span>{/if}</span></li>
+          <span class="espacio"><strong>{accionHumana(a.accion)}</strong> · {a.usuario ?? 'sistema'}{#if a.motivo}<br /><span class="suave">Motivo: {a.motivo}</span>{/if}{#if a.resumen}<details><summary class="suave pequeno">Ver qué cambió</summary><span class="suave pequeno">{a.resumen}</span></details>{/if}</span></li>
       {/each}
     </ul>
   </div>

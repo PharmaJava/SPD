@@ -33,7 +33,7 @@
 
   const PEST = ['resumen', 'datos', 'tratamiento', 'cajas', 'blisteres', 'documentos', 'historial'];
   let activa = $state(untrack(() => (PEST.includes(pestana ?? '') ? pestana! : 'resumen')));
-  $effect(() => { const p = pestana && PEST.includes(pestana) ? pestana : 'resumen'; if (p !== activa) activa = p; });
+  $effect(() => { const p = pestana && PEST.includes(pestana) ? pestana : 'resumen'; if (p !== untrack(() => activa)) activa = p; });
   $effect(() => { const destino = `#/pacientes/${id}` + (activa === 'resumen' ? '' : '/' + activa); if (location.hash !== destino) history.replaceState(null, '', destino); });
   const irA = (p: string) => (activa = p);
 
@@ -57,7 +57,7 @@
     <div class="tarjeta">
       <div class="dato" style="flex:1; min-width:220px">
         <h1>{paciente.nombre} {paciente.apellido1} {paciente.apellido2 ?? ''}</h1>
-        <span class="suave">{anios != null ? anios + ' años' : 'Edad no indicada'}{paciente.habitacion ? ' · Hab. ' + paciente.habitacion : ''} · {paciente.idPublico}
+        <span class="suave">{anios != null ? anios + ' años' : 'Edad no indicada'}{paciente.habitacion ? ' · Hab. ' + paciente.habitacion : ''}
           {#if paciente.estado !== 'activo'} <span class="etiqueta atencion">{ESTADOS_PACIENTE[paciente.estado]}</span>{/if}</span>
       </div>
       <div class="dato"><span class="rotulo">Alergias</span>

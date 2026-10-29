@@ -13,9 +13,9 @@ export function mensajeError(e: unknown): string {
 export interface Tostada { id: number; texto: string; tipo: 'ok' | 'info' | 'atencion' | 'bloqueo' }
 export const tostadas = writable<Tostada[]>([]);
 let contador = 0;
-export function avisar(texto: string, tipo: Tostada['tipo'] = 'ok', ms = 4000): void {
+export function avisar(texto: string, tipo: Tostada['tipo'] = 'ok', ms = 3000): void {
   const id = ++contador;
-  tostadas.update(l => [...l, { id, texto, tipo }]);
+  tostadas.update(l => [...l, { id, texto, tipo }].slice(-2));
   setTimeout(() => tostadas.update(l => l.filter(t => t.id !== id)), ms);
 }
 

@@ -6,7 +6,7 @@
   import '../estilos/u2.css';
   import Modal from './preparacion/Modal.svelte';
   import Nota from './preparacion/Nota.svelte';
-  import { escaparHtml, guardarLocal, leerLocal, mensaje } from './preparacion/util.ts';
+  import { escaparHtml, guardarLocal, leerLocal, mdBasico, mensaje } from './preparacion/util.ts';
 
   type Calidad = 'paciente' | 'representante_legal' | 'guardador_de_hecho';
   let { pacienteId }: { pacienteId: number } = $props();
@@ -69,7 +69,7 @@
 
   function htmlImprimible(v: VistaDocumento, titulo: string): string {
     const marca = v.esBorrador ? '<div class="marca">BORRADOR · pendiente de revisión jurídica</div>' : '';
-    return `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>${escaparHtml(titulo)}</title><style>@page{size:A4;margin:18mm}body{font-family:Georgia,serif;font-size:11.5pt;line-height:1.4;color:#000}.marca{border:2px solid #b42318;color:#b42318;padding:2mm 4mm;font-weight:bold;margin-bottom:6mm;text-align:center}pre{white-space:pre-wrap;font:inherit}</style></head><body>${marca}<pre>${escaparHtml(v.texto)}</pre></body></html>`;
+    return `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>${escaparHtml(titulo)}</title><style>@page{size:A4;margin:18mm}body{font-family:Georgia,serif;font-size:11.5pt;line-height:1.4;color:#000}.marca{border:2px solid #b42318;color:#b42318;padding:2mm 4mm;font-weight:bold;margin-bottom:6mm;text-align:center}mark{background:#fff3b0}h3{font-size:13pt}</style></head><body>${marca}<div>${mdBasico(v.texto)}</div></body></html>`;
   }
   async function imprimir() {
     if (!vista || !actual) return;
@@ -148,13 +148,13 @@
   {#if cargandoVista && !vista}<div class="cargando-linea">Preparando el documento…</div>{/if}
   {#if vista}
     {#each vista.avisos as a (a)}<Nota gravedad="atencion">{a}</Nota>{/each}
-    {#if vista.faltan.length}<Nota gravedad="atencion">Faltan datos para completar el texto: {vista.faltan.join(', ')}. Aparecen marcados en el documento.</Nota>{/if}
-    <pre class="tarjeta" style="white-space:pre-wrap;font:inherit;max-height:46vh;overflow:auto" data-prueba="texto-documento">{vista.texto}</pre>
+    {#if vista.faltan.length}<Nota gravedad="bloqueo">Faltan datos de la farmacia para completar el documento (NIF, contacto de protección de datos…). Complétalos en Ajustes → Farmacia; mientras tanto no se puede registrar la firma.</Nota>{/if}
+    <div class="tarjeta" style="max-height:46vh;overflow:auto;line-height:1.5" data-prueba="texto-documento">{@html mdBasico(vista.texto)}</div>
   {/if}
   {#snippet pie()}
     <button class="btn" type="button" onclick={() => (abierto = false)}>Cerrar</button>
     <button class="btn" type="button" onclick={imprimir} disabled={!vista || trabajando}>Imprimir</button>
-    <button class="btn principal" type="button" onclick={marcarFirmado} disabled={!vista || trabajando || !firmanteListo} data-prueba="marcar-firmado">Marcar como firmado</button>
+    <button class="btn principal" type="button" onclick={marcarFirmado} disabled={!vista || trabajando || !firmanteListo || (vista?.faltan.length ?? 0) > 0} data-prueba="marcar-firmado">Marcar como firmado</button>
   {/snippet}
 </Modal>
 

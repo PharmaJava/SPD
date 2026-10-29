@@ -16,7 +16,7 @@
   import PasoValidar from './preparacion/PasoValidar.svelte';
   import type { EntradaPreparar } from './preparacion/tipos.ts';
   import VistaPrevia from './preparacion/VistaPrevia.svelte';
-  import { borrarLocal, cargarSesion, guardarLocal, leerLocal, mensaje, tomarPaso } from './preparacion/util.ts';
+  import { borrarLocal, cargarSesion, corto, guardarLocal, leerLocal, mensaje, tomarPaso } from './preparacion/util.ts';
 
   let { pacienteId }: { pacienteId?: number } = $props();
   type Paso = 'revisar' | 'llenar' | 'validar';
@@ -125,7 +125,7 @@
 <div class="cabecera-pagina">
   <div>
     <h1>Preparar un blíster</h1>
-    <p class="subtitulo">{entrada.paciente ? entrada.paciente.nombre : 'Revisa, llena y valida, paso a paso.'}{preparacion ? ` · ${preparacion.idPublico}` : ''}</p>
+    <p class="subtitulo">{entrada.paciente ? entrada.paciente.nombre : 'Revisa, llena y valida, paso a paso.'}{preparacion ? ` · ${corto(preparacion.idPublico)}` : ''}</p>
   </div>
   <span class="espacio"></span>
   {#if preparacion || entrada.paciente}<button class="btn" type="button" onclick={nueva}>Empezar de nuevo</button>{/if}

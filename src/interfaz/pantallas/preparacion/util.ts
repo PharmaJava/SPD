@@ -62,3 +62,15 @@ export function colorMed(color: string | undefined, indice: number): string {
   if (color && /^(#[0-9a-f]{3,8}|var\(--[a-z0-9-]+\))$/i.test(color.trim())) return color.trim();
   return `var(--med-${(indice % 8) + 1})`;
 }
+
+/** Markdown mínimo (títulos, negrita) y datos que faltan (⟦…⟧) para enseñar y imprimir un documento. Escapa antes de nada. */
+export function mdBasico(texto: string): string {
+  return escaparHtml(texto).split('\n').map(l => {
+    const t = l.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/⟦(.+?)⟧/g, '<mark>[falta: $1]</mark>');
+    const h = /^#{1,3}\s+(.*)$/.exec(t);
+    return h ? `<h3>${h[1]}</h3>` : t;
+  }).join('<br>').replace(/<\/h3><br>/g, '</h3>');
+}
+
+/** Identificador corto y legible de un blíster (el UUID completo no es para personas). */
+export const corto = (idPublico: string): string => 'SPD-' + idPublico.replace(/-/g, '').slice(0, 8).toUpperCase();

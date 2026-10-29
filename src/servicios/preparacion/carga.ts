@@ -110,7 +110,7 @@ export function abreviar(principioActivo: string, usadas: Set<string>): string {
   }
 }
 
-export interface ItemLeyenda { tratamientoId: number; nombre: string; principioActivo: string; descripcion?: string }
+export interface ItemLeyenda { tratamientoId: number; cn?: string | null; nombre: string; principioActivo: string; descripcion?: string }
 
 /** Leyenda en orden estable (por id de tratamiento): letra A, B, C… y color --med-1…--med-8. */
 export function construirLeyenda(items: ItemLeyenda[]): EvaluacionPreparacion['leyenda'] {
@@ -118,6 +118,7 @@ export function construirLeyenda(items: ItemLeyenda[]): EvaluacionPreparacion['l
   const usadas = new Set<string>();
   return ordenados.map((it, i) => ({
     tratamientoId: it.tratamientoId,
+    cn: it.cn ?? null,
     nombre: it.nombre,
     abreviatura: abreviar(it.principioActivo, usadas),
     color: `var(--med-${(i % 8) + 1})`,
@@ -358,11 +359,12 @@ export function cargarEvaluacion(ctx: Contexto, o: OpcionesCarga): Cargado {
     if (descripcion === undefined && t.cnPreferente) {
       descripcion = descripcionConfirmada(db.get<R>('SELECT descripcion_estado, descripcion_fisica, marcas_grabado FROM medicamento WHERE cn = ?', [t.cnPreferente]));
     }
-    items.push({ tratamientoId: t.id, nombre: t.nombre === '' ? `Tratamiento ${t.id}` : t.nombre, principioActivo: t.principioActivo, descripcion });
+    items.push({ tratamientoId: t.id, cn: t.cnPreferente, nombre: t.nombre === '' ? `Tratamiento ${t.id}` : t.nombre, principioActivo: t.principioActivo, descripcion });
   }
 
   const evaluacion: EvaluacionPreparacion = {
     ...res,
+    lineasReparto: res.lineasReparto.map((l) => ({ ...l, cn: envases.get(l.envaseId)?.cn })),
     paciente: { id: Number(paciente.id), nombreCompleto: nombreCompleto(paciente) },
     leyenda: construirLeyenda(items),
     alveolos: construirAlveolos(res.mapas, res.tomas, res.lineasReparto),
@@ -470,10 +472,11 @@ export function cargarInstantanea(ctx: Contexto, prep: R): Cargado {
   };
   const items: ItemLeyenda[] = [...trats.values()].map((t) => {
     const linea = lineasReparto.find((l) => l.tratamientoId === t.id);
-    return { tratamientoId: t.id, nombre: t.nombre === '' ? `Tratamiento ${t.id}` : t.nombre, principioActivo: t.principioActivo, descripcion: linea ? envases.get(linea.envaseId)?.descripcion : undefined };
+    return { tratamientoId: t.id, cn: linea ? envases.get(linea.envaseId)?.cn ?? null : null, nombre: t.nombre === '' ? `Tratamiento ${t.id}` : t.nombre, principioActivo: t.principioActivo, descripcion: linea ? envases.get(linea.envaseId)?.descripcion : undefined };
   });
   const evaluacion: EvaluacionPreparacion = {
     ...res,
+    lineasReparto: lineasReparto.map((l) => ({ ...l, cn: envases.get(l.envaseId)?.cn })),
     paciente: { id: Number(paciente.id), nombreCompleto: nombreCompleto(paciente) },
     leyenda: construirLeyenda(items),
     alveolos: construirAlveolos(mapas, tomas, lineasReparto),

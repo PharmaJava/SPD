@@ -9,7 +9,7 @@
   import Mapa from './Mapa.svelte';
   import Nota from './Nota.svelte';
   import VistaPrevia from './VistaPrevia.svelte';
-  import { NOMBRE_ROL, puedeValidar } from './util.ts';
+  import { corto, NOMBRE_ROL, puedeValidar } from './util.ts';
 
   let { evaluacion, preparacion, sesion, ajustes, onCambio, onAtras, onNueva }: {
     evaluacion: EvaluacionPreparacion; preparacion: PreparacionDto; sesion: UsuarioPublico | null; ajustes: Ajustes | null;
@@ -59,7 +59,7 @@
 
 <div class="apilado">
   {#if entregada}
-    <Nota gravedad="ok" id="entregada"><strong>Entregado.</strong> {preparacion.idPublico} · {fechaHora(preparacion.validadoEn)} validado por {preparacion.validadoPor ?? '—'}.
+    <Nota gravedad="ok" id="entregada"><strong>Entregado.</strong> {corto(preparacion.idPublico)} · {fechaHora(preparacion.validadoEn)} validado por {preparacion.validadoPor ?? '—'}.
       {#snippet accion()}<button class="btn" type="button" onclick={onNueva}>Preparar otro</button>{/snippet}</Nota>
   {:else if validada}
     <Nota gravedad="ok" id="validada"><strong>Blíster validado</strong> por {preparacion.validadoPor ?? '—'} el {fechaHora(preparacion.validadoEn)}. Ya puedes imprimir la etiqueta y la hoja del paciente.</Nota>
@@ -70,7 +70,7 @@
   {/if}
 
   <section class="tarjeta" aria-labelledby="t-resumen">
-    <h2 id="t-resumen">Resumen del blíster {preparacion.idPublico}</h2>
+    <h2 id="t-resumen">Resumen del blíster {corto(preparacion.idPublico)}</h2>
     <div class="cuatro-campos">
       <div><div class="suave pequeno">Paciente</div><strong>{preparacion.pacienteNombre}</strong></div>
       <div><div class="suave pequeno">Periodo</div><strong>{fecha(preparacion.fechaInicio)} – {fecha(preparacion.fechaFin)}</strong></div>
@@ -135,7 +135,7 @@
       {#if vistas[pestana]}
         {#key pestana + preparacion.estado}
           <VistaPrevia titulo={pestana === 'etiqueta' ? 'Etiqueta del blíster' : 'Hoja del paciente (plan de administración)'} vista={vistas[pestana]!}
-            nombreArchivo={`${pestana === 'etiqueta' ? 'etiqueta' : 'hoja'}-${preparacion.idPublico}.pdf`}
+            nombreArchivo={`${pestana === 'etiqueta' ? 'etiqueta' : 'hoja'}-${corto(preparacion.idPublico)}.pdf`}
             impresora={pestana === 'etiqueta' ? ajustes?.impresoraEtiquetas : ajustes?.impresoraDocumentos}
             motivoNoImprimir={validada ? '' : motivoEtiqueta} />
         {/key}

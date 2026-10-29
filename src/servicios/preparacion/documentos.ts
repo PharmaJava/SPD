@@ -189,6 +189,6 @@ export function estadoConsentimientosDto(ctx: Contexto, pacienteId: number): Est
   const { estado, firmados } = consentimientosDe(db, pacienteId);
   return {
     completo: estado.completo, faltan: estado.faltan, desactualizados: estado.desactualizados, revocados: estado.revocados,
-    firmados: firmados.filter((f) => !f.revocadoEn).map((f) => ({ codigo: f.codigo, version: f.version, firmadoEn: f.firmadoEn, firmante: f.firmante })),
+    firmados: firmados.map((f) => ({ id: f.id, codigo: f.codigo, version: f.version, firmadoEn: f.firmadoEn, firmante: f.firmante, revocado: !!f.revocadoEn })),
   };
 }

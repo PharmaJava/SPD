@@ -75,9 +75,9 @@
     }
   }
   function marcarSiguiente() {
-    if (!siguiente) return;
-    hechosLista = [...hechosLista, siguiente.clave];
-    avanzarSiCompleto(siguiente.tratamientoId);
+    const s = siguiente; if (!s) return;
+    hechosLista = [...hechosLista, s.clave];
+    avanzarSiCompleto(s.tratamientoId);
   }
   function deshacer() {
     if (!hechosLista.length) return;
@@ -162,12 +162,12 @@
         <span class="chip-med" style="--c:{colorMed(medActivo.color, indiceActivo)}"><span class="letra">{medActivo.letra}</span><span class="ud">{unidades(siguiente.unidades)}</span></span>
         <div class="espacio">
           <div class="grande">Pon {unidades(siguiente.unidades)} de {medActivo.nombre}</div>
-          <div>en <strong>{textoSig}</strong>{#if siguiente.lote} · de la caja con lote <strong>{siguiente.lote}</strong>{/if}</div>
+          <div>en <strong>{textoSig}</strong>{#if siguiente.lote}&nbsp;· de la caja con lote <strong>{siguiente.lote}</strong>{/if}</div>
         </div>
         <button class="btn principal grande" type="button" onclick={marcarSiguiente} data-prueba="marcar-siguiente">Ya está puesto <span class="atajo">Intro</span></button>
       </div>
     {:else if medActivo && progreso[medActivo.tratamientoId]?.total}
-      <Nota gravedad="ok">{medActivo.nombre} está completo.</Nota>
+      {#if !aviso}<Nota gravedad="ok">{medActivo.nombre} está completo.</Nota>{/if}
     {:else}
       <Nota gravedad="info">Elige un medicamento de la lista (o escanea su caja) para que se marque dónde va.</Nota>
     {/if}

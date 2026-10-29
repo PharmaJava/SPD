@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { spd } from '../../api.ts';
   import type { PacienteDto, TratamientoDto, EstadoConsentimientosDto, ContactoDto, MomentoTomaDto, CentroDto } from '../../../servicios/api.ts';
   import Aviso from '../../componentes/Aviso.svelte';
   import { ir } from '../../router.ts';
@@ -9,6 +10,9 @@
   let { paciente, tratamientos, consent, contactos, momentos, centros, irA }: {
     paciente: PacienteDto; tratamientos: TratamientoDto[]; consent: EstadoConsentimientosDto | null; contactos: ContactoDto[]; momentos: MomentoTomaDto[]; centros: CentroDto[]; irA: (p: string) => void;
   } = $props();
+  let titulos = $state<Record<string, string>>({});
+  $effect(() => { spd.listarPlantillasDocumento().then(r => { if (r.ok) titulos = Object.fromEntries(r.datos.map(p => [p.codigo, p.titulo])); }); });
+  const tit = (l: string[]) => l.map(c => titulos[c] ?? c.replace(/_/g, ' ')).join(', ');
   const activos = $derived(tratamientos.filter(t => !t.finalizadoEn));
   const sinPauta = $derived(activos.filter(t => t.emblistable && !t.pautaVigenteTexto));
   const sinAspecto = $derived(activos.filter(t => t.emblistable && t.medicamento && t.medicamento.descripcionEstado !== 'confirmada'));
@@ -21,7 +25,7 @@
       <h2>Qué hay que hacer</h2>
       {#if paciente.estado !== 'activo'}<Aviso tipo="atencion" titulo="Paciente {paciente.estado === 'baja' ? 'de baja' : paciente.estado === 'pausado' ? 'pausado' : 'fallecido'}">{paciente.motivoEstado ?? 'No se preparan blísteres para este paciente.'}</Aviso>{/if}
       {#if consent && !consent.completo}
-        <Aviso tipo="atencion" titulo="Faltan consentimientos">{#if consent.faltan.length}Sin firmar: {consent.faltan.join(', ')}. {/if}{#if consent.desactualizados.length}Desactualizados: {consent.desactualizados.join(', ')}. {/if}{#if consent.revocados.length}Revocados: {consent.revocados.join(', ')}. {/if}
+        <Aviso tipo="atencion" titulo="Faltan consentimientos">{#if consent.faltan.length}Sin firmar: {tit(consent.faltan)}. {/if}{#if consent.desactualizados.length}Desactualizados: {tit(consent.desactualizados)}. {/if}{#if consent.revocados.length}Revocados: {tit(consent.revocados)}. {/if}
           <button class="btn enlace" onclick={() => irA('documentos')}>Ir a documentos</button></Aviso>
       {/if}
       {#if !activos.length}<Aviso tipo="info" titulo="Sin tratamientos">Añade los medicamentos que toma. <button class="btn enlace" onclick={() => irA('tratamiento')}>Ir a tratamiento</button></Aviso>{/if}

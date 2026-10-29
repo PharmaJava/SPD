@@ -8,5 +8,5 @@
 </script>
 <div class="aviso {tipo}" role={tipo === 'bloqueo' ? 'alert' : 'status'}>
   <span class="icono"><Icono n={ICONO[tipo]} tam={20} /></span>
-  <div class="cuerpo"><strong>{titulo ?? ROTULO[tipo]}{#if children}: {/if}</strong>{#if children}{@render children()}{/if}</div>
+  <div class="cuerpo"><strong>{titulo ?? ROTULO[tipo]}{#if children}:{/if}</strong>{#if children}{' '}{@render children()}{/if}</div>
 </div>

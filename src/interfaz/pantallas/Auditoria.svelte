@@ -61,7 +61,7 @@
         {#each visibles as a (a.id)}
           <tr><td class="mono nowrap">{fechaHora(a.momento)}</td><td>{a.usuario ?? 'Sistema'}</td>
             <td><strong>{accionHumana(a.accion)}</strong> · {entidadHumana(a.entidad)}</td>
-            <td>{a.resumen}{#if a.motivo}<div class="suave pequeno">Motivo: {a.motivo}</div>{/if}</td></tr>
+            <td>{#if a.entidadId}<span>nº {a.entidadId}</span>{/if}{#if a.motivo}<div class="suave pequeno">Motivo: {a.motivo}</div>{/if}{#if a.resumen}<details><summary class="suave pequeno">Ver qué cambió</summary><div class="pequeno suave">{a.resumen}</div></details>{/if}</td></tr>
         {/each}
       </tbody>
     </table>

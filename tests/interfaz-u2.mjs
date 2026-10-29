@@ -46,6 +46,7 @@ const PIN = '1234', PASS = 'contraseña-de-prueba-1';
 await api('primerUso', { farmacia: { nombre: 'Farmacia Luz del Sur', titular: 'Marta Etxeberria', municipio: 'Sevilla', provincia: 'Sevilla', direccion: 'Calle Sol 1', telefono: '955 000 000' },
   titular: { nombre: 'Marta Etxeberria', iniciales: 'ME', pin: PIN }, contrasena: PASS, momentos: [{ nombre: 'Desayuno', hora: '08:00' }, { nombre: 'Comida', hora: '14:00' }, { nombre: 'Cena', hora: '21:00' }, { nombre: 'Acostarse', hora: '23:00' }] });
 await api('desbloquear', PASS).catch(() => {});
+await api('guardarFarmacia', { nombre: 'Farmacia Luz del Sur', titular: 'Marta Etxeberria', nif: 'B12345678', direccion: 'Calle Sol 1', municipio: 'Sevilla', provincia: 'Sevilla', telefono: '955 000 000', email: 'f@farmacia.test', rgpdContacto: 'f@farmacia.test', rgpdDpd: 'No designado' }).catch(e => console.error('farmacia:', e.message));
 const usuarios = await api('listarUsuarios');
 await api('iniciarSesion', usuarios[0].id, PIN);
 const momentos = await api('listarMomentos');
@@ -70,7 +71,7 @@ pag.on('console', m => { if (m.type() === 'error' && !/favicon/.test(m.text())) 
 const base = `http://127.0.0.1:${PUERTO_WEB}/`;
 let fallos = 0, n = 0;
 const comprobar = (cond, msg) => { n++; if (!cond) { fallos++; console.error('  ✗', msg); } else console.log('  ✓', msg); };
-const foto = async nombre => { await pag.waitForTimeout(250); await pag.screenshot({ path: join(CAP, nombre + '.png') }); };
+const foto = async nombre => { await pag.evaluate(() => document.querySelector('.contenido')?.scrollTo(0, 0)); await pag.waitForTimeout(300); await pag.screenshot({ path: join(CAP, nombre + '.png') }); };
 const ir = async h => { await pag.goto(base + '#' + h); await pag.waitForTimeout(300); };
 const P = s => pag.locator(`[data-prueba="${s}"]`);
 const sinFoco = async () => pag.evaluate(() => document.activeElement?.id);
@@ -142,7 +143,7 @@ try {
   await pag.waitForTimeout(800);
   comprobar((await P('entradas-hoy').innerText()).includes('ENA77'), 'Intro guarda la caja leída');
   // lectura ambigua (sin GS)
-  await P('escaneo').fill(`${dm}10ENA88SERIE999`); await pag.keyboard.press('Enter'); await pag.waitForTimeout(500);
+  await P('escaneo').fill(`${dm}10ENA8821SERIE999`); await pag.keyboard.press('Enter'); await pag.waitForTimeout(500);
   comprobar(await P('candidata-0').count() > 0, 'lectura ambigua: pide confirmar el lote');
   await foto('04-cajas-ambigua');
   await P('candidata-0').click();
@@ -165,6 +166,8 @@ try {
   await pag.selectOption('[data-prueba="dias"]', '14');
   await pag.waitForTimeout(1500);
   await foto('12-preparar-revisar-bloqueo');
+  comprobar(await pag.getByText('Empezar hoy').isVisible(), 'si el periodo no cabe en la validez, ofrece empezar hoy');
+  await pag.getByRole('button', { name: /^Hoy ·/ }).click(); await pag.waitForTimeout(1500);
   const textoRev = await pag.locator('main, .contenido').first().innerText();
   console.log('   (unidades suficientes?)', !(textoRev.includes('Faltan')));
   // dos cajas más para cubrir 14 días (metformina 14×1.5=21 de 28 → cubre; enalapril 14 de 30 → cubre)

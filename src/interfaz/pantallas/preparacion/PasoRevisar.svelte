@@ -35,7 +35,7 @@
   const falta = $derived(evaluacion?.faltantes ?? []);
 
   /** Enlace de solución según el código estable del bloqueo. */
-  function solucion(codigo: string): { texto: string; ruta: string } | null {
+  function solucion(codigo: string): { texto: string; ruta?: string; hacer?: () => void } | null {
     const p = entrada.paciente?.id;
     switch (codigo) {
       case 'UNIDADES_INSUFICIENTES': case 'CAJA_CADUCA_EN_PERIODO': case 'SIN_LOTES_USADOS': case 'ENVASE_DE_OTRO_TRATAMIENTO':
@@ -43,6 +43,7 @@
       case 'CONSENTIMIENTO_NO_VIGENTE': return p ? { texto: 'Ir a Documentos', ruta: rutas.paciente(p, 'documentos') } : null;
       case 'PAUTA_INVALIDA': case 'NADA_QUE_PREPARAR': case 'TOMA_SIN_CELDA': case 'MOMENTO_INEXISTENTE':
         return p ? { texto: 'Revisar el tratamiento', ruta: rutas.paciente(p, 'tratamiento') } : null;
+      case 'PERIODO_NO_CABE': return entrada.modoInicio === 'hoy' ? null : { texto: 'Empezar hoy', hacer: () => modo('hoy') };
       case 'VALIDEZ_EXTENDIDA_NO_ACTIVADA': return { texto: 'Ir a Ajustes', ruta: '#/ajustes' };
       default: return null;
     }
@@ -106,7 +107,7 @@
           {#each bloqueosQueImpiden as b (b.codigo + b.texto)}
             {@const s = solucion(b.codigo)}
             <Nota gravedad="bloqueo">{b.texto}
-              {#snippet accion()}{#if s}<button class="btn" type="button" onclick={() => ir(s.ruta)}>{s.texto}</button>{/if}{/snippet}
+              {#snippet accion()}{#if s}<button class="btn" type="button" onclick={() => (s.hacer ? s.hacer() : ir(s.ruta!))}>{s.texto}</button>{/if}{/snippet}
             </Nota>
           {/each}
           {#if falta.length}
@@ -127,7 +128,7 @@
           {#each bloqueosDeValidar as b (b.codigo)}
             {@const s = solucion(b.codigo)}
             <Nota gravedad="atencion">{b.texto}
-              {#snippet accion()}{#if s}<button class="btn" type="button" onclick={() => ir(s.ruta)}>{s.texto}</button>{/if}{/snippet}
+              {#snippet accion()}{#if s}<button class="btn" type="button" onclick={() => (s.hacer ? s.hacer() : ir(s.ruta!))}>{s.texto}</button>{/if}{/snippet}
             </Nota>
           {/each}
         </section>

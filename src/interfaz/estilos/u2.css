@@ -72,7 +72,7 @@ button.alveolo { cursor: pointer; }
 .chip-med .letra { width: 1.5rem; height: 1.5rem; border-radius: 50%; background: #fff; color: var(--c, var(--med-1)); display: grid; place-items: center; font-size: .9rem; }
 .chip-med .ud { font-size: 1.05rem; }
 .chip-med.hecho::after { content: '✓'; margin-left: .1rem; }
-.chip-med.hecho { opacity: .7; text-decoration: line-through; text-decoration-thickness: 2px; }
+.chip-med.hecho { opacity: .6; }
 .indicacion-siguiente { display: flex; align-items: center; gap: 1rem; padding: .8rem 1.1rem; border-radius: var(--radio); background: var(--acento-fondo); border: 2px solid var(--acento); margin-bottom: .8rem; flex-wrap: wrap; }
 .indicacion-siguiente .grande { font-size: 1.3rem; font-weight: 800; }
 
@@ -123,3 +123,7 @@ dialog.u2-modal footer { padding: .9rem 1.4rem; border-top: 1px solid var(--bord
   .pasos .paso span.txt { display: none; } .pasos .paso.activo span.txt { display: inline; }
 }
 @media print { .lateral, .barra-acciones { display: none !important; } }
+
+/* U1 usa la clase global .principal para el contenedor principal: no debe deformar los botones principales */
+.btn.principal { display: inline-flex; flex-direction: row; height: auto; min-width: 0; overflow: visible; align-items: center; justify-content: center; }
+.etiqueta { white-space: nowrap; }

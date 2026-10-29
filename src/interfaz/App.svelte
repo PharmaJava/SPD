@@ -145,7 +145,7 @@
         <div class="buscador">
           <Icono n="buscar" tam={18} />
           <input type="search" bind:this={cajaBuscar} bind:value={texto} oninput={alEscribir} onkeydown={teclaBuscador} onblur={() => setTimeout(() => (abierto = false), 150)} onfocus={() => { if (texto.trim().length >= 2) abierto = true; }}
-            placeholder="Buscar paciente o medicamento (nombre o CN)" aria-label="Buscar paciente o medicamento" role="combobox" aria-expanded={abierto} aria-controls="res-global" autocomplete="off" />
+            placeholder="Buscar paciente o medicamento" aria-label="Buscar paciente o medicamento" role="combobox" aria-expanded={abierto} aria-controls="res-global" autocomplete="off" />
           {#if abierto}
             <div class="resultados" id="res-global" role="listbox">
               {#if buscando && !lista.length}<div class="vacio" style="padding:1rem">Buscando…</div>

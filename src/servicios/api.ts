@@ -195,6 +195,8 @@ export interface EnvaseDto {
   lote: string; caducidad: string; numeroSerie?: string | null; origenLectura: 'datamatrix' | 'manual';
   unidadesInicio: number; unidadesRestantes: number; estado: 'en_uso' | 'agotado' | 'devuelto' | 'retirado' | 'desechado';
   recibidoEn: string;
+  /** Lo decide el servicio (días de aviso del dominio): la interfaz no recalcula caducidades. */
+  caducaPronto: boolean; caducada: boolean;
 }
 export interface EntradaEnvaseParams {
   pacienteId: number; tratamientoId?: number | null;
@@ -220,7 +222,7 @@ export interface EvaluarPreparacionParams {
 export interface EvaluacionPreparacion extends ResultadoPreparacion {
   paciente: { id: number; nombreCompleto: string };
   /** Nombre y color de cada tratamiento para pintar el mapa. */
-  leyenda: { tratamientoId: number; nombre: string; abreviatura: string; color: string; letra: string; descripcion?: string }[];
+  leyenda: { tratamientoId: number; cn?: string | null; nombre: string; abreviatura: string; color: string; letra: string; descripcion?: string }[];
   /** Celdas ya resueltas: qué hay en cada alvéolo (pintar sin recalcular nada). */
   alveolos: { mapa: number; fila: number; columna: number; fecha: string | null; momentoId: number; contenido: { tratamientoId: number; unidades: number; envaseId?: number; lote?: string }[] }[];
 }
@@ -237,7 +239,7 @@ export interface PlantillaDocumentoDto { codigo: string; version: number; titulo
 export interface VistaDocumento {
   texto: string; faltan: string[]; imprimibleDefinitivo: boolean; esBorrador: boolean; hash: string; avisos: string[];
 }
-export interface EstadoConsentimientosDto { completo: boolean; faltan: string[]; desactualizados: string[]; revocados: string[]; firmados: { codigo: string; version: number; firmadoEn: string; firmante: string }[] }
+export interface EstadoConsentimientosDto { completo: boolean; faltan: string[]; desactualizados: string[]; revocados: string[]; firmados: { id: number; codigo: string; version: number; firmadoEn: string; firmante: string; revocado: boolean }[] }
 
 export interface TareaHoy { tipo: string; gravedad: 'bloqueo' | 'atencion' | 'info'; texto: string; pacienteId?: number; accion?: string }
 export interface PanelHoy {

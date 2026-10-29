@@ -565,3 +565,29 @@ test('panel: ordenado por gravedad (bloqueo > atención > info)', async () => {
   assert.deepEqual(g, [...g].sort((a, b) => rango[a] - rango[b]));
   assert.ok(g.includes('bloqueo') && g.includes('atencion') && g.includes('info'));
 });
+
+test('asignar una caja a un tratamiento que no corresponde BLOQUEA (TRATAMIENTO_NO_COINCIDE)', async () => {
+  const { api, db, p } = await escenario();
+  await med(api, { cn: '555555', nombre: 'Enalapril 10 mg', principiosActivos: 'enalapril' });
+  const e = await trat(api, p.id, { principioActivo: 'enalapril' });
+  const c = await bien(caja(api, p.id, { tratamientoId: e.id }));
+  assert.equal(c.ok, false);
+  assert.ok(c.bloqueos.some((b) => b.codigo === 'TRATAMIENTO_NO_COINCIDE'));
+  const r = await bien(api.comprobarEntradaEnvase({ pacienteId: p.id, cn: '712729', lote: 'L', caducidad: '2027-12-31', unidades: 5, tratamientoId: e.id }));
+  assert.ok(r.bloqueos.some((b) => b.codigo === 'TRATAMIENTO_NO_COINCIDE'));
+  assert.equal(n(db, 'SELECT count(*) AS n FROM envase'), 0);
+  const ok = await bien(caja(api, p.id, { cn: '555555', tratamientoId: e.id }));
+  assert.equal(ok.ok, true);
+});
+
+test('EnvaseDto: caducada y caducaPronto según la fecha de hoy', async () => {
+  const { api, db, p } = await escenario();
+  await bien(caja(api, p.id, { lote: 'LEJOS' }));
+  await bien(caja(api, p.id, { lote: 'PRONTO', caducidad: '2026-12-20' }));
+  db.run("INSERT INTO envase(paciente_id,cn,lote,caducidad,origen_lectura,unidades_inicio,unidades_restantes,recibido_por) VALUES (?,'712729','VIEJO','2026-10-20','manual',10,10,1)", [p.id]);
+  const l = await bien(api.listarEnvases(p.id));
+  const f = (lote: string) => l.find((e) => e.lote === lote)!;
+  assert.deepEqual([f('LEJOS').caducada, f('LEJOS').caducaPronto], [false, false]);
+  assert.deepEqual([f('PRONTO').caducada, f('PRONTO').caducaPronto], [false, true]);
+  assert.deepEqual([f('VIEJO').caducada, f('VIEJO').caducaPronto], [true, false]);
+});

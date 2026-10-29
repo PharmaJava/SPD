@@ -34,7 +34,7 @@ dialog.dialogo[open] { display: flex; flex-direction: column; }
 
 /* Pestañas */
 .pestanas { display: flex; gap: .25rem; border-bottom: 2px solid var(--borde); margin-bottom: 1.2rem; overflow-x: auto; }
-.pestanas button { font: inherit; font-weight: 600; background: none; border: none; padding: .7rem 1rem; cursor: pointer; color: var(--texto-suave); border-bottom: 3px solid transparent; margin-bottom: -2px; white-space: nowrap; min-height: var(--alto-control); }
+.pestanas button { font: inherit; font-weight: 600; background: none; border: none; padding: .7rem .8rem; cursor: pointer; color: var(--texto-suave); border-bottom: 3px solid transparent; margin-bottom: -2px; white-space: nowrap; min-height: var(--alto-control); }
 .pestanas button:hover { color: var(--texto); }
 .pestanas button.activa { color: var(--acento-fuerte); border-bottom-color: var(--acento); }
 .contador { margin-left: .4rem; background: var(--superficie-2); border-radius: 999px; padding: 0 .5rem; font-size: .78rem; }
@@ -47,7 +47,7 @@ dialog.dialogo[open] { display: flex; flex-direction: column; }
 /* Armazón */
 .principal { display: flex; flex-direction: column; min-width: 0; height: 100%; overflow: hidden; }
 .barra { display: flex; align-items: center; gap: 1rem; padding: .6rem 2rem; border-bottom: 1px solid var(--borde); background: var(--superficie); }
-.buscador { position: relative; flex: 0 1 460px; }
+.buscador { position: relative; flex: 1 1 200px; max-width: 460px; min-width: 180px; }
 .buscador .icono-svg { position: absolute; left: .75rem; top: 50%; transform: translateY(-50%); color: var(--texto-suave); pointer-events: none; }
 .buscador input { padding-left: 2.4rem; }
 .resultados { position: absolute; top: calc(100% + 4px); left: 0; right: 0; background: var(--superficie); border: 1px solid var(--borde); border-radius: var(--radio-s); box-shadow: var(--sombra); z-index: 20; max-height: 60vh; overflow: auto; }
@@ -66,7 +66,7 @@ dialog.dialogo[open] { display: flex; flex-direction: column; }
 .pantalla-central .caja { width: min(520px, 100%); }
 .pantalla-central .caja.ancha { width: min(780px, 100%); }
 .logotipo { font-weight: 800; font-size: 1.6rem; color: var(--acento); letter-spacing: .02em; display: flex; align-items: center; gap: .6rem; margin-bottom: .6rem; }
-.insignia { width: 44px; height: 44px; border-radius: 12px; background: var(--acento); color: #fff; display: grid; place-items: center; font-weight: 800; }
+.insignia { min-width: 44px; height: 44px; padding: 0 .5rem; font-size: .9rem; border-radius: 12px; background: var(--acento); color: #fff; display: grid; place-items: center; font-weight: 800; }
 .progreso { margin-bottom: 1.2rem; }
 .progreso .barra-p { height: 8px; border-radius: 999px; background: var(--superficie-2); overflow: hidden; }
 .progreso .barra-p > span { display: block; height: 100%; background: var(--acento); transition: width .25s; }
@@ -135,7 +135,8 @@ dialog.dialogo[open] { display: flex; flex-direction: column; }
 .chips-dias label:has(input:focus-visible) { outline: 3px solid var(--acento); outline-offset: 2px; }
 .dosis-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: .6rem; }
 .dosis-grid .celda { border: 1px solid var(--borde); border-radius: var(--radio-s); padding: .5rem .7rem; background: var(--superficie); }
-.dosis-grid .celda strong { display: block; margin-bottom: .3rem; }
+.dosis-grid .celda strong { display: block; }
+.dosis-grid .celda .pequeno { display: block; margin-bottom: .3rem; }
 .paso-dosis { display: flex; align-items: center; gap: .3rem; }
 .paso-dosis button { width: 40px; height: 40px; font: inherit; font-size: 1.2rem; font-weight: 700; border: 1px solid var(--borde); border-radius: var(--radio-s); background: var(--superficie-2); color: var(--texto); cursor: pointer; }
 .paso-dosis output { min-width: 3rem; text-align: center; font-size: 1.3rem; font-weight: 800; }
@@ -154,3 +155,7 @@ dialog.dialogo[open] { display: flex; flex-direction: column; }
 .ajustes-menu button:hover { background: var(--superficie-2); }
 .ajustes-menu button.activo { background: var(--acento-fondo); color: var(--acento-fuerte); }
 .recibido { font: 600 1.1rem ui-monospace, Consolas, monospace; background: var(--superficie-2); border: 1px dashed var(--borde); border-radius: var(--radio-s); padding: .7rem; min-height: 3rem; word-break: break-all; }
+
+.btn { white-space: nowrap; }
+.btn { justify-content: center; line-height: 1.2; }
+.usuario-barra strong, .usuario-barra .suave { white-space: nowrap; }

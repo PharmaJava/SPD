@@ -10,18 +10,20 @@ import { ErrorSpd, proteger } from '../contexto.ts';
 import type { Resultado, EnvaseDto, EntradaEnvaseParams, ResultadoEntradaEnvase } from '../api.ts';
 import type { Db } from '../db.ts';
 import { normalizarCN, parsearGS1 } from '../../dominio/gs1.ts';
-import { validarEntradaEnvase } from '../../dominio/entrada-envase.ts';
+import { DIAS_AVISO_CADUCIDAD_POR_DEFECTO, validarEntradaEnvase } from '../../dominio/entrada-envase.ts';
 import type { Aviso, ContextoEntrada, EnvaseExistente } from '../../dominio/entrada-envase.ts';
 import { trazabilidadInversa } from '../../dominio/alertas-calidad.ts';
 import type { AlertaCalidad, TrazabilidadAlerta } from '../../dominio/alertas-calidad.ts';
 import type { Envase } from '../../dominio/tipos.ts';
 import { normalizar } from '../../dominio/aptitud-spd.ts';
-import { ahoraISO, bd, esFechaIso, exigirSesion, hoyISO, invalido, noEncontrado, texto, textoObligatorio, urlHttp } from './comun.ts';
+import { ahoraISO, bd, diasEntre, esFechaIso, exigirSesion, hoyISO, invalido, noEncontrado, texto, textoObligatorio, urlHttp } from './comun.ts';
 import type { R } from './comun.ts';
 import { leerMedicamento, nombresPrincipios } from './medicamentos.ts';
 
-export function envaseDto(r: R): EnvaseDto {
+export function envaseDto(r: R, hoy: string): EnvaseDto {
+  const dias = diasEntre(hoy, r.caducidad);
   return {
+    caducada: r.caducidad < hoy, caducaPronto: r.caducidad >= hoy && dias <= DIAS_AVISO_CADUCIDAD_POR_DEFECTO,
     id: r.id, pacienteId: r.paciente_id, tratamientoId: r.tratamiento_id ?? null, cn: r.cn, medicamentoNombre: r.medicamento_nombre ?? '',
     lote: r.lote, caducidad: r.caducidad, numeroSerie: r.numero_serie ?? null, origenLectura: r.origen_lectura,
     unidadesInicio: r.unidades_inicio, unidadesRestantes: r.unidades_restantes, estado: r.estado, recibidoEn: r.recibido_en,
@@ -30,9 +32,9 @@ export function envaseDto(r: R): EnvaseDto {
 
 const SQL_ENVASE = 'SELECT e.*, m.nombre AS medicamento_nombre FROM envase e LEFT JOIN medicamento m ON m.cn = e.cn';
 
-function leerEnvase(db: Db, id: number): EnvaseDto | null {
+function leerEnvase(db: Db, id: number, hoy: string): EnvaseDto | null {
   const r = db.get<R>(`${SQL_ENVASE} WHERE e.id = ?`, [id]);
-  return r ? envaseDto(r) : null;
+  return r ? envaseDto(r, hoy) : null;
 }
 
 export function listarEnvases(ctx: Contexto, pacienteId: number, incluirCerrados = false): Promise<Resultado<EnvaseDto[]>> {
@@ -40,7 +42,7 @@ export function listarEnvases(ctx: Contexto, pacienteId: number, incluirCerrados
     exigirSesion(ctx);
     const db = bd(ctx);
     if (typeof pacienteId !== 'number' || !db.get('SELECT 1 FROM paciente WHERE id = ?', [pacienteId])) throw noEncontrado('Paciente no encontrado.');
-    return db.all<R>(`${SQL_ENVASE} WHERE e.paciente_id = ? ${incluirCerrados ? '' : "AND e.estado = 'en_uso'"} ORDER BY e.caducidad, e.id`, [pacienteId]).map(envaseDto);
+    return db.all<R>(`${SQL_ENVASE} WHERE e.paciente_id = ? ${incluirCerrados ? '' : "AND e.estado = 'en_uso'"} ORDER BY e.caducidad, e.id`, [pacienteId]).map((r) => envaseDto(r, hoyISO(ctx)));
   });
 }
 
@@ -66,7 +68,7 @@ function coincidePrincipio(tratamientoPA: string, nombresMed: string[], nombreMe
   return false;   // combinación: sólo por CN preferente; nunca por un componente
 }
 
-interface Asociacion { tratamientoId: number | null; info: Aviso[] }
+interface Asociacion { tratamientoId: number | null; info: Aviso[]; bloqueos?: Aviso[] }
 
 function resolverTratamiento(db: Db, pacienteId: number, cn: string | null, tratamientoIdPedido: number | null | undefined): Asociacion {
   if (tratamientoIdPedido !== undefined && tratamientoIdPedido !== null) {
@@ -74,6 +76,13 @@ function resolverTratamiento(db: Db, pacienteId: number, cn: string | null, trat
     if (!t) throw invalido('El tratamiento indicado no existe.');
     if (t.paciente_id !== pacienteId) throw invalido('El tratamiento indicado pertenece a otro paciente.');
     if (t.finalizado_en) throw invalido('El tratamiento indicado está finalizado.');
+    if (cn) {
+      const m = db.get<R>('SELECT nombre, principios_activos FROM medicamento WHERE cn = ?', [cn]);
+      const t2 = db.get<R>('SELECT cn_preferente FROM tratamiento WHERE id = ?', [t.id])!;
+      if (m && t2.cn_preferente !== cn && !coincidePrincipio(t.principio_activo, nombresPrincipios(m.principios_activos), m.nombre)) {
+        return { tratamientoId: null, info: [], bloqueos: [{ codigo: 'TRATAMIENTO_NO_COINCIDE', texto: `${m.nombre} (CN ${cn}) no corresponde al tratamiento de ${t.principio_activo}: no se asigna esta caja a esa línea.` }] };
+      }
+    }
     return { tratamientoId: t.id, info: [{ codigo: 'TRATAMIENTO_ASOCIADO', texto: `Asociada al tratamiento de ${t.principio_activo}.` }] };
   }
   if (!cn) return { tratamientoId: null, info: [] };
@@ -146,7 +155,7 @@ function evaluarEntrada(ctx: Contexto, db: Db, e: EntradaEnvaseParams): Evaluaci
     unidades: unidades as number, hoy,
   }, contexto);
 
-  const bloqueos = [...r.bloqueos];
+  const bloqueos = [...r.bloqueos, ...(asociacion.bloqueos ?? [])];
   let atencion = [...r.atencion];
   const cnFinal = r.envaseNormalizado?.cn ?? cnCandidato;
   const med = cnFinal ? leerMedicamento(db, cnFinal) : null;
@@ -198,7 +207,7 @@ export function registrarEnvase(ctx: Contexto, e: EntradaEnvaseParams): Promise<
         if (err instanceof Error && /UNIQUE/i.test(err.message)) throw new ErrorSpd('Ese nº de serie ya está registrado para este CN: caja duplicada.', 'DUPLICADO');
         throw err;
       }
-      const dto = leerEnvase(db, id)!;
+      const dto = leerEnvase(db, id, hoyISO(ctx))!;
       ctx.auditar({ accion: 'crear', entidad: 'envase', entidadId: id, despues: dto });
       return { ...ev.resultado, envaseId: id };
     });
@@ -212,13 +221,13 @@ export function cerrarEnvase(ctx: Contexto, id: number, estado: 'devuelto' | 're
     exigirSesion(ctx);
     const db = bd(ctx);
     const dto = db.transaccion(() => {
-      const antes = typeof id === 'number' ? leerEnvase(db, id) : null;
+      const antes = typeof id === 'number' ? leerEnvase(db, id, hoyISO(ctx)) : null;
       if (!antes) throw noEncontrado('Envase no encontrado.');
       if (!['devuelto', 'retirado', 'desechado'].includes(estado)) throw invalido('Estado no válido: devuelto, retirado o desechado.');
       const m = textoObligatorio(motivo, 'el motivo', 500);
       if (antes.estado !== 'en_uso') throw invalido(`El envase ya está cerrado (${antes.estado}).`);
       db.run('UPDATE envase SET estado = ?, cerrado_en = ?, motivo_cierre = ? WHERE id = ?', [estado, ahoraISO(ctx), m, id]);
-      const despues = leerEnvase(db, id)!;
+      const despues = leerEnvase(db, id, hoyISO(ctx))!;
       ctx.auditar({ accion: 'cerrar', entidad: 'envase', entidadId: id, antes, despues, motivo: m });
       return despues;
     });

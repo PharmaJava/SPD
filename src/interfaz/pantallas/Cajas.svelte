@@ -49,7 +49,8 @@
 
   // ── derivados ──
   const cn6 = $derived(normalizarCN(cn));
-  const unidades = $derived(Number(unidadesTxt.replace(',', '.')));
+  const unidadesTexto = $derived(unidadesTxt.trim() ? unidadesTxt : medicamento?.unidadesEnvase ? String(medicamento.unidadesEnvase) : '');
+  const unidades = $derived(Number(unidadesTexto.replace(',', '.')));
   const unidadesOk = $derived(Number.isFinite(unidades) && unidades > 0 && Number.isInteger(unidades));
   const hayBloqueos = $derived((resultado?.bloqueos.length ?? 0) > 0);
   const faltanCampos = $derived(!paciente || !cn6 || !lote.trim() || !caducidad.trim() || !unidadesOk);
@@ -104,14 +105,14 @@
       if (!vigente) return;
       medicamento = r.ok ? r.datos : undefined;
       if (r.ok && r.datos) {
-        if (!unidadesEditadas && r.datos.unidadesEnvase) unidadesTxt = String(r.datos.unidadesEnvase);
-        if (tratamientoId === '') proponerTratamiento(c, r.datos);
+        proponerTratamiento(c, r.datos);
       }
     });
     return () => { vigente = false; };
   });
   function proponerTratamiento(c: string, m: MedicamentoDto) {
     const exacto = tratamientos.filter(t => t.cnPreferente && normalizarCN(t.cnPreferente) === c);
+    tratamientoId = '';      // cada medicamento nuevo empieza sin tratamiento: nunca se arrastra el de la caja anterior
     if (exacto.length === 1) { tratamientoId = exacto[0].id; return; }
     const pa = (m.principiosActivos ?? '').toLowerCase();
     const parecidos = pa ? tratamientos.filter(t => t.principioActivo && pa.includes(t.principioActivo.toLowerCase())) : [];
@@ -123,7 +124,7 @@
   $effect(() => {
     const p = parametros();
     // dependencias explícitas para que Svelte las vigile aunque `parametros` salga antes
-    void [lote, caducidad, serie, lectura, unidadesTxt, tratamientoId];
+    void [lote, caducidad, serie, lectura, unidadesTexto, tratamientoId];
     if (!p) { resultado = null; errorComprobar = ''; return; }
     const mi = ++secuencia;
     comprobando = true;
@@ -223,8 +224,8 @@
     const n = r.datos.normalizado;
     const nueva: Entrada = { hora: new Date().toTimeString().slice(0, 5), fecha: hoyIso(), paciente: paciente!.nombre, medicamento: nombre, lote: n?.lote ?? lote, caducidad: n?.caducidad ?? caducidad, unidades: n?.unidades ?? unidades };
     hoy = [nueva, ...hoy].slice(0, 60); guardarLocal('spd.cajas.hoy', hoy);
-    exito = `Guardada: ${nombre}, lote ${nueva.lote}, ${nueva.unidades} unidades.`;
     limpiarCaja(); resultado = null; escaneo = '';
+    exito = `Guardada: ${nombre}, lote ${nueva.lote}, ${nueva.unidades} unidades.`;
     await cargarTratamientos(paciente!.id);
     campoEscaneo?.focus();
   }
@@ -287,7 +288,7 @@
         <div class="campo campo-grande"><label for="cn">Código nacional (CN)</label>
           <input id="cn" bind:value={cn} inputmode="numeric" autocomplete="off" class="mono" data-prueba="cn" /></div>
         <div class="campo campo-grande"><label for="unidades">Unidades de la caja</label>
-          <input id="unidades" bind:this={campoUnidades} bind:value={unidadesTxt} oninput={() => (unidadesEditadas = true)} onkeydown={enterUnidades} inputmode="numeric" autocomplete="off" class="mono" data-prueba="unidades" />
+          <input id="unidades" bind:this={campoUnidades} value={unidadesTexto} oninput={(e) => { unidadesTxt = e.currentTarget.value; unidadesEditadas = true; }} onkeydown={enterUnidades} inputmode="numeric" autocomplete="off" class="mono" data-prueba="unidades" />
           {#if medicamento?.unidadesEnvase}<span class="ayuda">Del medicamento: {medicamento.unidadesEnvase}</span>{/if}</div>
         <div class="campo campo-grande"><label for="lote">Lote <span class="suave">(obligatorio)</span></label>
           <input id="lote" bind:this={campoLote} bind:value={lote} onkeydown={pasarA(() => campoCaducidad)} autocomplete="off" spellcheck="false" style="text-transform:uppercase" data-prueba="lote" /></div>

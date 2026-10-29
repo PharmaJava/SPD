@@ -179,11 +179,15 @@ test('estado de consentimientos: faltan → completo tras firmar los dos → rev
   assert.equal(e.completo, true);
   assert.deepEqual(e.firmados.map((f) => f.codigo).sort(), ['consentimiento_spd', 'info_rgpd']);
   assert.equal(e.firmados[0].firmante, 'Pedro López');
+  assert.ok(e.firmados.every((f) => Number.isInteger(f.id) && f.revocado === false));
   ok(await api.revocarDocumento(info.id, 'El paciente deja el servicio'));
   const r = ok(await api.estadoConsentimientos(1));
   assert.deepEqual(r.revocados, ['info_rgpd']);
   assert.equal(r.completo, false);
-  assert.ok(!r.firmados.some((f) => f.codigo === 'info_rgpd'));
+  const rev = r.firmados.find((f) => f.codigo === 'info_rgpd')!;
+  assert.equal(rev.revocado, true);
+  assert.equal(rev.id, info.id);
+  assert.equal(r.firmados.find((f) => f.codigo === 'consentimiento_spd')!.revocado, false);
 });
 
 test('revocar: exige motivo, no se repite, deja rastro', async () => {

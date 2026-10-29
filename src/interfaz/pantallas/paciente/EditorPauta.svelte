@@ -108,7 +108,7 @@
           <div class="campo"><span style="font-weight:600;font-size:.9rem">Dosis en cada momento (unidades: comprimidos, cápsulas…)</span>
             <div class="dosis-grid">
               {#each activos as m (m.id)}
-                <div class="celda"><strong>{m.nombre}{#if m.hora} <span class="suave pequeno">{m.hora}</span>{/if}</strong>
+                <div class="celda"><strong>{m.nombre}</strong>{#if m.hora}<span class="suave pequeno">{m.hora}</span>{/if}
                   <select aria-label="Dosis en {m.nombre}" value={dosis[m.id] ?? 0} onchange={(e) => (dosis[m.id] = Number(e.currentTarget.value))}>
                     {#each opcionesDosis(dosis[m.id] ?? 0) as o (o.valor)}<option value={o.valor}>{o.texto}</option>{/each}
                   </select></div>
