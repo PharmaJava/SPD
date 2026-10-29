@@ -1,0 +1,125 @@
+/* Estilos de las pantallas de cajas, preparación, medicamentos y auditoría (U2).
+   Sólo variables de tokens.css; las utilidades nuevas viven aquí. */
+.solo-lectores { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.dos-col { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(300px, 1fr); gap: 1.2rem; align-items: start; }
+.tres-col { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .8rem; }
+.dos-campos { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .8rem; }
+.cuatro-campos { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .8rem; }
+.margen-s { margin-top: .6rem; } .margen-m { margin-top: 1.1rem; }
+.sin-margen { margin: 0; }
+.apilado { display: flex; flex-direction: column; gap: .8rem; }
+.negrita { font-weight: 700; }
+.mono { font-variant-numeric: tabular-nums; }
+.derecha { text-align: right; }
+.nowrap { white-space: nowrap; }
+.btn.grande { min-height: 54px; font-size: 1.1rem; padding: 0 1.6rem; }
+.btn.mini { min-height: 34px; padding: 0 .7rem; font-size: .88rem; }
+.btn .atajo { font-size: .75rem; font-weight: 600; opacity: .8; border: 1px solid currentColor; border-radius: 4px; padding: 0 .3rem; }
+.cabecera-pagina .subtitulo { color: var(--texto-suave); margin: 0; }
+.tarjeta h2 { display: flex; align-items: center; gap: .5rem; }
+.tarjeta.fuerte { border-color: var(--acento); box-shadow: 0 0 0 3px var(--acento-fondo), var(--sombra); }
+
+/* Campo de escaneo: protagonista de «Entrada de cajas» */
+.escaneo { display: flex; gap: .8rem; align-items: center; }
+.escaneo input { min-height: 68px; font-size: 1.5rem; font-weight: 600; padding: 0 1.1rem; border: 3px solid var(--acento); border-radius: var(--radio); letter-spacing: .02em; }
+.escaneo input:focus { box-shadow: 0 0 0 5px var(--acento-fondo); outline: none; }
+.escaneo .icono-lector { font-size: 2rem; color: var(--acento); }
+.campo-grande input, input.grande { min-height: 56px; font-size: 1.3rem; font-weight: 600; }
+.campo.mal input { border-color: var(--bloqueo); }
+.resumen-envase { display: flex; gap: .8rem; align-items: baseline; flex-wrap: wrap; padding: .7rem 1rem; border-radius: var(--radio-s); background: var(--acento-fondo); color: var(--texto); }
+.resumen-envase .nombre { font-size: 1.15rem; font-weight: 700; }
+
+/* Pasos del asistente de preparar */
+.pasos { display: flex; gap: .6rem; margin-bottom: 1.2rem; }
+.paso { flex: 1; display: flex; align-items: center; gap: .7rem; padding: .7rem 1rem; border-radius: var(--radio); background: var(--superficie-2); color: var(--texto-suave); font-weight: 600; border: 2px solid transparent; }
+.paso .num { width: 2rem; height: 2rem; border-radius: 50%; display: grid; place-items: center; background: var(--superficie); border: 2px solid var(--borde); font-weight: 800; flex: none; }
+.paso.activo { background: var(--acento-fondo); color: var(--acento-fuerte); border-color: var(--acento); }
+.paso.activo .num { background: var(--acento); border-color: var(--acento); color: #fff; }
+.paso.hecho { color: var(--ok); } .paso.hecho .num { background: var(--ok-fondo); border-color: var(--ok); color: var(--ok); }
+.barra-acciones { display: flex; gap: .8rem; align-items: center; justify-content: flex-end; flex-wrap: wrap; margin-top: 1.2rem; padding-top: 1rem; border-top: 1px solid var(--borde); }
+.barra-acciones .espacio { flex: 1; }
+
+/* Leyenda de medicamentos */
+.leyenda { display: flex; flex-direction: column; gap: .5rem; }
+.leyenda-item { display: flex; gap: .8rem; align-items: center; padding: .55rem .8rem; border: 2px solid var(--borde); border-radius: var(--radio-s); background: var(--superficie); text-align: left; font: inherit; color: inherit; width: 100%; }
+button.leyenda-item { cursor: pointer; }
+button.leyenda-item:hover { background: var(--superficie-2); }
+.leyenda-item.activo { border-color: var(--acento); box-shadow: 0 0 0 3px var(--acento-fondo); }
+.leyenda-item.completo { opacity: .75; }
+.leyenda-item .texto { flex: 1; min-width: 0; }
+.leyenda-item .nombre { font-weight: 700; }
+.leyenda-item .desc { color: var(--texto-suave); font-size: .88rem; }
+.leyenda-item .progreso { font-weight: 700; white-space: nowrap; }
+.leyenda-item .tecla { font-size: .75rem; border: 1px solid var(--borde); border-radius: 4px; padding: 0 .3rem; color: var(--texto-suave); }
+.insignia-med { width: 2.4rem; height: 2.4rem; border-radius: 10px; background: var(--c, var(--med-1)); color: #fff; display: grid; place-items: center; font-weight: 800; font-size: 1.25rem; flex: none; }
+
+/* Mapa del blíster */
+.mapa-envoltorio { overflow-x: auto; padding: 4px; }
+.mapa { display: grid; gap: 5px; min-width: 520px; }
+.mapa .cab { font-weight: 700; font-size: .85rem; color: var(--texto-suave); text-align: center; padding: .25rem .2rem; align-self: end; }
+.mapa .cab small { display: block; font-weight: 500; }
+.mapa .dia { font-weight: 700; font-size: .9rem; align-self: center; padding-right: .4rem; line-height: 1.2; }
+.mapa .dia small { display: block; font-weight: 500; color: var(--texto-suave); }
+.alveolo { border: 2px solid var(--borde); border-radius: 12px; min-height: 58px; padding: .25rem; display: flex; flex-wrap: wrap; gap: .25rem; align-items: center; justify-content: center; background: var(--superficie); position: relative; font: inherit; color: inherit; }
+button.alveolo { cursor: pointer; }
+.alveolo.sin-uso { background: repeating-linear-gradient(45deg, var(--superficie-2) 0 6px, transparent 6px 12px); border-style: dashed; opacity: .6; }
+.alveolo.sin-toma { background: var(--superficie-2); color: var(--texto-suave); }
+.alveolo.apagado { opacity: .3; }
+.alveolo.siguiente { border-color: var(--acento); box-shadow: 0 0 0 4px var(--acento-fondo), 0 0 0 6px var(--acento); animation: u2-pulso 1.4s ease-in-out infinite; z-index: 1; }
+@keyframes u2-pulso { 50% { box-shadow: 0 0 0 4px var(--acento-fondo), 0 0 0 9px var(--acento); } }
+.alveolo.completa { background: var(--ok-fondo); border-color: var(--ok); }
+.chip-med { display: inline-flex; align-items: center; gap: .3rem; padding: .08rem .5rem .08rem .1rem; border-radius: 999px; background: var(--c, var(--med-1)); color: #fff; font-weight: 800; font-size: .95rem; }
+.chip-med .letra { width: 1.5rem; height: 1.5rem; border-radius: 50%; background: #fff; color: var(--c, var(--med-1)); display: grid; place-items: center; font-size: .9rem; }
+.chip-med .ud { font-size: 1.05rem; }
+.chip-med.hecho::after { content: '✓'; margin-left: .1rem; }
+.chip-med.hecho { opacity: .7; text-decoration: line-through; text-decoration-thickness: 2px; }
+.indicacion-siguiente { display: flex; align-items: center; gap: 1rem; padding: .8rem 1.1rem; border-radius: var(--radio); background: var(--acento-fondo); border: 2px solid var(--acento); margin-bottom: .8rem; flex-wrap: wrap; }
+.indicacion-siguiente .grande { font-size: 1.3rem; font-weight: 800; }
+
+/* Vista previa de impresión */
+.vista-marco { border: 1px solid var(--borde); border-radius: var(--radio-s); background: #d9d9d9; padding: 1rem; overflow: auto; max-height: 70vh; display: flex; justify-content: center; }
+.vista-marco iframe { border: 0; background: #fff; box-shadow: 0 2px 10px rgba(0,0,0,.25); flex: none; }
+
+/* Diálogos */
+dialog.u2-modal { border: 1px solid var(--borde); border-radius: var(--radio); padding: 0; background: var(--superficie); color: var(--texto); width: min(640px, 94vw); box-shadow: 0 12px 40px rgba(0,0,0,.3); }
+dialog.u2-modal.ancho { width: min(980px, 96vw); }
+dialog.u2-modal::backdrop { background: rgba(20,25,27,.55); }
+dialog.u2-modal .cuerpo-modal { padding: 1.2rem 1.4rem; max-height: 78vh; overflow: auto; }
+dialog.u2-modal header { padding: 1rem 1.4rem; border-bottom: 1px solid var(--borde); display: flex; align-items: center; gap: .6rem; }
+dialog.u2-modal header h2 { margin: 0; flex: 1; }
+dialog.u2-modal footer { padding: .9rem 1.4rem; border-top: 1px solid var(--borde); display: flex; gap: .7rem; justify-content: flex-end; }
+
+/* Desplegable de búsqueda de paciente */
+.busca { position: relative; }
+.busca ul { position: absolute; z-index: 20; left: 0; right: 0; top: 100%; margin: 4px 0 0; padding: 4px; list-style: none; background: var(--superficie); border: 1px solid var(--borde); border-radius: var(--radio-s); box-shadow: var(--sombra); max-height: 320px; overflow: auto; }
+.busca li { padding: .55rem .7rem; border-radius: 6px; cursor: pointer; display: flex; gap: .6rem; align-items: center; }
+.busca li[aria-selected="true"], .busca li:hover { background: var(--acento-fondo); }
+.elegido { display: flex; align-items: center; gap: .7rem; padding: .5rem .8rem; border: 2px solid var(--acento); border-radius: var(--radio-s); background: var(--acento-fondo); min-height: var(--alto-control); }
+.elegido .nombre { font-weight: 700; flex: 1; }
+
+/* Listas y miscelánea */
+.lista-plana { list-style: none; margin: 0; padding: 0; }
+.lista-plana li { padding: .55rem 0; border-bottom: 1px solid var(--borde); display: flex; gap: .7rem; align-items: center; }
+.lista-plana li:last-child { border-bottom: 0; }
+.lista-plana .espacio { flex: 1; min-width: 0; }
+.scroll-x { overflow-x: auto; }
+.cobertura { font-weight: 800; }
+.cobertura.poca { color: var(--bloqueo); } .cobertura.justa { color: var(--atencion); } .cobertura.bien { color: var(--ok); }
+.cargando-linea { color: var(--texto-suave); padding: 1rem; text-align: center; }
+.cargando-linea::before { content: ''; display: inline-block; width: 1em; height: 1em; margin-right: .6em; vertical-align: -.15em; border: 3px solid var(--borde); border-top-color: var(--acento); border-radius: 50%; animation: u2-gira 1s linear infinite; }
+@keyframes u2-gira { to { transform: rotate(360deg); } }
+.toast-u2 { position: fixed; right: 1.5rem; bottom: 1.5rem; z-index: 100; max-width: 420px; box-shadow: var(--sombra); }
+.pildora-aspecto { display: inline-flex; align-items: center; gap: .4rem; }
+.muestra-color { width: 1.1rem; height: 1.1rem; border-radius: 50%; border: 1px solid var(--texto-suave); display: inline-block; }
+.ficha-detalle dt { font-size: .8rem; text-transform: uppercase; letter-spacing: .03em; color: var(--texto-suave); margin-top: .7rem; }
+.ficha-detalle dd { margin: .1rem 0 0; }
+.filtros { display: flex; gap: .8rem; align-items: end; flex-wrap: wrap; margin-bottom: 1rem; }
+.filtros .campo { margin-bottom: 0; }
+.tarjeta-clic { cursor: pointer; }
+
+@media (max-width: 1100px) {
+  .dos-col { grid-template-columns: minmax(0, 1fr); }
+  .cuatro-campos { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pasos .paso span.txt { display: none; } .pasos .paso.activo span.txt { display: inline; }
+}
+@media print { .lateral, .barra-acciones { display: none !important; } }
