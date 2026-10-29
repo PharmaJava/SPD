@@ -18,6 +18,9 @@ import type { Aviso } from '../dominio/entrada-envase.ts';
 import type { PropuestaDescripcion } from '../dominio/descripcion-fisica.ts';
 import type { Clasificacion } from '../dominio/aptitud-spd.ts';
 import type { TrazabilidadAlerta } from '../dominio/alertas-calidad.ts';
+import type { TipoCentro, OrigenPaciente, ResumenOrigen } from '../dominio/origen-paciente.ts';
+
+export type { TipoCentro, OrigenPaciente, ResumenOrigen };
 
 export type Resultado<T> = { ok: true; datos: T } | { ok: false; error: string; codigo?: string };
 
@@ -139,6 +142,8 @@ export type NuevoPaciente = Omit<PacienteDto, 'id' | 'idPublico' | 'altaEn' | 'b
 /** Fila de la lista de pacientes: lo que hace falta para decidir sin abrir la ficha. */
 export interface PacienteResumen {
   id: number; nombreCompleto: string; estado: EstadoPaciente; centro?: string | null; habitacion?: string | null;
+  /** Individual (sin centro) o procedente de un centro; `centroTipo` y `centroId` sólo si es de centro. */
+  origen: OrigenPaciente; centroId?: number | null; centroTipo?: TipoCentro | null;
   alergias: string[]; consentimientoSpd: boolean;
   /** Días que cubren las cajas en uso (el mínimo de sus tratamientos emblistables); null si no tiene tratamientos. */
   coberturaDias: number | null;
@@ -148,7 +153,7 @@ export interface PacienteResumen {
 
 export interface ContactoDto { id: number; pacienteId: number; tipo: string; nombre: string; dniNie?: string | null; parentesco?: string | null; telefono?: string | null; email?: string | null; numColegiado?: string | null; centroSalud?: string | null; autorizadoRecoger: boolean; notas?: string | null }
 export interface SaludDatoDto { id: number; pacienteId: number; tipo: string; descripcion: string; valor?: string | null; fecha?: string | null; fuente?: string | null; vigente: boolean }
-export interface CentroDto { id: number; nombre: string; direccion?: string | null; telefono?: string | null; contacto?: string | null }
+export interface CentroDto { id: number; nombre: string; direccion?: string | null; telefono?: string | null; contacto?: string | null; tipo: TipoCentro; activo: boolean }
 
 export interface MedicamentoDto {
   cn: string; nombre: string; nregistro?: string | null; principiosActivos?: string | null; laboratorio?: string | null;
@@ -252,12 +257,16 @@ export interface PanelHoy {
 export interface ApiClinica {
   panelHoy(): Promise<Resultado<PanelHoy>>;
 
-  listarPacientes(filtro?: { texto?: string; estado?: EstadoPaciente | 'todos'; centroId?: number }): Promise<Resultado<PacienteResumen[]>>;
+  listarPacientes(filtro?: { texto?: string; estado?: EstadoPaciente | 'todos'; centroId?: number; origen?: OrigenPaciente; centroTipo?: TipoCentro }): Promise<Resultado<PacienteResumen[]>>;
   obtenerPaciente(id: number): Promise<Resultado<PacienteDto>>;
   guardarPaciente(p: NuevoPaciente): Promise<Resultado<PacienteDto>>;
   darDeBajaPaciente(id: number, motivo: string, estado: Exclude<EstadoPaciente, 'activo'>): Promise<Resultado<PacienteDto>>;
   listarCentros(): Promise<Resultado<CentroDto[]>>;
-  guardarCentro(c: Omit<CentroDto, 'id'> & { id?: number }): Promise<Resultado<CentroDto>>;
+  guardarCentro(c: Omit<CentroDto, 'id' | 'tipo' | 'activo'> & { id?: number; tipo?: TipoCentro; activo?: boolean }): Promise<Resultado<CentroDto>>;
+  /** Devuelve el centro con ese nombre (sin distinguir mayúsculas, tildes ni espacios) o lo crea con el tipo dado. */
+  obtenerOCrearCentro(c: { nombre: string; tipo: TipoCentro }): Promise<Resultado<{ centro: CentroDto; creado: boolean }>>;
+  /** Pacientes activos por origen (individuales, por tipo de centro y por centro). */
+  resumenOrigen(): Promise<Resultado<ResumenOrigen>>;
   listarContactos(pacienteId: number): Promise<Resultado<ContactoDto[]>>;
   guardarContacto(c: Omit<ContactoDto, 'id'> & { id?: number }): Promise<Resultado<ContactoDto>>;
   listarSalud(pacienteId: number): Promise<Resultado<SaludDatoDto[]>>;

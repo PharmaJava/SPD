@@ -17,7 +17,7 @@ import * as envases from './clinica/envases.ts';
 import { panelHoy } from './clinica/panel.ts';
 
 export type ClinicaBase = Pick<ApiClinica,
-  'panelHoy' | 'listarPacientes' | 'obtenerPaciente' | 'guardarPaciente' | 'darDeBajaPaciente' | 'listarCentros' | 'guardarCentro' |
+  'panelHoy' | 'listarPacientes' | 'obtenerPaciente' | 'guardarPaciente' | 'darDeBajaPaciente' | 'listarCentros' | 'guardarCentro' | 'obtenerOCrearCentro' | 'resumenOrigen' |
   'listarContactos' | 'guardarContacto' | 'listarSalud' | 'guardarSalud' | 'buscarMedicamentos' | 'obtenerMedicamento' |
   'guardarMedicamento' | 'analizarFichaTecnica' | 'fichasIncompletas' | 'listarTratamientos' | 'guardarTratamiento' | 'guardarPauta' |
   'finalizarTratamiento' | 'listarEnvases' | 'comprobarEntradaEnvase' | 'registrarEnvase' | 'cerrarEnvase' | 'importarAlertaCalidad'>;
@@ -31,6 +31,8 @@ export function crearClinicaBase(ctx: Contexto): ClinicaBase {
     darDeBajaPaciente: (id, motivo, estado) => pacientes.darDeBajaPaciente(ctx, id, motivo, estado),
     listarCentros: () => pacientes.listarCentros(ctx),
     guardarCentro: (c) => pacientes.guardarCentro(ctx, c),
+    obtenerOCrearCentro: (c) => pacientes.obtenerOCrearCentro(ctx, c),
+    resumenOrigen: () => pacientes.resumenOrigen(ctx),
     listarContactos: (id) => pacientes.listarContactos(ctx, id),
     guardarContacto: (c) => pacientes.guardarContacto(ctx, c),
     listarSalud: (id) => pacientes.listarSalud(ctx, id),

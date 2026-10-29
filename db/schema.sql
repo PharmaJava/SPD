@@ -1,6 +1,7 @@
 -- =============================================================================
 -- SPD — esquema de base de datos (SQLite + SQLCipher)
--- Versión de esquema 1. Las siguientes van como migraciones numeradas.
+-- Versión de esquema 2 (v2: centro con tipo, activo y nombre normalizado). Las anteriores
+-- se actualizan con las migraciones numeradas de src/servicios/db.ts.
 --
 -- Convenciones:
 --   * Claves primarias INTEGER autoincrementales; id_publico (UUID) donde un
@@ -97,14 +98,22 @@ CREATE TABLE paciente (
 );
 CREATE INDEX paciente_nombre ON paciente(apellido1, apellido2, nombre);
 
-CREATE TABLE centro (               -- residencias / centros sociosanitarios
+CREATE TABLE centro (               -- residencias, hospitales, centros… de donde procede un paciente
   id         INTEGER PRIMARY KEY,
   nombre     TEXT NOT NULL,
   direccion  TEXT,
   telefono   TEXT,
   contacto   TEXT,
-  notas      TEXT
+  notas      TEXT,
+  -- Origen del paciente: sin centro_id el paciente es «individual». El tipo permite las estadísticas.
+  tipo       TEXT NOT NULL DEFAULT 'otro' CHECK (tipo IN
+             ('residencia_mayores','salud_mental','infantil_menores','discapacidad','hospital','sociosanitario','penitenciario','otro')),
+  activo     INTEGER NOT NULL DEFAULT 1,
+  -- Nombre sin tildes, mayúsculas ni signos (dominio/origen-paciente.ts): evita duplicar «Sol» y «sol».
+  nombre_norm TEXT NOT NULL DEFAULT ''
 );
+CREATE INDEX centro_nombre_norm ON centro(nombre_norm);
+CREATE INDEX paciente_centro ON paciente(centro_id);
 
 CREATE TABLE contacto (             -- cuidador, representante legal, médico…
   id            INTEGER PRIMARY KEY,

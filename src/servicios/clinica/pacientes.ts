@@ -4,7 +4,8 @@
  */
 import type { Contexto } from '../contexto.ts';
 import { proteger } from '../contexto.ts';
-import type { Resultado, PacienteDto, NuevoPaciente, PacienteResumen, EstadoPaciente, CentroDto, ContactoDto, SaludDatoDto } from '../api.ts';
+import type { Resultado, PacienteDto, NuevoPaciente, PacienteResumen, EstadoPaciente, CentroDto, ContactoDto, SaludDatoDto, TipoCentro, OrigenPaciente, ResumenOrigen } from '../api.ts';
+import { TIPOS_CENTRO, esTipoCentro, normalizarNombreCentro, buscarCentroIgual, resumirOrigen } from '../../dominio/origen-paciente.ts';
 import { normalizar } from '../../dominio/aptitud-spd.ts';
 import { ahoraISO, bd, bool, boolDb, esFechaIso, exigirSesion, hoyISO, invalido, noEncontrado, sumarDias, sumarMeses, texto, textoObligatorio } from './comun.ts';
 import type { R } from './comun.ts';
@@ -51,25 +52,30 @@ const nombreCompleto = (r: R): string => [r.nombre, r.apellido1, r.apellido2].fi
 
 // ───────────────────────────── Pacientes ─────────────────────────────
 
-export function listarPacientes(ctx: Contexto, filtro: { texto?: string; estado?: EstadoPaciente | 'todos'; centroId?: number } = {}): Promise<Resultado<PacienteResumen[]>> {
+export function listarPacientes(ctx: Contexto, filtro: { texto?: string; estado?: EstadoPaciente | 'todos'; centroId?: number; origen?: OrigenPaciente; centroTipo?: TipoCentro } = {}): Promise<Resultado<PacienteResumen[]>> {
   return proteger(() => {
     exigirSesion(ctx);
     const db = bd(ctx);
     const f = filtro ?? {};
     const hoy = hoyISO(ctx);
     const filas = db.all<R>(
-      `SELECT p.*, c.nombre AS centro_nombre FROM paciente p LEFT JOIN centro c ON c.id = p.centro_id
+      `SELECT p.*, c.nombre AS centro_nombre, c.tipo AS centro_tipo FROM paciente p LEFT JOIN centro c ON c.id = p.centro_id
         ORDER BY p.apellido1 COLLATE NOCASE, p.apellido2 COLLATE NOCASE, p.nombre COLLATE NOCASE, p.id`);
 
     // Filtros (en memoria: la búsqueda sin tildes no la sabe hacer SQLite).
     const estado = f.estado;
     if (estado !== undefined && estado !== 'todos' && !ESTADOS.includes(estado)) throw invalido('Estado de paciente no válido.');
+    if (f.origen !== undefined && f.origen !== 'individual' && f.origen !== 'centro') throw invalido('Origen de paciente no válido.');
+    if (f.centroTipo !== undefined && !esTipoCentro(f.centroTipo)) throw invalido('Tipo de centro no válido.');
     const tokens = normalizar(typeof f.texto === 'string' ? f.texto : '').split(' ').filter(Boolean);
     const tokensDni = tokens.map((t) => t.replace(/[.\-]/g, ''));
     const visibles = filas.filter((r) => {
       if (estado === undefined) { if (r.estado === 'baja' || r.estado === 'fallecido') return false; }
       else if (estado !== 'todos' && r.estado !== estado) return false;
       if (f.centroId !== undefined && r.centro_id !== f.centroId) return false;
+      if (f.origen === 'individual' && r.centro_id != null) return false;
+      if (f.origen === 'centro' && r.centro_id == null) return false;
+      if (f.centroTipo !== undefined && (r.centro_id == null || r.centro_tipo !== f.centroTipo)) return false;
       if (tokens.length === 0) return true;
       const pajar = normalizar([r.nombre, r.apellido1, r.apellido2, nombreCompleto(r), r.dni_nie, r.cip_autonomico, r.cip_sns].filter(Boolean).join(' '));
       const pajarDni = normalizar(String(r.dni_nie ?? '')).replace(/[.\-\s]/g, '');
@@ -92,6 +98,7 @@ export function listarPacientes(ctx: Contexto, filtro: { texto?: string; estado?
 
     return visibles.map((r): PacienteResumen => ({
       id: r.id, nombreCompleto: nombreCompleto(r), estado: r.estado, centro: r.centro_nombre ?? null, habitacion: r.habitacion ?? null,
+      origen: r.centro_id == null ? 'individual' : 'centro', centroId: r.centro_id ?? null, centroTipo: r.centro_id == null ? null : (r.centro_tipo ?? 'otro'),
       alergias: alergias.get(r.id) ?? [], consentimientoSpd: conConsentimiento.has(r.id),
       coberturaDias: cobertura.get(r.id) ?? null,
       proximaPreparacion: finPrep.has(r.id) ? sumarDias(finPrep.get(r.id)!, 1) : null,
@@ -122,7 +129,7 @@ interface DatosPaciente {
   proximaRevision: string | null; notas: string | null;
 }
 
-function validarPaciente(db: Db, p: NuevoPaciente, hoy: string): DatosPaciente {
+function validarPaciente(db: Db, p: NuevoPaciente, hoy: string, centroActual: number | null = null): DatosPaciente {
   if (!p || typeof p !== 'object') throw invalido('Faltan los datos del paciente.');
   const nombre = textoObligatorio(p.nombre, 'el nombre', 100);
   const apellido1 = textoObligatorio(p.apellido1, 'el primer apellido', 100);
@@ -139,7 +146,10 @@ function validarPaciente(db: Db, p: NuevoPaciente, hoy: string): DatosPaciente {
   if (email !== null && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw invalido('El correo electrónico no es válido.');
   let centroId: number | null = null;
   if (p.centroId !== undefined && p.centroId !== null) {
-    if (typeof p.centroId !== 'number' || !db.get('SELECT 1 FROM centro WHERE id = ?', [p.centroId])) throw invalido('El centro indicado no existe.');
+    const c = typeof p.centroId === 'number' ? db.get<R>('SELECT activo FROM centro WHERE id = ?', [p.centroId]) : undefined;
+    if (!c) throw invalido('El centro indicado no existe.');
+    // Un centro dado de baja no admite pacientes nuevos; quien ya estaba en él puede seguir.
+    if (!bool(c.activo) && p.centroId !== centroActual) throw invalido('Ese centro está dado de baja: reactívalo o elige otro.');
     centroId = p.centroId;
   }
   return {
@@ -148,7 +158,7 @@ function validarPaciente(db: Db, p: NuevoPaciente, hoy: string): DatosPaciente {
     tsiCcaa: texto(p.tsiCcaa, 'comunidad de la tarjeta', 100), aseguradora: texto(p.aseguradora, 'aseguradora', 100),
     direccion: texto(p.direccion, 'dirección', 200), codigoPostal: texto(p.codigoPostal, 'código postal', 10), municipio: texto(p.municipio, 'municipio', 100),
     telefono: texto(p.telefono, 'teléfono', 40), telefono2: texto(p.telefono2, 'segundo teléfono', 40), email, centroId,
-    habitacion: texto(p.habitacion, 'habitación', 40), necesitaBraille: bool(p.necesitaBraille), letraGrande: bool(p.letraGrande),
+    habitacion: centroId === null ? null : texto(p.habitacion, 'habitación', 40), necesitaBraille: bool(p.necesitaBraille), letraGrande: bool(p.letraGrande),
     proximaRevision, notas: texto(p.notas, 'notas', 4000),
   };
 }
@@ -159,8 +169,9 @@ export function guardarPaciente(ctx: Contexto, p: NuevoPaciente): Promise<Result
     const db = bd(ctx);
     const hoy = hoyISO(ctx);
     const dto = db.transaccion(() => {
-      const d = validarPaciente(db, p, hoy);
       const id = p.id;
+      const centroActual = id !== undefined && id !== null ? (db.get<R>('SELECT centro_id FROM paciente WHERE id = ?', [id])?.centro_id ?? null) : null;
+      const d = validarPaciente(db, p, hoy, centroActual);
       if (id !== undefined && id !== null) {
         const antes = exigirPaciente(db, id);
         if (d.dniNie) {
@@ -225,7 +236,10 @@ export function darDeBajaPaciente(ctx: Contexto, id: number, motivo: string, est
 
 // ───────────────────────────── Centros ─────────────────────────────
 
-const centroDto = (r: R): CentroDto => ({ id: r.id, nombre: r.nombre, direccion: r.direccion ?? null, telefono: r.telefono ?? null, contacto: r.contacto ?? null });
+const centroDto = (r: R): CentroDto => ({
+  id: r.id, nombre: r.nombre, direccion: r.direccion ?? null, telefono: r.telefono ?? null, contacto: r.contacto ?? null,
+  tipo: esTipoCentro(r.tipo) ? r.tipo : 'otro', activo: bool(r.activo),
+});
 
 export function listarCentros(ctx: Contexto): Promise<Resultado<CentroDto[]>> {
   return proteger(() => {
@@ -234,29 +248,89 @@ export function listarCentros(ctx: Contexto): Promise<Resultado<CentroDto[]>> {
   });
 }
 
-export function guardarCentro(ctx: Contexto, c: Omit<CentroDto, 'id'> & { id?: number }): Promise<Resultado<CentroDto>> {
+function tipoCentroValido(v: unknown): TipoCentro {
+  if (!esTipoCentro(v)) throw invalido(`Tipo de centro no válido (${TIPOS_CENTRO.join(', ')}).`);
+  return v;
+}
+
+function centroIgual(db: Db, nombre: string, excluirId?: number): CentroDto | undefined {
+  return buscarCentroIgual(db.all<R>('SELECT id, nombre, tipo, activo FROM centro').map(centroDto), nombre, excluirId);
+}
+
+export function guardarCentro(ctx: Contexto, c: Omit<CentroDto, 'id' | 'tipo' | 'activo'> & { id?: number; tipo?: TipoCentro; activo?: boolean }): Promise<Resultado<CentroDto>> {
   return proteger(() => {
     exigirSesion(ctx);
     const db = bd(ctx);
     const dto = db.transaccion(() => {
       if (!c || typeof c !== 'object') throw invalido('Faltan los datos del centro.');
       const nombre = textoObligatorio(c.nombre, 'el nombre del centro', 150);
-      const vals = [nombre, texto(c.direccion, 'dirección', 200), texto(c.telefono, 'teléfono', 40), texto(c.contacto, 'contacto', 150)];
+      const norm = normalizarNombreCentro(nombre);
+      if (norm === '') throw invalido('El nombre del centro no es válido.');
+      const comunes = [texto(c.direccion, 'dirección', 200), texto(c.telefono, 'teléfono', 40), texto(c.contacto, 'contacto', 150)];
       if (c.id !== undefined && c.id !== null) {
         const antes = db.get<R>('SELECT * FROM centro WHERE id = ?', [c.id]);
         if (!antes) throw noEncontrado('Centro no encontrado.');
-        db.run('UPDATE centro SET nombre=?, direccion=?, telefono=?, contacto=? WHERE id=?', [...vals, c.id]);
+        // Sólo se exige nombre único si el nombre cambia (puede haber duplicados antiguos).
+        if (norm !== antes.nombre_norm) {
+          const otro = centroIgual(db, nombre, c.id);
+          if (otro) throw invalido(`Ya existe un centro con ese nombre («${otro.nombre}»).`);
+        }
+        const tipo = c.tipo === undefined ? centroDto(antes).tipo : tipoCentroValido(c.tipo);
+        const activo = c.activo === undefined ? bool(antes.activo) : bool(c.activo);
+        db.run('UPDATE centro SET nombre=?, direccion=?, telefono=?, contacto=?, tipo=?, activo=?, nombre_norm=? WHERE id=?', [nombre, ...comunes, tipo, boolDb(activo), norm, c.id]);
         const despues = centroDto(db.get<R>('SELECT * FROM centro WHERE id = ?', [c.id])!);
         ctx.auditar({ accion: 'modificar', entidad: 'centro', entidadId: c.id, antes: centroDto(antes), despues });
         return despues;
       }
-      const id = db.run('INSERT INTO centro(nombre,direccion,telefono,contacto) VALUES (?,?,?,?)', vals).ultimoId;
+      const otro = centroIgual(db, nombre);
+      if (otro) throw invalido(`Ya existe un centro con ese nombre («${otro.nombre}»).`);
+      const tipo = c.tipo === undefined ? 'otro' : tipoCentroValido(c.tipo);
+      const id = db.run('INSERT INTO centro(nombre,direccion,telefono,contacto,tipo,activo,nombre_norm) VALUES (?,?,?,?,?,?,?)',
+        [nombre, ...comunes, tipo, boolDb(c.activo === undefined ? true : bool(c.activo)), norm]).ultimoId;
       const despues = centroDto(db.get<R>('SELECT * FROM centro WHERE id = ?', [id])!);
       ctx.auditar({ accion: 'crear', entidad: 'centro', entidadId: id, despues });
       return despues;
     });
     ctx.persistir();
     return dto;
+  });
+}
+
+/** Para el alta de paciente: reutiliza el centro que ya existe con ese nombre o lo crea (auditado). */
+export function obtenerOCrearCentro(ctx: Contexto, c: { nombre: string; tipo: TipoCentro }): Promise<Resultado<{ centro: CentroDto; creado: boolean }>> {
+  return proteger(() => {
+    exigirSesion(ctx);
+    const db = bd(ctx);
+    const res = db.transaccion(() => {
+      if (!c || typeof c !== 'object') throw invalido('Faltan los datos del centro.');
+      const nombre = textoObligatorio(c.nombre, 'el nombre del centro', 150);
+      const norm = normalizarNombreCentro(nombre);
+      if (norm === '') throw invalido('El nombre del centro no es válido.');
+      const tipo = tipoCentroValido(c.tipo);
+      const existente = centroIgual(db, nombre);
+      // Si existe se reutiliza TAL CUAL: el tipo ya registrado manda (cambiarlo es una edición explícita del centro).
+      if (existente) return { centro: existente, creado: false };
+      const id = db.run('INSERT INTO centro(nombre,tipo,activo,nombre_norm) VALUES (?,?,1,?)', [nombre, tipo, norm]).ultimoId;
+      const centro = centroDto(db.get<R>('SELECT * FROM centro WHERE id = ?', [id])!);
+      ctx.auditar({ accion: 'crear', entidad: 'centro', entidadId: id, despues: centro });
+      return { centro, creado: true };
+    });
+    if (res.creado) ctx.persistir();
+    return res;
+  });
+}
+
+/** Resumen de pacientes ACTIVOS por origen: individuales, por tipo de centro y por centro. */
+export function resumenOrigen(ctx: Contexto): Promise<Resultado<ResumenOrigen>> {
+  return proteger(() => {
+    exigirSesion(ctx);
+    const db = bd(ctx);
+    const centros = db.all<R>('SELECT * FROM centro WHERE activo = 1').map(centroDto);
+    const filas = db.all<R>("SELECT p.centro_id, c.nombre AS centro_nombre, c.tipo AS centro_tipo FROM paciente p LEFT JOIN centro c ON c.id = p.centro_id WHERE p.estado = 'activo'");
+    return resumirOrigen(
+      filas.map((r) => ({ centroId: r.centro_id ?? null, centroNombre: r.centro_nombre ?? null, centroTipo: esTipoCentro(r.centro_tipo) ? r.centro_tipo : null })),
+      centros,
+    );
   });
 }
 

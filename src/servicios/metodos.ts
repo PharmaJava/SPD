@@ -22,7 +22,7 @@ export const GRUPO_DE_METODO: Record<NombreMetodo, GrupoMetodo> = {
   verificarAuditoria: 'sistema', estadoCopias: 'sistema', crearCopia: 'sistema', desbloquearConCopia: 'sistema',
   // ApiClinica
   panelHoy: 'clinica', listarPacientes: 'clinica', obtenerPaciente: 'clinica', guardarPaciente: 'clinica',
-  darDeBajaPaciente: 'clinica', listarCentros: 'clinica', guardarCentro: 'clinica', listarContactos: 'clinica',
+  darDeBajaPaciente: 'clinica', listarCentros: 'clinica', guardarCentro: 'clinica', obtenerOCrearCentro: 'clinica', resumenOrigen: 'clinica', listarContactos: 'clinica',
   guardarContacto: 'clinica', listarSalud: 'clinica', guardarSalud: 'clinica', buscarMedicamentos: 'clinica',
   obtenerMedicamento: 'clinica', guardarMedicamento: 'clinica', analizarFichaTecnica: 'clinica',
   fichasIncompletas: 'clinica', listarTratamientos: 'clinica', guardarTratamiento: 'clinica', guardarPauta: 'clinica',
