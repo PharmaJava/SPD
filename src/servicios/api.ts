@@ -95,6 +95,8 @@ export interface ApiSistema {
   estado(): Promise<Resultado<EstadoSistema>>;
   primerUso(datos: PrimerUso): Promise<Resultado<ResultadoPrimerUso>>;
   desbloquear(contrasena: string): Promise<Resultado<EstadoSistema>>;
+  /** Si el fichero principal está dañado y hay copia válida (error FICHERO_DANADO_COPIA_DISPONIBLE): restaura la copia. */
+  desbloquearConCopia(contrasena: string): Promise<Resultado<EstadoSistema & { aviso: string }>>;
   /** Restablece la contraseña con la clave de recuperación (texto). */
   recuperar(claveRecuperacion: string, nuevaContrasena: string): Promise<Resultado<EstadoSistema>>;
   bloquear(): Promise<Resultado<EstadoSistema>>;
@@ -108,7 +110,8 @@ export interface ApiSistema {
   obtenerFarmacia(): Promise<Resultado<DatosFarmacia>>;
   guardarFarmacia(d: DatosFarmacia): Promise<Resultado<DatosFarmacia>>;
   obtenerAjustes(): Promise<Resultado<Ajustes>>;
-  guardarAjustes(a: Partial<Ajustes>): Promise<Resultado<Ajustes>>;
+  /** `motivo` es obligatorio (mín. 5 caracteres) al activar la validez extendida: queda en la auditoría. */
+  guardarAjustes(a: Partial<Ajustes> & { motivo?: string }): Promise<Resultado<Ajustes>>;
   listarMomentos(): Promise<Resultado<MomentoTomaDto[]>>;
   guardarMomentos(m: { id?: number; nombre: string; hora?: string; orden: number; activo?: boolean }[]): Promise<Resultado<MomentoTomaDto[]>>;
 
@@ -183,6 +186,8 @@ export interface TratamientoDto {
   pautaVigenteTexto: string;
   coberturaDias: number | null;
   medicamento?: MedicamentoDto | null;
+  /** Avisos de seguridad de la pauta (semanal de alto riesgo, fracciones, blísteres ya preparados afectados…). */
+  avisos?: string[];
 }
 
 export interface EnvaseDto {
