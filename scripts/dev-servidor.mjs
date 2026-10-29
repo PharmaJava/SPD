@@ -18,6 +18,9 @@
 import http from 'node:http';
 import { existsSync, mkdirSync, writeFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { mkdirSync as _mk } from 'node:fs';
+// Datos de pruebas siempre bajo /tmp/SPD/sp/datos (sin nombres de herramientas ni sesiones)
+const baseDatos = () => { const b = join(tmpdir(), 'SPD', 'sp', 'datos'); _mk(b, { recursive: true }); return b; };
 import { join, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -68,7 +71,7 @@ function crearExternoDev({ cima, codigos, carpetaImpresos }) {
       if (typeof html !== 'string') return fallo('El HTML a exportar no es texto.');
       return ok({ ruta: guardar(html, nombreSugerido) });
     },
-    async elegirCarpeta() { return ok(mkdtempSync(join(tmpdir(), 'spd-carpeta-'))); },
+    async elegirCarpeta() { return ok(mkdtempSync(join(baseDatos(), 'spd-carpeta-'))); },
     async codigoSvg(texto, simbologia) {
       if (!codigos) return fallo('Módulo codigos pendiente');
       return codigos.generarCodigoSvg(texto, simbologia);
@@ -82,7 +85,7 @@ function crearExternoDev({ cima, codigos, carpetaImpresos }) {
  */
 export async function crearServidorDev(opciones = {}) {
   const { GRUPO_DE_METODO, esMetodo } = await import(sub('src/servicios/metodos.ts'));
-  const rutaDatos = opciones.rutaDatos ?? process.env.SPD_DATOS ?? mkdtempSync(join(tmpdir(), 'spd-dev-'));
+  const rutaDatos = opciones.rutaDatos ?? process.env.SPD_DATOS ?? mkdtempSync(join(baseDatos(), 'spd-dev-'));
   mkdirSync(rutaDatos, { recursive: true });
   const carpetaImpresos = opciones.carpetaImpresos ?? join(RAIZ, 'capturas', 'impresos');
 

@@ -14,6 +14,9 @@
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { mkdirSync as _mk } from 'node:fs';
+// Datos de pruebas siempre bajo /tmp/SPD/sp/datos (sin nombres de herramientas ni sesiones)
+const baseDatos = () => { const b = join(tmpdir(), 'SPD', 'sp', 'datos'); _mk(b, { recursive: true }); return b; };
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
@@ -41,7 +44,7 @@ for (const f of ['dist/principal/main.cjs', 'dist/interfaz/index.html', 'dist/re
   if (!existsSync(join(RAIZ, f))) { console.error(`Falta ${f}: ejecuta antes «npm run build».`); process.exit(2); }
 }
 mkdirSync(SALIDA, { recursive: true });
-const datos = mkdtempSync(join(tmpdir(), 'spd-capturas-'));
+const datos = mkdtempSync(join(baseDatos(), 'spd-capturas-'));
 const { _electron } = await cargarPlaywright();
 const electronBin = createRequire(import.meta.url)(join(RAIZ, 'node_modules/electron'));
 

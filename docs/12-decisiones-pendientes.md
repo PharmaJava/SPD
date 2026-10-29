@@ -5,7 +5,7 @@
 | # | Decisión | Consecuencia |
 |---|---|---|
 | 1 | **Se regala; licencia freeware** (gratis, redistribuible sin modificar, no vendible). Ver `LICENSE.txt` | Sin soporte ni garantía obligatorios; el texto legal hay que revisarlo con un abogado. Una farmacia es responsable de sus propios datos, no el autor |
-| 2 | Interfaz: la elige Claude, **bonita y sencilla** → Svelte 5 (doc 13) | |
+| 2 | Interfaz: la elige el desarrollador, **bonita y sencilla** → Svelte 5 (doc 13) | |
 | 3 | **Contraseña al arrancar**, configurable en el primer uso, con **clave de recuperación exportable** (texto para imprimir y URI de app de autenticación) | Doc 10 §10.1 |
 | 4 | Lector e impresora: **adaptables** | Lector serie o teclado con separador configurable; impresoras por driver con perfil y calibración |
 | 5 | **Ámbito nacional** (sin requisitos de una comunidad concreta) | Doc 08 |
