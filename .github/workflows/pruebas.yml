@@ -1,3 +1,7 @@
+# Pruebas: en cada push y pull request, en Linux.
+#  1) npm ci            instala EXACTAMENTE lo que dice package-lock.json.
+#  2) npm test          pruebas del dominio, servicios y proceso principal (node --test, sin Electron).
+#  3) npm run typecheck comprobación de tipos de todo el código y de las pruebas.
 name: Pruebas
 on: [push, pull_request]
 jobs:
@@ -8,4 +12,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+          cache: npm
+      # ELECTRON_SKIP_BINARY_DOWNLOAD: las pruebas no ejecutan Electron; así no se descargan ~100 MB.
+      - run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
       - run: npm test
+      - run: npm run typecheck

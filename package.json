@@ -13,11 +13,12 @@
     "gen:esquema": "node scripts/gen-esquema.mjs",
     "build:principal": "esbuild src/principal/main.ts src/principal/preload.ts --bundle --platform=node --target=node24 --format=cjs --external:electron --outdir=dist/principal --out-extension:.js=.cjs --sourcemap",
     "build:interfaz": "vite build --config vite.config.ts",
-    "build": "npm run gen:esquema && npm run build:principal && npm run build:interfaz && node scripts/copiar-recursos.mjs",
+    "build": "npm run gen:esquema && npm run gen:plantillas && npm run build:principal && npm run build:interfaz && node scripts/copiar-recursos.mjs",
     "start": "npm run build && electron .",
     "dev:servidor": "node scripts/dev-servidor.mjs",
     "dev:interfaz": "vite --config vite.config.ts",
-    "dist:win": "npm run build && electron-builder --win --publish never"
+    "dist:win": "npm run build && electron-builder --win --publish never",
+    "gen:plantillas": "node scripts/gen-plantillas.mjs"
   },
   "dependencies": {
     "bwip-js": "^4.11.4",

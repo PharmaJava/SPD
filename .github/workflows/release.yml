@@ -1,0 +1,75 @@
+# Publicación de una versión: al subir una etiqueta v* (p. ej. `git tag v0.1.0 && git push origin v0.1.0`),
+# o a mano desde la pestaña Actions (workflow_dispatch, con la etiqueta a publicar).
+#
+# Pasos (en Windows, porque el instalador NSIS se construye allí):
+#  1. Instala Node 22 y las dependencias exactas (npm ci).
+#  2. Pasa las pruebas y la comprobación de tipos: una versión que no pasa NO se publica.
+#  3. `npm run dist:win` compila (principal + interfaz + recursos) y empaqueta con electron-builder:
+#     instalador NSIS (SPD-<versión>-win-x64.exe) y portable (SPD-<versión>-portable.exe) en release/.
+#  4. Calcula el SHA-256 de cada artefacto y lo guarda en SHA256SUMS.txt.
+#  5. Crea (o actualiza) la Release de GitHub con instalador, portable y SHA256SUMS.txt.
+#
+# ⚠️ Ajustes del repositorio necesarios (docs/14-distribucion.md):
+#  - Settings → Actions → General → Workflow permissions: «Read and write» (o dejar el `permissions` de abajo).
+#  - Repo PRIVADO: las descargas de la Release sólo las ve quien tenga acceso al repositorio. Para que cualquier
+#    farmacia descargue hay que usar un repo público de descargas: crear el secreto DESCARGAS_TOKEN (token con
+#    permiso de contenidos sobre ese repo) y la variable DESCARGAS_REPO («usuario/SPD-descargas»). Si no existen,
+#    la Release se crea en este mismo repositorio.
+#  - SIN FIRMA DE CÓDIGO: Windows SmartScreen avisará de «aplicación no reconocida». Para firmar harían falta los
+#    secretos CSC_LINK y CSC_KEY_PASSWORD (certificado) y quitar `signAndEditExecutable: false` en package.json.
+name: Publicar versión
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      etiqueta:
+        description: 'Etiqueta a publicar (p. ej. v0.1.0)'
+        required: true
+permissions:
+  contents: write
+jobs:
+  publicar:
+    runs-on: windows-latest
+    env:
+      ETIQUETA: ${{ github.event.inputs.etiqueta || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.etiqueta || github.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run typecheck
+      - name: Construir instalador y portable
+        run: npm run dist:win
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'   # sin firma (ver nota de arriba)
+      - name: Sumas SHA-256
+        shell: pwsh
+        run: |
+          Set-Location release
+          $ficheros = Get-ChildItem -File | Where-Object { $_.Extension -eq '.exe' }
+          if (-not $ficheros) { throw 'No se generó ningún .exe en release/' }
+          $lineas = foreach ($f in $ficheros) { $h = (Get-FileHash $f.FullName -Algorithm SHA256).Hash.ToLower(); "$h  $($f.Name)" }
+          $lineas | Set-Content -Encoding ascii SHA256SUMS.txt
+          Get-Content SHA256SUMS.txt
+      - name: Publicar la Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.ETIQUETA }}
+          name: SPD ${{ env.ETIQUETA }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          repository: ${{ vars.DESCARGAS_REPO || github.repository }}
+          token: ${{ secrets.DESCARGAS_TOKEN || secrets.GITHUB_TOKEN }}
+          body: |
+            Instalador de Windows (`SPD-*-win-x64.exe`) y versión portable. Comprueba el SHA-256 con `SHA256SUMS.txt`.
+            Esta versión no está firmada: Windows SmartScreen puede avisar de «aplicación no reconocida».
+            SPD NO es un producto sanitario; lee la licencia incluida.
+          files: |
+            release/*.exe
+            release/SHA256SUMS.txt
