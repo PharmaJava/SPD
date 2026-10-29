@@ -1,12 +1,5 @@
 # 15. Qué aprender de un programa comercial de SPD
 
-Antonio compartió capturas del programa que usa una farmacia (un sistema
-comercial de SPD con verificación por cámara). **No se copia nada**: ni la
-disposición de pantallas, ni los iconos, ni los nombres. Se recogen las
-funciones generales y se decide, una a una, qué hacer mejor. Las capturas
-tienen nombres de pacientes y datos de una farmacia real: **no se guardan en
-el repositorio**.
-
 ## Qué hace (resumen funcional)
 
 | Área | Lo que se ve |
