@@ -61,7 +61,7 @@ jobs:
         run: |
           $v = (Get-Content package.json -Raw | ConvertFrom-Json).version
           if ("v$v" -ne $env:ETIQUETA) { throw "La etiqueta $($env:ETIQUETA) no coincide con package.json (v$v): el actualizador compara versiones y busca SPD-$v-win-x64.exe" }
-      - run: npm test
+      - run: node --test --test-reporter=dot "tests/**/*.test.ts"
       - run: npm run typecheck
       - name: Construir instalador y portable
         run: npm run dist:win
