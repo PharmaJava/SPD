@@ -1,4 +1,4 @@
-# Publicación de una versión: al subir una etiqueta v* (p. ej. `git tag v0.1.0 && git push origin v0.1.0`),
+# Publicación de una versión: al subir una etiqueta v* (p. ej. `git tag v1.0.0 && git push origin v1.0.0`),
 # o a mano desde la pestaña Actions (workflow_dispatch, con la etiqueta a publicar).
 #
 # Pasos (en Windows, porque el instalador NSIS se construye allí):
@@ -28,7 +28,7 @@ on:
   workflow_dispatch:
     inputs:
       etiqueta:
-        description: 'Etiqueta a publicar (p. ej. v0.1.0)'
+        description: 'Etiqueta a publicar (p. ej. v1.0.0)'
         required: true
 permissions:
   contents: write

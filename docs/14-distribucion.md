@@ -6,7 +6,7 @@ Cada versión es una **release de GitHub** con el instalador de Windows
 (`SPD-Setup-x.y.z.exe`), su suma de comprobación SHA-256 y las notas de la
 versión. Un flujo de GitHub Actions en `windows-latest` compila con
 `electron-builder`, calcula el SHA-256 y sube los ficheros al etiquetar
-(`git tag v0.1.0`). Se escribirá cuando exista la aplicación; ahora no hay
+(`git tag v1.0.0`). Se escribirá cuando exista la aplicación; ahora no hay
 nada que compilar.
 
 ## ⚠️ Un repositorio privado no sirve para regalarlo

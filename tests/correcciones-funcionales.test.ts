@@ -364,17 +364,17 @@ const REP = { nombre: 'Pedro López', dniNie: '11111111H', calidad: 'representan
 
 test('7: lo que falta en un documento dice de qué entidad es (paciente, firmante, farmacia) y el error de registro también', async () => {
   const m = await montar();
+  m.t.db.run('DELETE FROM documento_firmado');
   m.t.db.run("UPDATE paciente SET dni_nie = NULL, fecha_nacimiento = NULL WHERE id = 1");
   m.t.db.run("UPDATE farmacia SET nif = NULL WHERE id = 1");
   const v = ok(await m.api.vistaDocumento('consentimiento_spd', 1, { nombre: 'Pedro López', calidad: 'representante_legal' }));
   const de = (ruta: string) => v.faltanDetalle!.find((f) => f.ruta === ruta);
   assert.deepEqual(de('paciente.dni_nie'), { ruta: 'paciente.dni_nie', entidad: 'paciente', campo: 'dni_nie', etiqueta: 'DNI/NIE del paciente' });
-  assert.equal(de('farmacia.nif')!.entidad, 'farmacia');
+  assert.equal(ok(await m.api.vistaDocumento('info_rgpd', 1, REP)).faltanDetalle!.find((f) => f.ruta === 'farmacia.nif')!.entidad, 'farmacia');
   assert.equal(de('firmante.dni_nie')!.entidad, 'firmante', 'el DNI del representante es del firmante, no del paciente');
   assert.deepEqual(v.faltanDetalle!.map((f) => f.ruta), v.faltan, 'mismo orden y mismas rutas que `faltan`');
   const f = ko(await m.api.registrarDocumentoFirmado('consentimiento_spd', 1, { nombre: 'Pedro López', calidad: 'representante_legal' }), 'DOCUMENTO_INCOMPLETO');
   assert.match(f.error, /paciente: DNI\/NIE del paciente/);
-  assert.match(f.error, /farmacia: NIF de la farmacia/);
   assert.match(f.error, /firmante: DNI\/NIE del firmante/);
   // dominio
   assert.deepEqual(detalleFaltan(['autorizado.nombre', 'fecha.hoy', 'motivo.raro']).map((x) => [x.entidad, x.campo]), [['autorizado', 'nombre'], ['documento', 'hoy'], ['otro', 'raro']]);
@@ -382,6 +382,7 @@ test('7: lo que falta en un documento dice de qué entidad es (paciente, firmant
 
 test('6: el DPD es opcional: sin él la plantilla dice que no se ha designado y NO impide registrar; con él se imprime', async () => {
   const m = await montar();
+  m.t.db.run('DELETE FROM documento_firmado');
   assert.ok(VARIABLES_OPCIONALES.includes('farmacia.rgpd_dpd'));
   m.t.db.run("UPDATE farmacia SET rgpd_dpd = NULL WHERE id = 1");
   const v = ok(await m.api.vistaDocumento('info_rgpd', 1, REP));
@@ -402,6 +403,7 @@ test('6: el DPD es opcional: sin él la plantilla dice que no se ha designado y 
 
 test('16: una segunda firma vigente del mismo documento se rechaza; «sustituir» con motivo versiona (revoca la anterior, no borra)', async () => {
   const m = await montar();
+  m.t.db.run('DELETE FROM documento_firmado');
   const primera = ok(await m.api.registrarDocumentoFirmado('consentimiento_spd', 1, REP)).id;
   const f = ko(await m.api.registrarDocumentoFirmado('consentimiento_spd', 1, REP), 'DOCUMENTO_YA_FIRMADO');
   assert.match(f.error, new RegExp(`nº ${primera}`));
@@ -424,12 +426,13 @@ test('16: una segunda firma vigente del mismo documento se rechaza; «sustituir�
 
 test('16: una versión nueva de la plantilla se firma sin sustituir; la autorización a terceros es una por persona; el recibí se repite', async () => {
   const m = await montar();
+  m.t.db.run('DELETE FROM documento_firmado');
   ok(await m.api.registrarDocumentoFirmado('info_rgpd', 1, REP));
   m.t.db.run("INSERT INTO plantilla_documento(codigo,version,titulo,cuerpo,vigente) VALUES ('info_rgpd',2,'Nueva','Texto {{documento.version}}',1)");
   assert.ok(ok(await m.api.registrarDocumentoFirmado('info_rgpd', 1, REP)).id > 0, 'versión 2: otra firma, no es un duplicado');
   ko(await m.api.registrarDocumentoFirmado('info_rgpd', 1, REP), 'DOCUMENTO_YA_FIRMADO');
-  m.t.db.run("INSERT INTO contacto(id, paciente_id, tipo, nombre, dni_nie, parentesco, autorizado_recoger) VALUES (1,1,'familiar','Luis Gil','87654321X','hijo',1)");
-  m.t.db.run("INSERT INTO contacto(id, paciente_id, tipo, nombre, dni_nie, parentesco, autorizado_recoger) VALUES (2,1,'familiar','Eva Gil','12312312A','hija',1)");
+  m.t.db.run("INSERT INTO contacto(id, paciente_id, tipo, nombre, dni_nie, parentesco, telefono, autorizado_recoger) VALUES (1,1,'familiar','Luis Gil','87654321X','hijo','600111222',1)");
+  m.t.db.run("INSERT INTO contacto(id, paciente_id, tipo, nombre, dni_nie, parentesco, telefono, autorizado_recoger) VALUES (2,1,'familiar','Eva Gil','12312312A','hija','600111333',1)");
   ok(await m.api.registrarDocumentoFirmado('autorizacion_terceros', 1, { ...REP, contactoId: 1 }));
   ok(await m.api.registrarDocumentoFirmado('autorizacion_terceros', 1, { ...REP, contactoId: 2 }));
   ko(await m.api.registrarDocumentoFirmado('autorizacion_terceros', 1, { ...REP, contactoId: 1 }), 'DOCUMENTO_YA_FIRMADO');
@@ -510,34 +513,34 @@ async function conPrimerUso(): Promise<Sis> { const e = await sistema(); ok(awai
 
 test('5: política única de contraseña (≥ 10 caracteres y fortaleza «Aceptable»), la misma que el medidor de la interfaz', () => {
   const nivel = (p: string) => fortalezaContrasena(p).nivel;
-  assert.equal(nivel('corta'), 1 - 1 || 0);
-  assert.equal(nivel('abcdefghij'), 1);
-  assert.equal(nivel('Abcdefghij'), 2);
-  assert.equal(nivel('abcdefghijklmn'), 2);
-  assert.equal(nivel('Abcdefghijklm1!'), 4);
+  assert.equal(nivel('corta'), 0);
+  assert.equal(nivel('qwertyuiop'), 1);
+  assert.equal(nivel('Qwertyuiop'), 2);
+  assert.equal(nivel('qwertyuiopasdf'), 2);
+  assert.equal(nivel('Qwertyuiopasd1!'), 4);
   assert.equal(nivel('contraseña-larga-1'), 0, 'empieza por una palabra típica');
   assert.equal(nivel('aaaaaaaaaaaaaaaa'), 0);
-  assert.equal(fortalezaContrasena('Abcdefghij').texto, 'Aceptable');
-  for (const mala of ['', 'corta', '123456789', 'abcdefghi', 'abcdefghij', 'contraseña-larga-1', 'aaaaaaaaaaaaaaaa', 'password12345', 5, null, undefined]) {
+  assert.equal(fortalezaContrasena('Qwertyuiop').texto, 'Aceptable');
+  for (const mala of ['', 'corta', '123456789', 'abcdefghi', 'qwertyuiop', 'contraseña-larga-1', 'aaaaaaaaaaaaaaaa', 'password12345', 5, null, undefined]) {
     try { exigirContrasenaValida(mala); assert.fail(`debería rechazar ${String(mala)}`); } catch (e) { assert.equal((e as { codigo?: string }).codigo, 'CONTRASENA_DEBIL', String(mala)); }
   }
   assert.match((() => { try { exigirContrasenaValida('corta'); } catch (e) { return (e as Error).message; } return ''; })(), /al menos 10 caracteres/);
-  assert.match((() => { try { exigirContrasenaValida('abcdefghij'); } catch (e) { return (e as Error).message; } return ''; })(), /demasiado fácil de adivinar/);
-  for (const buena of ['Abcdefghij', 'abcdefghijklmn', 'mi-frase-de-paso', 'Farmacia#2026']) assert.equal(exigirContrasenaValida(buena), buena);
+  assert.match((() => { try { exigirContrasenaValida('qwertyuiop'); } catch (e) { return (e as Error).message; } return ''; })(), /demasiado fácil de adivinar/);
+  for (const buena of ['Qwertyuiop', 'qwertyuiopasdf', 'mi-frase-de-paso', 'Farmacia#2026']) assert.equal(exigirContrasenaValida(buena), buena);
 });
 
 test('5: primer uso, cambio de contraseña y recuperación aplican la MISMA política (antes bastaban 8 caracteres)', async () => {
   const e = await sistema();
   try {
-    for (const mala of ['12345678', 'abcdefgh', 'abcdefghij', 'contraseña-larga']) mal(await e.s.api.primerUso({ ...PRIMER_USO, contrasena: mala }));
+    for (const mala of ['12345678', 'abcdefgh', 'qwertyuiop', 'contraseña-larga']) mal(await e.s.api.primerUso({ ...PRIMER_USO, contrasena: mala }));
     const { claveRecuperacion } = ok(await e.s.api.primerUso(PRIMER_USO));
-    for (const mala of ['12345678', 'abcdefghij']) {
+    for (const mala of ['12345678', 'qwertyuiop']) {
       mal(await e.s.api.cambiarContrasena(PASS, mala));
       e.reloj.t += 2000;
     }
     ok(await e.s.api.cambiarContrasena(PASS, 'Otra-Contraseña-9'));
     await e.s.api.bloquear();
-    for (const mala of ['12345678', 'abcdefghij']) mal(await e.s.api.recuperar(claveRecuperacion, mala));
+    for (const mala of ['12345678', 'qwertyuiop']) mal(await e.s.api.recuperar(claveRecuperacion, mala));
   } finally { await e.fin(); }
 });
 function mal(r: Resultado<unknown>) { assert.equal(r.ok, false, 'se esperaba un fallo'); assert.equal((r as { codigo?: string }).codigo, 'CONTRASENA_DEBIL', JSON.stringify(r)); }
@@ -626,6 +629,7 @@ test('15: la copia que se está restaurando no se rota al crear la de «antes de
     t += 3600_000;
     const nombre = automatica.split(/[\\/]/).pop()!;
     ok(await s.api.restaurarCopia(nombre, PASS));                            // crea la «antes de restaurar» a las 09:00 del mismo día
+    ok(await s.api.iniciarSesion(ok(await s.api.listarUsuarios())[0].id, '4821'));   // la restauración cierra la sesión
     const lista = ok(await s.api.listarCopias());
     assert.ok(lista.some((c) => c.nombre === nombre), 'la restaurada sigue en la lista');
     assert.ok(lista.some((c) => c.origen === 'antes_restaurar'));

@@ -22,7 +22,7 @@ await pg.getByLabel(/^Contraseña\s*\*?$/).fill('abc'); await sigue(); await fot
 await pg.getByLabel(/^Contraseña\s*\*?$/).fill('Una-frase-larga-2026'); await pg.getByLabel('Repite la contraseña').fill('Una-frase-larga-2026'); await foto('04-primer-uso-contrasena'); await sigue();
 await pg.waitForSelector('text=Momentos de toma'); await foto('05-primer-uso-momentos'); await sigue();
 await pg.waitForSelector('.clave'); await foto('06-primer-uso-clave');
-const grupos = (await pg.locator('.clave span').allInnerTexts()).map(t => t.replace(/^\d+\s*/, '').trim());
+const grupos = (await pg.locator('.clave .cod').allInnerTexts()).map(t => t.trim());   // .n = nº del grupo, .cod = el código
 await pg.getByLabel(/Ya he guardado/).check();
 await sigue(); await pg.waitForSelector('text=no coincide'); await foto('06b-clave-error');
 const campos = pg.locator('input[maxlength="5"]');
