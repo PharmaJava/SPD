@@ -1,6 +1,7 @@
 <script lang="ts">
   import { spd } from '../api.ts';
-  import type { Ajustes, DatosFarmacia, UsuarioPublico, MomentoTomaDto, EstadoCopias, ImpresoraDto, RolUsuario, EstadoSistema } from '../../servicios/api.ts';
+  import type { VersionPublicada } from '../../dominio/actualizaciones.ts';
+  import type { Ajustes, DatosFarmacia, UsuarioPublico, MomentoTomaDto, EstadoCopias, CopiaDto, PreferenciasActualizaciones, ImpresoraDto, RolUsuario, EstadoSistema } from '../../servicios/api.ts';
   import { ir } from '../router.ts';
   import { fechaHora } from '../lib/formato.ts';
   import Cargando from '../componentes/Cargando.svelte';
@@ -17,7 +18,7 @@
 
   const SECCIONES = [
     ['farmacia', 'Farmacia'], ['usuarios', 'Usuarios'], ['momentos', 'Momentos de toma'], ['validez', 'Validez del SPD'], ['blister', 'Disposición del blíster'],
-    ['lector', 'Lector de códigos'], ['impresoras', 'Impresoras'], ['copias', 'Copias de seguridad'], ['seguridad', 'Seguridad'], ['aspecto', 'Aspecto'], ['acerca', 'Acerca de'],
+    ['lector', 'Lector de códigos'], ['impresoras', 'Impresoras'], ['copias', 'Copias de seguridad'], ['actualizaciones', 'Actualizaciones'], ['seguridad', 'Seguridad'], ['aspecto', 'Aspecto'], ['acerca', 'Acerca de'],
   ] as const;
   const activa = $derived(SECCIONES.some(s => s[0] === seccion) ? seccion! : 'farmacia');
   const esTitular = $derived(rol === 'titular');
@@ -115,8 +116,23 @@
   let copias = $state<EstadoCopias | null>(null); let haciendo = $state(false);
   $effect(() => { if (activa === 'copias' && !copias) spd.estadoCopias().then(r => { if (r.ok) copias = r.datos; }); });
   async function hacerCopia() {
-    haciendo = true; const r = await spd.crearCopia(aj?.carpetaCopias ?? undefined); haciendo = false;
+    haciendo = true; const r = await spd.crearCopia(); haciendo = false;
     if (r.ok) { avisar('Copia de seguridad creada.'); copias = null; alcambiar(); } else avisar(r.error, 'bloqueo', 7000);
+  }
+  const ORIGEN: Record<string, string> = { automatica: 'Automática', manual: 'Manual', antes_actualizar: 'Antes de actualizar', antes_restaurar: 'Antes de restaurar', desconocido: 'Sin ficha' };
+  let lista = $state<CopiaDto[] | null>(null); let errLista = $state<string | null>(null);
+  $effect(() => { if (activa === 'copias' && !lista) spd.listarCopias().then(r => { if (r.ok) lista = r.datos; else errLista = r.error; }); });
+  const kb = (n: number) => (n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB');
+  let resC = $state<CopiaDto | null>(null); let rc = $state({ pass: '', passCopia: '', frase: '' }); let pedirPassCopia = $state(false); let errRc = $state<string | null>(null); let restaurando = $state(false);
+  function abrirRestaurar(c: CopiaDto) { resC = c; rc = { pass: '', passCopia: '', frase: '' }; pedirPassCopia = false; errRc = null; }
+  async function restaurar() {
+    if (!resC) return;
+    if (rc.frase.trim().toUpperCase() !== 'RESTAURAR') { errRc = 'Escribe RESTAURAR para confirmar.'; return; }
+    if (!rc.pass) { errRc = 'Escribe la contraseña de la farmacia.'; return; }
+    restaurando = true; errRc = null;
+    const r = await spd.restaurarCopia(resC.nombre, rc.pass, rc.passCopia || undefined); restaurando = false;
+    if (r.ok) { resC = null; avisar(r.datos.aviso, 'ok', 15000); lista = null; copias = null; alcambiar(); }
+    else { errRc = r.error; if (r.codigo === 'CONTRASENA_COPIA') pedirPassCopia = true; }
   }
   async function elegirCarpeta() {
     const r = await spd.elegirCarpeta('Carpeta para las copias de seguridad');
@@ -137,7 +153,25 @@
     if (r.ok) { cs = { actual: '', nueva: '', nueva2: '' }; avisar('Contraseña cambiada.'); } else errCs.actual = r.error;
   }
 
+  // ───── Actualizaciones ─────
+  let prefAct = $state<PreferenciasActualizaciones | null>(null); let buscandoAct = $state(false); let msgAct = $state<{ tipo: 'info' | 'ok' | 'atencion' | 'bloqueo'; texto: string } | null>(null);
+  let versiones = $state<VersionPublicada[] | null>(null); let errVer = $state<string | null>(null); let cargandoVer = $state(false);
+  $effect(() => { if (activa === 'actualizaciones' && !prefAct) spd.estadoActualizaciones().then(r => { if (r.ok) prefAct = r.datos; }); });
+  async function guardarPrefAct(p: { comprobarAlArrancar?: boolean; versionIgnorada?: string | null }) { const r = await spd.guardarPreferenciasActualizaciones(p); if (r.ok) prefAct = r.datos; else avisar(r.error, 'bloqueo', 6000); }
+  async function buscarAct() {
+    buscandoAct = true; msgAct = null; const r = await spd.buscarActualizaciones(); buscandoAct = false;
+    msgAct = r.ok ? { tipo: r.datos.estado === 'al_dia' ? 'ok' : 'info', texto: r.datos.mensaje } : { tipo: 'bloqueo', texto: r.error };
+    prefAct = null;
+  }
+  async function cargarVersiones() { cargandoVer = true; errVer = null; const r = await spd.listarVersiones(); cargandoVer = false; if (r.ok) versiones = r.datos; else errVer = r.error; }
+
   // ───── Acerca de ─────
+  const TEXTO_DONACION = 'Apoya el software gratuito con una donación por PayPal a boarding87@gmail.com';
+  let copiadoDon = $state(false);
+  async function copiarDonacion() {
+    try { await navigator.clipboard.writeText('boarding87@gmail.com'); copiadoDon = true; setTimeout(() => (copiadoDon = false), 3000); }
+    catch { avisar('No se pudo copiar: selecciona el texto y cópialo con Ctrl+C.', 'atencion', 5000); }
+  }
   let sistema = $state<EstadoSistema | null>(null);
   $effect(() => { if (activa === 'acerca' && !sistema) spd.estado().then(r => { if (r.ok) sistema = r.datos; }); });
 </script>
@@ -255,6 +289,44 @@
           <p class="suave pequeno sin-margen">Las copias van cifradas. Guarda también una copia fuera del ordenador (otro disco o la nube de la farmacia).</p>
         {/if}
       </div>
+      <div class="tarjeta apilado"><h2>Copias guardadas</h2>
+        {#if errLista}<Aviso tipo="bloqueo" titulo="No se pueden listar">{errLista}</Aviso>
+        {:else if !lista}<Cargando />
+        {:else if lista.length === 0}<p class="suave">Todavía no hay copias.</p>
+        {:else}
+          <table class="tabla"><thead><tr><th>Fecha</th><th>Origen</th><th>Programa</th><th>Motivo</th><th>Tamaño</th><th></th></tr></thead><tbody>
+            {#each lista as c (c.nombre)}<tr><td>{fechaHora(c.fecha)}</td><td>{ORIGEN[c.origen]}</td><td>{c.versionApp ?? '—'}</td><td>{c.motivo ?? '—'}{#if c.avisoRestauracion}<div class="pequeno suave">{c.avisoRestauracion}</div>{/if}</td><td>{kb(c.tamano)}</td>
+              <td>{#if esTitular}<button class="btn" onclick={() => abrirRestaurar(c)} disabled={!c.restaurable}>Restaurar…</button>{/if}</td></tr>{/each}
+          </tbody></table>
+          {#if !esTitular}<p class="suave pequeno sin-margen">Sólo el titular puede restaurar una copia.</p>{/if}
+          <p class="suave pequeno sin-margen">Se conservan siempre las últimas copias hechas antes de actualizar o de restaurar. Una copia de una versión anterior del programa se restaura y se adapta sola; una de una versión posterior se rechaza.</p>
+        {/if}
+      </div>
+
+    {:else if activa === 'actualizaciones'}
+      <div class="tarjeta apilado"><h2>Actualizaciones</h2>
+        {#if !prefAct}<Cargando />{:else}
+          <dl class="par"><dt>Versión instalada</dt><dd>{prefAct.versionActual}</dd><dt>Última comprobación</dt><dd>{prefAct.ultimaComprobacion ? fechaHora(prefAct.ultimaComprobacion) : 'Nunca'}</dd></dl>
+          <label class="marca"><input type="checkbox" checked={prefAct.comprobarAlArrancar} onchange={(e) => guardarPrefAct({ comprobarAlArrancar: e.currentTarget.checked })} />Buscar actualizaciones al abrir el programa</label>
+          {#if prefAct.versionIgnorada}<p class="suave pequeno sin-margen">No se avisa de la versión {prefAct.versionIgnorada}. <button class="btn" onclick={() => guardarPrefAct({ versionIgnorada: null })}>Volver a avisar</button></p>{/if}
+          <div class="fila"><button class="btn principal" onclick={buscarAct} disabled={buscandoAct}>{buscandoAct ? 'Buscando…' : 'Buscar actualizaciones'}</button></div>
+          {#if msgAct}<Aviso tipo={msgAct.tipo} titulo="Actualizaciones">{msgAct.texto}</Aviso>{/if}
+          <p class="suave pequeno sin-margen">Sólo se consulta la página de versiones del proyecto (github.com/PharmaJava/SPD) por internet seguro. No se envía ningún dato de la farmacia ni de pacientes. Nada se descarga ni se instala sin que lo aceptes; antes de instalar se hace una copia de seguridad y se comprueba la suma SHA-256 del instalador.</p>
+        {/if}
+      </div>
+      <div class="tarjeta apilado"><h2>Volver a una versión anterior</h2>
+        <Aviso tipo="atencion" titulo="Léelo antes">Una versión nueva puede cambiar la forma de guardar los datos, y una versión antigua no abre datos guardados por una más nueva. Para volver atrás: 1) instala la versión anterior (instalador de abajo, sobre la actual) y 2) restaura la copia «Antes de actualizar» en Ajustes → Copias de seguridad. Lo hecho después de esa copia se pierde.</Aviso>
+        <div class="fila"><button class="btn" onclick={cargarVersiones} disabled={cargandoVer}>{cargandoVer ? 'Consultando…' : 'Ver versiones publicadas'}</button></div>
+        {#if errVer}<Aviso tipo="bloqueo" titulo="No se pudo consultar">{errVer}</Aviso>{/if}
+        {#if versiones}
+          <table class="tabla"><thead><tr><th>Versión</th><th>Fecha</th><th>Enlaces</th><th>SHA-256 del instalador</th></tr></thead><tbody>
+            {#each versiones as v (v.version)}<tr><td class="negrita">{v.version}{v.esActual ? ' (instalada)' : ''}</td><td>{v.fecha ? fechaHora(v.fecha) : '—'}</td>
+              <td><a href={v.urlPagina} target="_blank" rel="noopener noreferrer">Notas</a>{#if v.instalador} · <a href={v.instalador.url} target="_blank" rel="noopener noreferrer">Instalador</a>{/if}</td>
+              <td class="mono pequeno">{v.instalador?.sha256 ?? 'no disponible'}</td></tr>{/each}
+          </tbody></table>
+          <p class="suave pequeno sin-margen">Comprueba que el SHA-256 del fichero descargado coincide con el de la tabla antes de ejecutarlo. Los instaladores no están firmados: Windows puede avisar de «aplicación no reconocida».</p>
+        {/if}
+      </div>
 
     {:else if activa === 'seguridad'}
       <div class="tarjeta apilado"><h2>Cambiar la contraseña</h2>
@@ -285,14 +357,20 @@
 
     {:else if activa === 'acerca'}
       <div class="tarjeta apilado"><h2>Acerca de SPD</h2>
-        <dl class="par"><dt>Versión</dt><dd>{sistema?.version ?? '…'}</dd><dt>Datos en</dt><dd class="mono pequeno">{sistema?.rutaDatos ?? '…'}</dd></dl>
-        <Aviso tipo="atencion" titulo="Aviso legal">SPD es una herramienta de registro, organización e impresión. <strong>No es un producto sanitario</strong>, no decide dosis ni tratamientos y no sustituye el criterio del farmacéutico ni la ficha técnica. La farmacia es la responsable de verificar cada preparación y de los datos de sus pacientes.</Aviso>
+        <dl class="par"><dt>Versión</dt><dd>{sistema?.version ?? '…'}</dd><dt>Desarrollador</dt><dd>PharmaJava</dd><dt>Datos en</dt><dd class="mono pequeno">{sistema?.rutaDatos ?? '…'}</dd></dl>
+        <p>SPD está desarrollado por <strong>PharmaJava</strong>: farmacéutico y programador. Es un programa <strong>gratuito (freeware)</strong> y forma parte de la suite de herramientas y atención farmacéutica de <a href="https://conveniodefarmacia.com" target="_blank" rel="noopener noreferrer">conveniodefarmacia.com</a> (web y contacto).</p>
+        <Aviso tipo="atencion" titulo="Aviso legal">SPD es una herramienta de registro, organización e impresión. <strong>No es un producto sanitario</strong>, no decide dosis ni tratamientos y no sustituye el criterio del farmacéutico ni la ficha técnica. La farmacia es la responsable de verificar cada preparación y de los datos de sus pacientes. Los textos de consentimiento que incluye son <strong>borradores</strong> para revisar con un profesional del derecho antes de usarlos.</Aviso>
+        <div class="suave pequeno" style="border-top:1px solid var(--borde, #ddd);padding-top:.6rem">
+          <strong>¿Te ha gustado SPD?</strong> <span class="seleccionable" style="user-select:text">{TEXTO_DONACION}</span>.
+          <button class="btn" style="margin-left:.4rem" onclick={copiarDonacion}>{copiadoDon ? 'Copiado' : 'Copiar'}</button>
+          <div>Donar es voluntario y no da ninguna ventaja: el programa es igual para todos.</div>
+        </div>
         <h3>Licencia de uso (freeware)</h3>
         <div class="licencia">
           <p>Se concede a cualquier persona o farmacia el derecho gratuito e indefinido de instalar y usar el programa en tantos equipos como necesite, y de copiarlo y redistribuirlo sin modificar y sin cobrar.</p>
           <p>No se puede vender, incluir en un producto de pago, modificar, descompilar ni quitar el aviso del autor.</p>
           <p>El programa se ofrece «tal cual», sin garantía ni soporte. El usuario debe mantener sus propias copias de seguridad.</p>
-          <p class="suave pequeno">Texto completo en el archivo LICENSE.txt que acompaña al programa. Copyright © 2026 Antonio.</p>
+          <p class="suave pequeno">Texto completo en el archivo LICENSE.txt que acompaña al programa. Copyright © 2026 PharmaJava.</p>
         </div>
       </div>
     {/if}
@@ -312,6 +390,17 @@
   </div>
   {#if errU.general}<Aviso tipo="bloqueo" titulo="No se ha creado">{errU.general}</Aviso>{/if}
   {#snippet pie()}<button class="btn" onclick={() => (nuevoU = false)}>Cancelar</button><button class="btn principal" onclick={crearUsuario} disabled={ocupadoU}>Crear usuario</button>{/snippet}
+</Dialogo>
+
+<Dialogo abierto={resC !== null} titulo="Restaurar una copia" onclose={() => (resC = null)}>
+  {#if resC}
+    <Aviso tipo="bloqueo" titulo="Esto sustituye TODOS los datos actuales">Se volverá al estado del {fechaHora(resC.fecha)}: se pierde todo lo hecho después (pacientes, preparaciones, entregas, auditoría). Antes se guardará una copia del estado actual («Antes de restaurar») para poder deshacerlo. Tendrás que volver a iniciar sesión con tu PIN.</Aviso>
+    <Campo etiqueta="Contraseña de la farmacia" tipo="contrasena" bind:valor={rc.pass} requerido autofocus />
+    {#if pedirPassCopia}<Campo etiqueta="Contraseña que tenía la farmacia cuando se hizo la copia" tipo="contrasena" bind:valor={rc.passCopia} />{/if}
+    <Campo etiqueta="Escribe RESTAURAR para confirmar" bind:valor={rc.frase} requerido onenter={restaurar} />
+    {#if errRc}<Aviso tipo="bloqueo" titulo="No se ha restaurado">{errRc}</Aviso>{/if}
+  {/if}
+  {#snippet pie()}<button class="btn" onclick={() => (resC = null)}>Cancelar</button><button class="btn principal" onclick={restaurar} disabled={restaurando}>{restaurando ? 'Restaurando…' : 'Restaurar copia'}</button>{/snippet}
 </Dialogo>
 
 <Confirmar abierto={pedirExt} titulo="¿Permitir hasta 30 días?" confirmarTexto="Sí, asumo la desviación" peligro

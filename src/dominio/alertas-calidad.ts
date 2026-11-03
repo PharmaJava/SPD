@@ -86,21 +86,30 @@ export interface ContextoTrazabilidad {
  * iniciales de cada grupo de dígitos («L-01» = «l 1»). NO equipara «L1» con «L10»
  * ni confunde la O con el 0: un cruce demasiado laxo da alertas falsas.
  */
-export const claveLote = (l: string | undefined | null): string =>
-  typeof l === 'string'
-    ? l.toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/\d+/g, (d) => d.replace(/^0+(?=\d)/, ''))
-    : '';
+const memo = <T>(f: (s: string) => T): ((s: string) => T) => {
+  const cache = new Map<string, T>();
+  return (s) => {
+    let v = cache.get(s);
+    if (v === undefined) { if (cache.size > 50_000) cache.clear(); v = f(s); cache.set(s, v); }
+    return v;
+  };
+};
+const claveLoteDe = memo((l: string): string => l.toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/(^|\D)0+(?=\d)/g, '$1'));
+export const claveLote = (l: string | undefined | null): string => (typeof l === 'string' ? claveLoteDe(l) : '');
 
 /**
  * Clave de cruce de un CN: sólo dígitos (EAN/GTIN → CN, 7 dígitos con control → 6) y sin
  * ceros iniciales, para que «012345» y «12345» casen. El dígito de control no se valida.
  */
 export function claveCn(entrada: string | undefined | null): string {
-  if (typeof entrada !== 'string') return '';
+  return typeof entrada === 'string' ? claveCnDe(entrada) : '';
+}
+const claveCnDe = memo((entrada: string): string => {
+  if (/^\d{1,6}$/.test(entrada)) return entrada.replace(/^0+/, ''); // caso habitual, sin más trabajo
   const n = normalizarCN(entrada);
   const d = n ?? entrada.replace(/c\.?\s*n\.?/i, '').replace(/\D/g, '');
   return d.replace(/^0+/, '');
-}
+});
 
 function cnDeAlerta(a: AlertaCalidad): { cn: string | null; malformado: boolean } {
   if (typeof a.cn !== 'string' || a.cn.trim() === '') return { cn: null, malformado: false };
@@ -111,6 +120,7 @@ function cnDeAlerta(a: AlertaCalidad): { cn: string | null; malformado: boolean 
 interface IndiceEnvases {
   porLote: Map<string, Envase[]>;
   porCn: Map<string, Envase[]>;
+  cnDe: Map<Envase, string>;
 }
 
 const cnDeEnvase = (e: Envase): string => claveCn(e.cn) || e.cn;
@@ -118,13 +128,15 @@ const cnDeEnvase = (e: Envase): string => claveCn(e.cn) || e.cn;
 function indexarEnvases(envases: Envase[]): IndiceEnvases {
   const porLote = new Map<string, Envase[]>();
   const porCn = new Map<string, Envase[]>();
+  const cnDe = new Map<Envase, string>();
   for (const e of envases) {
     const kl = claveLote(e.lote);
     if (kl) (porLote.get(kl) ?? porLote.set(kl, []).get(kl)!).push(e);
     const kc = cnDeEnvase(e);
+    cnDe.set(e, kc);
     (porCn.get(kc) ?? porCn.set(kc, []).get(kc)!).push(e);
   }
-  return { porLote, porCn };
+  return { porLote, porCn, cnDe };
 }
 
 /** Envases que casan con UNA alerta; `aviso` si la alerta no se puede usar. */
@@ -135,7 +147,7 @@ function casar(a: AlertaCalidad, idx: IndiceEnvases): { envases: Envase[]; aviso
   if (!cn && !lote) return { envases: [], aviso: `La alerta ${a.referencia} no trae CN ni lote: no identifica ninguna caja. Revisarla a mano.` };
   if (lote) {
     const delLote = idx.porLote.get(lote) ?? [];
-    return { envases: cn ? delLote.filter((e) => cnDeEnvase(e) === cn) : delLote };
+    return { envases: cn ? delLote.filter((e) => idx.cnDe.get(e) === cn) : delLote };
   }
   return { envases: idx.porCn.get(cn!) ?? [] };
 }
@@ -177,8 +189,7 @@ export function trazabilidadInversa(alertas: AlertaCalidad[], ctx: ContextoTraza
     const r = casar(alerta, idx);
     if (r.aviso) avisos.push(r.aviso);
     const envases = r.envases;
-    const { cn: cnAlerta } = cnDeAlerta(alerta);
-    const sinCajasEnSistema = cnAlerta !== null && !claveLote(alerta.lote) && envases.length === 0;
+    const sinCajasEnSistema = envases.length === 0 && cnDeAlerta(alerta).cn !== null && !claveLote(alerta.lote);
     if (sinCajasEnSistema) avisos.push(`Informativo: la alerta ${alerta.referencia} es por CN (${alerta.cn}) y no hay ninguna caja con ese CN en el sistema. Revisa las existencias físicas por si hubiera cajas sin registrar.`);
     const envasesARetirar = envases.filter((e) => e.estado === 'en_uso').map((e) => e.id);
 
@@ -221,7 +232,7 @@ export function trazabilidadInversa(alertas: AlertaCalidad[], ctx: ContextoTraza
     }
     preparaciones.sort((a, b) => a.preparacionId - b.preparacionId);
     const envasesAparte: TrazabilidadAlerta['envasesAparte'] = [];
-    for (const e of envases) {
+    if (envases.length > 0) for (const e of envases) {
       if (!e.aparte) continue;
       if (typeof e.pacienteId !== 'number') {
         avisos.push(`La caja ${e.id} (lote ${e.lote}) es de medicación «aparte» y no consta de qué paciente es: revisar a mano.`);

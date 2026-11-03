@@ -20,6 +20,7 @@
  */
 
 import { normalizarCN, parsearGS1 } from './gs1.ts';
+import { claveCn, claveLote } from './alertas-calidad.ts';
 
 export interface Aviso { codigo: string; texto: string }
 
@@ -113,7 +114,6 @@ function diasEntre(desde: string, hasta: string): number {
   return Math.round((Date.parse(hasta + 'T00:00:00Z') - Date.parse(desde + 'T00:00:00Z')) / MS_DIA);
 }
 
-const claveLote = (l: string) => l.trim().replace(/\s+/g, ' ').toLowerCase();
 
 export function validarEntradaEnvase(entrada: EntradaEnvase, contexto: ContextoEntrada): ResultadoEntrada {
   if (!fechaIsoValida(entrada.hoy)) throw new RangeError('«hoy» debe ser AAAA-MM-DD');
@@ -244,10 +244,10 @@ export function validarEntradaEnvase(entrada: EntradaEnvase, contexto: ContextoE
   // ── 6. Alertas de calidad ──────────────────────────────────────────────
   if (cn && lote) {
     for (const a of contexto.alertasCalidad) {
-      const cnAlerta = a.cn ? normalizarCN(a.cn) : null;
+      const cnAlerta = a.cn ? claveCn(a.cn) : null;
       if (a.cn && !cnAlerta) continue;                       // alerta mal formada: no casa
       if (!a.cn && !a.lote) continue;                        // sin CN ni lote no identifica nada
-      if (cnAlerta && cnAlerta !== cn) continue;
+      if (cnAlerta && cnAlerta !== claveCn(cn)) continue;
       if (a.lote && claveLote(a.lote) !== claveLote(lote)) continue;
       bloquear('LOTE_CON_ALERTA', `Lote con alerta de calidad (${a.referencia}). No se admite: apártalo.`);
     }

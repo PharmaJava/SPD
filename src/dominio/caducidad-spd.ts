@@ -5,6 +5,11 @@
  * máximo 14 días desde el desemblistado hasta el último día de administración,
  * y nunca más que el lote que antes caduque.
  *
+ * CRITERIO ESTRICTO (docs/12 #13): los días son NATURALES y el de la preparación
+ * CUENTA como el primero. Preparado el día D con validez 14, el último día
+ * cubierto es D+13 (14 días: D … D+13). Un periodo de 15 días con validez 14
+ * BLOQUEA aunque empiece el mismo día de la preparación.
+ *
  * DECISIÓN DE ANTONIO (28-oct-2026): el programa permite, de forma OPCIONAL y
  * explícita, validez de hasta 30 días. Se hace en la práctica aunque no sea lo
  * que recomiendan los documentos de referencia, así que:
@@ -41,7 +46,7 @@ export interface EntradaCaducidad {
 
 export interface ResultadoCaducidad {
   ok: boolean;
-  /** Último día de administración permitido (= caducidad del SPD). */
+  /** Último día de administración permitido (= caducidad del SPD): preparación + validez − 1 días. */
   caducidadSpd?: string;
   limitadaPor?: 'validez' | 'lote';
   /** Validez superior a la estándar: hay que marcarla en la preparación. */
@@ -90,7 +95,7 @@ export function calcularCaducidadSpd(e: EntradaCaducidad): ResultadoCaducidad {
     r.avisos.push(`Validez de ${e.diasValidez} días: supera los ${DIAS_VALIDEZ_ESTANDAR} de los documentos de referencia. Queda registrada como desviación.`);
   }
 
-  const porValidez = sumarDias(e.fechaPreparacion, e.diasValidez);
+  const porValidez = sumarDias(e.fechaPreparacion, e.diasValidez - 1); // el día de preparación es el primero
   const menorLote = [...e.caducidadesLotes].sort()[0];
   if (menorLote < porValidez) { r.caducidadSpd = menorLote; r.limitadaPor = 'lote'; }
   else { r.caducidadSpd = porValidez; r.limitadaPor = 'validez'; }

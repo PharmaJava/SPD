@@ -348,8 +348,12 @@ export function cargarEvaluacion(ctx: Contexto, o: OpcionesCarga): Cargado {
     const v = pautaVigenteEn(t.versiones, o.desde) ?? t.versiones[t.versiones.length - 1];
     const partes = [t.nombre];
     if (v) partes.push(textoPauta(v, nombreMomento));
-    const texto = partes.join(': ');
-    aparteTextos.set(t.id, [texto, t.nota, t.motivoNoEmblistable ? `no emblistable: ${t.motivoNoEmblistable}` : null].filter(Boolean).join(' — '));
+    const texto = (a.ademanda ? 'A DEMANDA: ' : '') + partes.join(': ');
+    // Lote y caducidad de las cajas en custodia: la caducidad de lo que va aparte también tiene que constar en la etiqueta.
+    const cajas = (envasesPorTrat.get(t.id) ?? []).filter((e) => e.unidadesRestantes > 0)
+      .map((e) => `lote ${e.lote}, cad. ${e.caducidad}`);
+    aparteTextos.set(t.id, [texto, cajas.length ? `(${cajas.join('; ')})` : null, t.nota,
+      !a.ademanda && t.motivoNoEmblistable ? `no emblistable: ${t.motivoNoEmblistable}` : null].filter(Boolean).join(' — '));
   }
 
   // Leyenda: la descripción es la de la caja usada (si hay) o la del medicamento preferente, sólo si está CONFIRMADA.

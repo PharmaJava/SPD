@@ -40,7 +40,7 @@ import type { Envase, MomentoToma, Pauta, TomaDia } from '../src/dominio/tipos.t
 const HOY = '2026-10-28';                 // miércoles
 const INICIO = '2026-11-04';              // miércoles (día de la semana 3)
 const FIN_14 = '2026-11-17';              // INICIO + 13 días
-const PREPARACION = '2026-11-03';
+const PREPARACION = '2026-11-04';   // el día de preparación cuenta como primer día de validez (criterio estricto, docs/12 #13)
 
 const MOMENTOS: MomentoToma[] = [
   { id: 1, nombre: 'Desayuno', orden: 1 },
@@ -780,7 +780,7 @@ test('modo 30 días: exige ajuste activo y justificación; queda marcado como fu
   const ok = preparar({ ...base, diasValidez: 30, validezExtendidaPermitida: true, justificacion });
   assert.equal(ok.caducidad.ok, true);
   assert.equal(ok.caducidad.fueraDeEstandar, true);
-  assert.equal(ok.caducidad.caducidadSpd, sumar(PREPARACION, 30));
+  assert.equal(ok.caducidad.caducidadSpd, sumar(PREPARACION, 29));
   assert.equal(ok.fin, fin28);
   assert.equal(ok.cabe, true);
   assert.equal(ok.mapas.length, 4);
@@ -810,12 +810,12 @@ test('límite de caducidad: un lote que caduca durante el periodo hace imposible
   assert.equal(p.cabe, true);
 });
 
-test('BRECHA: convención «14 días»: un periodo de 15 días empezando el día de la preparación «cabe» con validez 14', () => {
-  // preparación 4-nov, periodo 4–18 nov (15 días de administración): caducidad = 4+14 = 18 → periodoCabe true
+test('convención «14 días» (estricta, docs/12 #13): el día de preparación cuenta; 15 días de periodo NO caben con validez 14', () => {
+  // preparación 4-nov: caducidad = 4+13 = 17-nov (14 días naturales: 4…17)
   const c = calcularCaducidadSpd({ caducidadesLotes: ['2027-12-31'], fechaPreparacion: INICIO, diasValidez: 14, validezExtendidaPermitida: false });
-  assert.equal(c.caducidadSpd, '2026-11-18');
-  assert.equal(periodoCabe('2026-11-18', c.caducidadSpd!), true);
-  // 15 días de administración con «14 días de validez»: hay que decidir si el día de preparación cuenta
+  assert.equal(c.caducidadSpd, '2026-11-17');
+  assert.equal(periodoCabe('2026-11-17', c.caducidadSpd!), true);
+  assert.equal(periodoCabe('2026-11-18', c.caducidadSpd!), false);
 });
 
 // ════════════════════════════ ENTRADA ↔ REPARTO ════════════════════════════

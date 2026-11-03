@@ -11,6 +11,10 @@
 #
 # ⚠️ Ajustes del repositorio necesarios (docs/14-distribucion.md):
 #  - Settings → Actions → General → Workflow permissions: «Read and write» (o dejar el `permissions` de abajo).
+#  - ACTUALIZACIONES: el programa consulta SÓLO https://api.github.com/repos/PharmaJava/SPD/releases/latest y descarga
+#    SPD-<versión>-win-x64.exe, comprobándolo contra SHA256SUMS.txt de la MISMA release. Por eso la Release tiene que
+#    estar en PharmaJava/SPD y ser PÚBLICA; con DESCARGAS_REPO distinto los usuarios no recibirían avisos.
+#    (No se usa electron-updater, así que no hace falta latest.yml.)
 #  - Repo PRIVADO: las descargas de la Release sólo las ve quien tenga acceso al repositorio. Para que cualquier
 #    farmacia descargue hay que usar un repo público de descargas: crear el secreto DESCARGAS_TOKEN (token con
 #    permiso de contenidos sobre ese repo) y la variable DESCARGAS_REPO («usuario/SPD-descargas»). Si no existen,
@@ -42,6 +46,11 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
+      - name: La etiqueta tiene que coincidir con la versión de package.json
+        shell: pwsh
+        run: |
+          $v = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          if ("v$v" -ne $env:ETIQUETA) { throw "La etiqueta $($env:ETIQUETA) no coincide con package.json (v$v): el actualizador compara versiones y busca SPD-$v-win-x64.exe" }
       - run: npm test
       - run: npm run typecheck
       - name: Construir instalador y portable

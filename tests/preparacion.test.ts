@@ -11,7 +11,7 @@ import type { Envase, MomentoToma, Pauta, TomaDia } from '../src/dominio/tipos.t
 // ───────────────────────── datos comunes (mismos que tests/integracion.test.ts) ─────────────────────────
 const INICIO = '2026-11-04';              // miércoles
 const FIN_14 = '2026-11-17';
-const PREPARACION = '2026-11-03';
+const PREPARACION = '2026-11-04';   // el día de preparación cuenta como primer día de validez (criterio estricto, docs/12 #13)
 const MOMENTOS: MomentoToma[] = [
   { id: 1, nombre: 'Desayuno', orden: 1 },
   { id: 2, nombre: 'Comida', orden: 2 },
@@ -389,7 +389,7 @@ test('modo 30 días activado y justificado: validable, fuera de estándar, 4 bl�
   const r = evaluarPreparacion(larga({ diasValidez: 30, validezExtendidaPermitida: true, justificacion: 'Paciente en residencia, reposición mensual coordinada.' }));
   assert.equal(r.validable, true, JSON.stringify(r.bloqueos));
   assert.equal(r.caducidadSpd?.fueraDeEstandar, true);
-  assert.equal(r.caducidadSpd?.caducidadSpd, sumar(PREPARACION, 30));
+  assert.equal(r.caducidadSpd?.caducidadSpd, sumar(PREPARACION, 29)); // 30 días contando el de preparación
   assert.equal(r.finPeriodo, sumar(INICIO, 27));
   assert.equal(r.mapas.length, 4);
   assert.ok(r.avisos.some(a => a.codigo === 'VALIDEZ_FUERA_DE_ESTANDAR'));
@@ -413,8 +413,20 @@ test('(g) periodo de 10 días desde un miércoles: dos mapas y validable', () =>
 test('preparación posterior al primer día de administración: bloquea; el mismo día vale', () => {
   assert.ok(codigos(evaluarPreparacion(entrada({ fechaPreparacion: '2026-11-05' }))).includes('PREPARACION_POSTERIOR_AL_INICIO'));
   const r = evaluarPreparacion(entrada({ fechaPreparacion: INICIO, dias: 14 }));
-  assert.equal(r.caducidadSpd?.caducidadSpd, sumar(INICIO, 14));
+  assert.equal(r.caducidadSpd?.caducidadSpd, sumar(INICIO, 13));
   assert.equal(r.validable, true, JSON.stringify(r.bloqueos));
+});
+
+test('criterio estricto de 14 días: 15 días de periodo con validez 14 BLOQUEA (aunque empiece el día de la preparación)', () => {
+  const r = evaluarPreparacion(entrada({ fechaPreparacion: INICIO, dias: 15 }));
+  assert.equal(r.validable, false);
+  const b = r.bloqueos.find(x => x.codigo === 'PERIODO_NO_CABE');
+  assert.ok(b, JSON.stringify(r.bloqueos));
+  assert.match(b!.texto, /14 días naturales contando el de la preparación/);
+  // 14 días justos caben; prepararlo el día ANTES de empezar ya no cabe (el día de preparación cuenta)
+  assert.equal(evaluarPreparacion(entrada({ fechaPreparacion: INICIO, dias: 14 })).validable, true);
+  assert.ok(codigos(evaluarPreparacion(entrada({ fechaPreparacion: sumar(INICIO, -1), dias: 14 }))).includes('PERIODO_NO_CABE'));
+  assert.equal(evaluarPreparacion(entrada({ fechaPreparacion: sumar(INICIO, -1), dias: 13 })).validable, true);
 });
 
 // ═════════════════════════ medicación aparte, sin cajas, otros tratamientos ═════════════════════════

@@ -363,11 +363,11 @@ const base = (o: Partial<EntradaCaducidad> = {}): EntradaCaducidad => ({
 });
 
 test('caducidad: 14 días, cruces de mes/año y bisiesto', () => {
-  assert.equal(calcularCaducidadSpd(base()).caducidadSpd, '2026-11-11');
-  assert.equal(calcularCaducidadSpd(base({ fechaPreparacion: '2026-12-25' })).caducidadSpd, '2027-01-08');
-  assert.equal(calcularCaducidadSpd(base({ fechaPreparacion: '2028-02-20' })).caducidadSpd, '2028-03-05');
-  assert.equal(calcularCaducidadSpd(base({ fechaPreparacion: '2027-02-20' })).caducidadSpd, '2027-03-06');
-  assert.equal(calcularCaducidadSpd(base({ fechaPreparacion: '2026-03-28', diasValidez: 1 })).caducidadSpd, '2026-03-29');
+  assert.equal(calcularCaducidadSpd(base()).caducidadSpd, '2026-11-10');
+  assert.equal(calcularCaducidadSpd(base({ fechaPreparacion: '2026-12-25' })).caducidadSpd, '2027-01-07');
+  assert.equal(calcularCaducidadSpd(base({ fechaPreparacion: '2028-02-20' })).caducidadSpd, '2028-03-04');
+  assert.equal(calcularCaducidadSpd(base({ fechaPreparacion: '2027-02-20' })).caducidadSpd, '2027-03-05');
+  assert.equal(calcularCaducidadSpd(base({ fechaPreparacion: '2026-03-28', diasValidez: 1 })).caducidadSpd, '2026-03-28');
   assert.equal(calcularCaducidadSpd(base({ fechaPreparacion: '2026-03-28', diasValidez: 1 })).limitadaPor, 'validez');
 });
 
@@ -384,7 +384,7 @@ test('caducidad: propiedad con 1000 casos aleatorios', () => {
       caducidadesLotes: lotes, fechaPreparacion: iso(prep), diasValidez: dias,
       validezExtendidaPermitida: true, justificacion: 'paciente institucionalizado',
     });
-    const porValidez = iso(prep + dias * 86400000);
+    const porValidez = iso(prep + (dias - 1) * 86400000);
     const menor = [...lotes].sort()[0];
     if (menor < iso(prep)) { assert.equal(res.ok, false); assert.equal(res.caducidadSpd, undefined); continue; }
     assert.equal(res.ok, true);
@@ -402,7 +402,7 @@ test('caducidad: lote limita; lote que caduca el mismo día; lote ya caducado', 
   assert.equal(b.ok, true); assert.equal(b.caducidadSpd, '2026-10-28');
   const c = calcularCaducidadSpd(base({ caducidadesLotes: ['2026-10-27', '2030-01-01'] }));
   assert.equal(c.ok, false); assert.equal(c.caducidadSpd, undefined);
-  const d = calcularCaducidadSpd(base({ caducidadesLotes: ['2026-11-11'] }));
+  const d = calcularCaducidadSpd(base({ caducidadesLotes: ['2026-11-10'] }));
   assert.equal(d.limitadaPor, 'validez'); // empate: gana validez (mismo día)
 });
 
@@ -416,7 +416,7 @@ test('caducidad: validez >14 exige ajuste, justificación y tope 30', () => {
 
 test('caducidad: justificación de exactamente 10 caracteres tras trim vale; 9 no', () => {
   const ok = calcularCaducidadSpd(base({ diasValidez: 30, validezExtendidaPermitida: true, justificacion: ' 0123456789 ' }));
-  assert.equal(ok.ok, true); assert.equal(ok.fueraDeEstandar, true); assert.equal(ok.caducidadSpd, '2026-11-27');
+  assert.equal(ok.ok, true); assert.equal(ok.fueraDeEstandar, true); assert.equal(ok.caducidadSpd, '2026-11-26');
   assert.ok(ok.avisos.length > 0);
   const ko = calcularCaducidadSpd(base({ diasValidez: 30, validezExtendidaPermitida: true, justificacion: ' 012345678 ' }));
   assert.equal(ko.ok, false);
@@ -467,18 +467,18 @@ test('caducidad: undefined/null en lugares inesperados no lanzan y bloquean', ()
 });
 
 test('periodoCabe: sólo true si ambas fechas son válidas y fin <= caducidad', () => {
-  assert.equal(periodoCabe('2026-11-11', '2026-11-11'), true);
-  assert.equal(periodoCabe('2026-11-10', '2026-11-11'), true);
-  assert.equal(periodoCabe('2026-11-12', '2026-11-11'), false);
+  assert.equal(periodoCabe('2026-11-10', '2026-11-10'), true);
+  assert.equal(periodoCabe('2026-11-10', '2026-11-10'), true);
+  assert.equal(periodoCabe('2026-11-12', '2026-11-10'), false);
   assert.equal(periodoCabe('2027-01-01', '2026-12-31'), false);
   // Entradas inválidas NUNCA pueden decir que cabe
   for (const f of ['', ' ', 'x', '2026-1-1', '2026-02-30', '2026-13-01']) {
-    assert.equal(periodoCabe(f, '2026-11-11'), false, JSON.stringify(f));
-    assert.equal(periodoCabe('2026-11-11', f), false, JSON.stringify(f));
+    assert.equal(periodoCabe(f, '2026-11-10'), false, JSON.stringify(f));
+    assert.equal(periodoCabe('2026-11-10', f), false, JSON.stringify(f));
   }
   for (const v of [undefined, null] as unknown[]) {
-    assert.equal(periodoCabe(v as string, '2026-11-11'), false);
-    assert.equal(periodoCabe('2026-11-11', v as string), false);
+    assert.equal(periodoCabe(v as string, '2026-11-10'), false);
+    assert.equal(periodoCabe('2026-11-10', v as string), false);
   }
 });
 

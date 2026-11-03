@@ -244,16 +244,17 @@ const VENTANA_CONTINUIDAD = 400;
 /**
  * Continuidad al sustituir pautas: errores si la secuencia de tomas se rompe en el
  * cambio de versión (p. ej. metotrexato semanal con dos dosis en 3 días, o un ciclo
- * sin respetar su descanso). Compara la última toma de las versiones anteriores
+ * sin respetar su descanso; el ciclo sólo se compara con un ciclo anterior). Compara la última toma de las versiones anteriores
  * (hasta el día antes de `nueva.vigenteDesde`) con la primera de la nueva.
  * Vacía = sin problema (o sin tomas que comparar).
  */
 export function comprobarContinuidadPauta(anteriores: Pauta[], nueva: Pauta): string[] {
   const desde = exigirDia(nueva.vigenteDesde, 'vigenteDesde');
   let ultima: number | null = null;
+  let pautaUltima: Pauta | null = null;
   for (let n = desde - 1; n >= desde - VENTANA_CONTINUIDAD; n--) {
     const p = pautaVigenteEn(anteriores, diaISO(n));
-    if (p && validarPauta(p).length === 0 && diaToca(p, diaISO(n))) { ultima = n; break; }
+    if (p && validarPauta(p).length === 0 && diaToca(p, diaISO(n))) { ultima = n; pautaUltima = p; break; }
   }
   if (ultima === null) return [];
   const hasta = nueva.vigenteHasta != null ? exigirDia(nueva.vigenteHasta, 'vigenteHasta') : desde + VENTANA_CONTINUIDAD;
@@ -264,11 +265,13 @@ export function comprobarContinuidadPauta(anteriores: Pauta[], nueva: Pauta): st
   if (primera === null) return [];
   const e: string[] = [];
   const hueco = primera - ultima;
-  const minimo = intervaloMinimo(nueva);
+  // Sólo si la pauta anterior YA era espaciada (semanal, cada N días): pasar de diaria a semanal es un cambio
+  // deliberado; mantener o desplazar una cadencia espaciada no puede juntar dos tomas.
+  const minimo = Math.min(intervaloMinimo(nueva), pautaUltima ? intervaloMinimo(pautaUltima) : 1);
   if (minimo > 1 && hueco < minimo) {
     e.push(`La secuencia se rompe: la última toma de la versión anterior es el ${diaISO(ultima)} y la primera de la nueva el ${diaISO(primera)} (${hueco} día(s)), pero la pauta exige al menos ${minimo} días entre tomas. Ajusta la fecha de inicio o la fecha ancla.`);
   }
-  if (nueva.patron === 'ciclo' && esEnteroPositivo(nueva.cicloOn) && typeof nueva.cicloOff === 'number') {
+  if (nueva.patron === 'ciclo' && pautaUltima?.patron === 'ciclo' && esEnteroPositivo(nueva.cicloOn) && typeof nueva.cicloOff === 'number') {
     const libres = hueco - 1;
     if (libres > 0 && libres < nueva.cicloOff) {
       e.push(`El ciclo no respeta su descanso: entre la última toma anterior (${diaISO(ultima)}) y la primera de la nueva (${diaISO(primera)}) hay ${libres} día(s) libres y el descanso es de ${nueva.cicloOff}.`);

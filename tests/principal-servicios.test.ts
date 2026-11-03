@@ -9,10 +9,12 @@ import { crearExterno } from '../src/principal/externo.ts';
 import type { DepsExterno } from '../src/principal/externo.ts';
 
 const depsVacias = {} as DepsExterno;
+const nada = async () => ({ ok: true as const, datos: null as never });
+const actualizacionesFalsas = { estadoActualizaciones: nada, guardarPreferenciasActualizaciones: nada, buscarActualizaciones: nada, listarVersiones: nada };
 
 test('integración real: sistema + clínica base + preparación + externo cubren TODO el contrato', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'spd-serv-'));
-  const sv = crearServiciosApp({ rutaDatos: dir, wasmPath: join(import.meta.dirname, '../node_modules/sql.js/dist/sql-wasm.wasm'), version: '0.0.0', externo: crearExterno(depsVacias) });
+  const sv = crearServiciosApp({ rutaDatos: dir, wasmPath: join(import.meta.dirname, '../node_modules/sql.js/dist/sql-wasm.wasm'), version: '0.0.0', externo: { ...crearExterno(depsVacias), ...actualizacionesFalsas } });
   try {
     assert.deepEqual(sv.faltan, [], 'métodos del contrato sin implementar');
     const e = await sv.api.estado();

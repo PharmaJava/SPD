@@ -762,11 +762,14 @@ test('copias: crearCopia con carpeta; el fichero abre con la contraseña y trae 
   } finally { await e.fin(); }
 });
 
-test('copias: carpeta indicada en la llamada, aviso de atrasada pasados 2 días y rotación', async () => {
+test('copias: aviso de atrasada pasados 2 días y rotación; una carpeta pasada en la llamada se IGNORA', async () => {
   const e = await conPrimerUso();
   try {
     const carpeta = join(e.dir, 'otra');
-    for (let i = 0; i < 20; i++) { ok(await e.s.api.crearCopia(carpeta)); e.reloj.t += 24 * 3600 * 1000; }
+    ok(await e.s.api.guardarAjustes({ carpetaCopias: carpeta }));
+    ok(await e.s.api.crearCopia(join(e.dir, 'ajena')));
+    assert.equal(existsSync(join(e.dir, 'ajena')), false, 'crearCopia no acepta otra carpeta que la de los ajustes');
+    for (let i = 0; i < 20; i++) { ok(await e.s.api.crearCopia()); e.reloj.t += 24 * 3600 * 1000; }
     const l = readdirSync(carpeta).filter(f => f.endsWith('.datos'));
     assert.ok(l.length < 20 && l.length >= 7, `quedan ${l.length}`);
     ok(await e.s.api.guardarAjustes({ carpetaCopias: carpeta }));
@@ -796,7 +799,8 @@ test('copias: carpeta imposible → fallo claro, sin excepción', async () => {
   const e = await conPrimerUso();
   try {
     writeFileSync(join(e.dir, 'archivo'), 'x');
-    mal(await e.s.api.crearCopia(join(e.dir, 'archivo', 'dentro')), 'CARPETA_COPIAS');
+    ok(await e.s.api.guardarAjustes({ carpetaCopias: join(e.dir, 'archivo', 'dentro') }));
+    mal(await e.s.api.crearCopia(), 'CARPETA_COPIAS');
   } finally { await e.fin(); }
 });
 

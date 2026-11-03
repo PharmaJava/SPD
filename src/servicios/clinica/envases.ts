@@ -12,7 +12,7 @@ import type { Db } from '../db.ts';
 import { normalizarCN, parsearGS1 } from '../../dominio/gs1.ts';
 import { DIAS_AVISO_CADUCIDAD_POR_DEFECTO, validarEntradaEnvase } from '../../dominio/entrada-envase.ts';
 import type { Aviso, ContextoEntrada, EnvaseExistente } from '../../dominio/entrada-envase.ts';
-import { trazabilidadInversa } from '../../dominio/alertas-calidad.ts';
+import { envasesAfectados, trazabilidadInversa } from '../../dominio/alertas-calidad.ts';
 import type { AlertaCalidad, TrazabilidadAlerta } from '../../dominio/alertas-calidad.ts';
 import type { Envase } from '../../dominio/tipos.ts';
 import { normalizar } from '../../dominio/aptitud-spd.ts';
@@ -240,17 +240,16 @@ export function cerrarEnvase(ctx: Contexto, id: number, estado: 'devuelto' | 're
 
 /** Trazabilidad inversa con datos reales de una alerta (sin guardar nada). */
 export function trazabilidadDe(db: Db, alerta: AlertaCalidad): TrazabilidadAlerta {
-  const cn = alerta.cn ? normalizarCN(alerta.cn) : null;
-  const lote = alerta.lote ? alerta.lote.trim().toUpperCase() : '';
-  let filas: R[];
-  if (cn) filas = db.all<R>('SELECT * FROM envase WHERE cn = ?', [cn]);
-  else if (lote) filas = db.all<R>('SELECT * FROM envase WHERE upper(trim(lote)) = ?', [lote]);
-  else filas = [];
+  // El cruce (normalizado: CN sin ceros iniciales, lote sin separadores) lo hace el dominio; aquí se trae
+  // todo lo que podría casar. Un prefiltro SQL exacto dejaría fuera «L-01» frente a «L1».
+  const filas = db.all<R>(
+    `SELECT e.*, COALESCE(t.emblistable, 1) AS trat_emblistable FROM envase e LEFT JOIN tratamiento t ON t.id = e.tratamiento_id`);
   const envases: Envase[] = filas.map((f) => ({
     id: f.id, tratamientoId: f.tratamiento_id ?? 0, cn: f.cn, lote: f.lote, caducidad: f.caducidad,
     ...(f.numero_serie ? { numeroSerie: f.numero_serie } : {}), unidadesRestantes: f.unidades_restantes, estado: f.estado,
+    pacienteId: f.paciente_id, ...(Number(f.trat_emblistable) === 0 ? { aparte: true } : {}),
   }));
-  const idsEnvase = envases.map((e) => e.id);
+  const idsEnvase = envasesAfectados(envases, [alerta]).afectados.map((a) => a.envase.id); // sólo las que casan: las líneas se buscan para ésas
   const lineas: { preparacionId: number; envaseId: number }[] = [];
   for (let i = 0; i < idsEnvase.length; i += 400) {
     const t = idsEnvase.slice(i, i + 400);

@@ -4,10 +4,10 @@ import { calcularCaducidadSpd, periodoCabe, puedeValidar } from '../src/dominio/
 
 const base = { fechaPreparacion: '2026-11-02', caducidadesLotes: ['2028-05-31'], validezExtendidaPermitida: false };
 
-test('estándar: 14 días desde la preparación', () => {
+test('estándar: 14 días naturales contando el de la preparación (D … D+13)', () => {
   const r = calcularCaducidadSpd({ ...base, diasValidez: 14 });
   assert.equal(r.ok, true);
-  assert.equal(r.caducidadSpd, '2026-11-16');
+  assert.equal(r.caducidadSpd, '2026-11-15');
   assert.equal(r.limitadaPor, 'validez');
   assert.equal(r.fueraDeEstandar, false);
 });
@@ -33,7 +33,7 @@ test('más de 14 días activado exige justificación', () => {
 test('un mes con ajuste y justificación: vale, queda marcado como desviación', () => {
   const r = calcularCaducidadSpd({ ...base, validezExtendidaPermitida: true, diasValidez: 30, justificacion: 'Paciente rural, recogida mensual' });
   assert.equal(r.ok, true);
-  assert.equal(r.caducidadSpd, '2026-12-02');
+  assert.equal(r.caducidadSpd, '2026-12-01');
   assert.equal(r.fueraDeEstandar, true);
   assert.match(r.avisos.join(' '), /desviación/);
 });
@@ -51,12 +51,14 @@ test('lote caducado antes de preparar, fechas y días inválidos', () => {
 });
 
 test('cruce de año y bisiesto', () => {
-  assert.equal(calcularCaducidadSpd({ ...base, fechaPreparacion: '2027-12-25', diasValidez: 14 }).caducidadSpd, '2028-01-08');
-  assert.equal(calcularCaducidadSpd({ ...base, fechaPreparacion: '2028-02-20', diasValidez: 14 }).caducidadSpd, '2028-03-05');
+  assert.equal(calcularCaducidadSpd({ ...base, fechaPreparacion: '2027-12-25', diasValidez: 14 }).caducidadSpd, '2028-01-07');
+  assert.equal(calcularCaducidadSpd({ ...base, fechaPreparacion: '2028-02-20', diasValidez: 14 }).caducidadSpd, '2028-03-04');
 });
 
 test('el periodo debe caber en la caducidad', () => {
   assert.equal(periodoCabe('2026-11-16', '2026-11-16'), true);
+  // criterio estricto: preparado el 2-nov con validez 14, el 16-nov (15.º día) ya NO cabe
+  assert.equal(periodoCabe('2026-11-16', calcularCaducidadSpd({ ...base, diasValidez: 14 }).caducidadSpd!), false);
   assert.equal(periodoCabe('2026-11-17', '2026-11-16'), false);
 });
 

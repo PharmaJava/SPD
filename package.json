@@ -35,13 +35,18 @@
     "typescript": "^7.0.2",
     "vite": "^8.3.5"
   },
-  "author": "Antonio",
+  "author": "PharmaJava",
+  "homepage": "https://conveniodefarmacia.com",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PharmaJava/SPD.git"
+  },
   "license": "SEE LICENSE IN LICENSE.txt",
   "main": "dist/principal/main.cjs",
   "build": {
     "appId": "es.spd.gestion",
     "productName": "SPD",
-    "copyright": "Copyright (c) 2026 Antonio",
+    "copyright": "Copyright (c) 2026 PharmaJava",
     "directories": {
       "output": "release"
     },
@@ -56,6 +61,11 @@
         "to": "recursos"
       }
     ],
+    "publish": {
+      "provider": "github",
+      "owner": "PharmaJava",
+      "repo": "SPD"
+    },
     "asar": true,
     "win": {
       "target": [

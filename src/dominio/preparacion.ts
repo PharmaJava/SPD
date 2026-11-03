@@ -21,10 +21,11 @@
  */
 import type { Envase, MomentoToma, Pauta, TomaDia } from './tipos.ts';
 import type { EstadoConsentimientos } from './documentos.ts';
-import { avisosPauta, MAX_DIAS_PERIODO, tomasDelPeriodoVersiones, validarPauta } from './calendario-pauta.ts';
+import { avisosPauta, MAX_DIAS_PERIODO, pautaVigenteEn, tomasDelPeriodoVersiones, validarPauta } from './calendario-pauta.ts';
 import { construirMapas, ubicarToma } from './disposicion-blister.ts';
 import type { MapaBlister, OpcionesDisposicion } from './disposicion-blister.ts';
 import { repartirTomas } from './consumo-envases.ts';
+import { envasesAfectados } from './alertas-calidad.ts';
 import type { AlertaCalidad } from './alertas-calidad.ts';
 import { calcularCaducidadSpd, DIAS_VALIDEZ_ESTANDAR, periodoCabe, puedeValidar } from './caducidad-spd.ts';
 import type { ResultadoCaducidad, Rol } from './caducidad-spd.ts';
@@ -85,12 +86,13 @@ export type CodigoBloqueo =
   | 'ENTRADA_INVALIDA' | 'PERIODO_INVALIDO' | 'FECHA_PREPARACION_INVALIDA' | 'PREPARACION_POSTERIOR_AL_INICIO'
   | 'MOMENTOS_INVALIDOS' | 'DISPOSICION_INVALIDA' | 'TRATAMIENTO_REPETIDO' | 'PAUTA_INVALIDA'
   | 'MOMENTO_INEXISTENTE' | 'TOMA_SIN_CELDA' | 'ENVASE_DE_OTRO_TRATAMIENTO' | 'REPARTO_ERROR'
+  | 'APARTE_CAJA_CADUCADA' | 'APARTE_ALERTA_CALIDAD' | 'PAUTA_CON_HUECOS'
   | 'UNIDADES_INSUFICIENTES' | 'UNIDADES_NO_CUADRAN' | 'CAJA_CADUCA_EN_PERIODO' | 'NADA_QUE_PREPARAR'
   | 'SIN_LOTES_USADOS' | 'VALIDEZ_EXTENDIDA_NO_ACTIVADA' | 'JUSTIFICACION_FALTA' | 'CADUCIDAD_INVALIDA'
   | 'PERIODO_NO_CABE' | 'ROL_NO_PUEDE_VALIDAR' | 'CONSENTIMIENTO_NO_VIGENTE' | 'ERROR_INTERNO';
 
 export type CodigoAviso =
-  | 'APARTE_NO_EMBLISTABLE' | 'SIN_TOMAS_EN_PERIODO' | 'CAJA_EXCLUIDA_POR_CADUCIDAD' | 'CAJA_SIN_UNIDADES'
+  | 'APARTE_NO_EMBLISTABLE' | 'A_DEMANDA' | 'PAUTA_SIN_COBERTURA' | 'SIN_TOMAS_EN_PERIODO' | 'CAJA_EXCLUIDA_POR_CADUCIDAD' | 'CAJA_SIN_UNIDADES'
   | 'TOMA_DOS_LOTES' | 'REPARTO_AVISO' | 'PAUTA_AVISO' | 'VALIDEZ_FUERA_DE_ESTANDAR' | 'CADUCIDAD_AVISO';
 
 export interface Bloqueo { codigo: CodigoBloqueo; texto: string }
@@ -128,8 +130,11 @@ export interface ResultadoPreparacion {
   faltantes: { tratamientoId: number; nombre: string; faltan: number }[];
   /** Tomas calculadas de los tratamientos emblistables (vacío si la pauta no es válida). */
   tomas: TomaPreparacion[];
-  /** Medicación «aparte»: no entra en el blíster pero sale en la etiqueta. */
-  aparte: { tratamientoId: number; nombre: string }[];
+  /**
+   * Medicación «aparte»: no entra en el blíster pero sale en la etiqueta. `ademanda`: pauta «si precisa»
+   * (PRN) de un tratamiento marcado emblistable: se lista siempre, nunca se omite.
+   */
+  aparte: { tratamientoId: number; nombre: string; ademanda?: boolean }[];
   mapas: MapaBlister[];
 }
 
@@ -150,6 +155,19 @@ function sumarDias(fecha: string, dias: number): string {
 
 /** Unidades → cuartos enteros (las cantidades son múltiplos de 0,25). */
 const cuartos = (u: number): number => Math.round(u * 4);
+
+/** Rangos legibles «2026-11-09 a 2026-11-15» de una lista de días ISO ordenados. */
+function rangos(dias: string[]): string {
+  const out: string[] = [];
+  let ini = 0;
+  for (let i = 1; i <= dias.length; i++) {
+    if (i === dias.length || sumarDias(dias[i - 1], 1) !== dias[i]) {
+      out.push(ini === i - 1 ? dias[ini] : `${dias[ini]} a ${dias[i - 1]}`);
+      ini = i;
+    }
+  }
+  return out.join(', ');
+}
 
 const mensaje = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
@@ -232,6 +250,28 @@ function evaluar(entrada: EntradaPreparacion, res: ResultadoPreparacion): void {
   let esperadasC = 0;
   let asignadasC = 0;
   const lotesUsados: Envase[] = [];
+  const cajasAparte: Envase[] = [];
+
+  /** Cajas de medicación que va aparte / a demanda: caducidad y alertas se comprueban igual que las del blíster. */
+  const revisarCajasAparte = (nombre: string, envases: unknown, tratamientoId: number): void => {
+    for (const e of Array.isArray(envases) ? (envases as Envase[]) : []) {
+      if (e === null || typeof e !== 'object' || e.estado !== 'en_uso' || !(e.unidadesRestantes > 0)) continue;
+      if (e.tratamientoId !== tratamientoId) {
+        bloquear('ENVASE_DE_OTRO_TRATAMIENTO', `${nombre}: la caja ${e.id} (lote ${e.lote}) pertenece al tratamiento ${e.tratamientoId}; no se usa.`);
+        continue;
+      }
+      cajasAparte.push(e);
+      if (!esFecha(e.caducidad)) {
+        bloquear('CADUCIDAD_INVALIDA', `${nombre} (aparte): la caja ${e.id} (lote ${e.lote}) no tiene una caducidad válida.`);
+      } else if (fin !== undefined && e.caducidad < fin) {
+        bloquear('APARTE_CAJA_CADUCADA', `${nombre} (aparte): la caja ${e.id} (lote ${e.lote}) caduca el ${e.caducidad}, antes del fin del periodo (${fin}): no se entrega.`);
+      }
+    }
+    const afectadas = envasesAfectados((Array.isArray(envases) ? (envases as Envase[]) : []).filter((e) => e?.estado === 'en_uso'), Array.isArray(entrada.alertas) ? entrada.alertas : []).afectados;
+    for (const a of afectadas) {
+      bloquear('APARTE_ALERTA_CALIDAD', `${nombre} (aparte): la caja ${a.envase.id} (lote ${a.envase.lote}) tiene una alerta de calidad (${a.alertas.map((x) => x.referencia).join(', ')}): apártala y no la entregues.`);
+    }
+  };
 
   for (const t of tratamientos ?? []) {
     const nombre = typeof t?.nombre === 'string' && t.nombre.trim() ? t.nombre : `tratamiento ${String(t?.tratamientoId)}`;
@@ -245,6 +285,7 @@ function evaluar(entrada: EntradaPreparacion, res: ResultadoPreparacion): void {
     if (t.emblistable === false) {
       res.aparte.push({ tratamientoId: t.tratamientoId, nombre });
       avisar('APARTE_NO_EMBLISTABLE', `${nombre}: no es emblistable; se administra aparte y sale en la etiqueta.`);
+      revisarCajasAparte(nombre, t.envases, t.tratamientoId);
       continue;
     }
     if (fin === undefined) continue; // sin periodo válido no hay tomas que calcular
@@ -258,6 +299,32 @@ function evaluar(entrada: EntradaPreparacion, res: ResultadoPreparacion): void {
       continue;
     }
     avisosDePauta(t.versiones, desde, fin).forEach((x) => avisar('PAUTA_AVISO', `${nombre}: ${x}`));
+
+    // 3.1.b huecos: días del periodo sin NINGUNA pauta vigente (p. ej. una pauta temporal cerró la crónica)
+    const sinPauta: string[] = [];
+    const conPauta: string[] = [];
+    for (let i = 0; i < dias; i++) {
+      const d = sumarDias(desde, i);
+      (pautaVigenteEn(t.versiones, d) ? conPauta : sinPauta).push(d);
+    }
+    if (sinPauta.length > 0 && conPauta.length > 0) {
+      const ultimoCubierto = conPauta[conPauta.length - 1];
+      const interior = sinPauta.filter((d) => d < ultimoCubierto);
+      const finales = sinPauta.filter((d) => d > ultimoCubierto);
+      if (interior.length > 0) {
+        bloquear('PAUTA_CON_HUECOS', `${nombre}: no hay ninguna pauta vigente los días ${rangos(interior)}, entre días con pauta. El medicamento no se prepararía esos días: corrige las fechas de las pautas o finaliza el tratamiento.`);
+      }
+      if (finales.length > 0) {
+        avisar('PAUTA_SIN_COBERTURA', `${nombre}: la última pauta termina el ${ultimoCubierto} y los días ${rangos(finales)} del periodo quedan SIN pauta (no se prepara nada). Si el tratamiento debe continuar (p. ej. una pauta temporal sustituyó a la crónica), añade la pauta que continúa.`);
+      }
+    }
+
+    // 3.1.c «si precisa» marcado emblistable: se lista SIEMPRE como «a demanda», nunca se omite
+    if (t.versiones.some((v) => v?.patron === 'si_precisa' && v.vigenteDesde <= fin && (v.vigenteHasta == null || v.vigenteHasta >= desde))) {
+      res.aparte.push({ tratamientoId: t.tratamientoId, nombre, ademanda: true });
+      avisar('A_DEMANDA', `${nombre}: pauta «si precisa»; no va en el blíster, sale en la etiqueta como «a demanda».`);
+      revisarCajasAparte(nombre, t.envases, t.tratamientoId);
+    }
     if (tomas.length === 0) avisar('SIN_TOMAS_EN_PERIODO', `${nombre}: la pauta no tiene ninguna toma en el periodo.`);
     for (const x of tomas) res.tomas.push({ ...x, tratamientoId: t.tratamientoId });
     const esperadasT = tomas.reduce((s, x) => s + cuartos(x.unidades), 0);
@@ -331,11 +398,12 @@ function evaluar(entrada: EntradaPreparacion, res: ResultadoPreparacion): void {
   }
 
   // ── 4. Caducidad del SPD y encaje del periodo ──
+  const caducidadesAparte = cajasAparte.filter((c) => esFecha(c.caducidad)).map((c) => c.caducidad);
   if (lotesUsados.length === 0) {
     if (esperadasC > 0) bloquear('SIN_LOTES_USADOS', 'No se ha usado ningún lote: no se puede calcular la caducidad del SPD.');
   } else if (preparacionOk) {
     const cad = calcularCaducidadSpd({
-      caducidadesLotes: lotesUsados.map((c) => c.caducidad),
+      caducidadesLotes: [...lotesUsados.map((c) => c.caducidad), ...caducidadesAparte], // la medicación aparte también acota la caducidad
       fechaPreparacion,
       diasValidez: entrada.diasValidez ?? DIAS_VALIDEZ_ESTANDAR,
       validezExtendidaPermitida: entrada.validezExtendidaPermitida ?? false,
@@ -349,7 +417,7 @@ function evaluar(entrada: EntradaPreparacion, res: ResultadoPreparacion): void {
         bloquear(codigo, e);
       }
     } else if (fin !== undefined && cad.caducidadSpd !== undefined && !periodoCabe(fin, cad.caducidadSpd)) {
-      bloquear('PERIODO_NO_CABE', `El último día de administración (${fin}) es posterior a la caducidad del SPD (${cad.caducidadSpd}).`);
+      bloquear('PERIODO_NO_CABE', `El último día de administración (${fin}) es posterior a la caducidad del SPD (${cad.caducidadSpd}). El SPD cubre como máximo ${entrada.diasValidez ?? DIAS_VALIDEZ_ESTANDAR} días naturales contando el de la preparación (${fechaPreparacion}), o menos si un lote caduca antes.`);
     }
     if (cad.fueraDeEstandar) avisar('VALIDEZ_FUERA_DE_ESTANDAR', `Validez superior a ${DIAS_VALIDEZ_ESTANDAR} días: queda marcada como desviación y exige su justificación.`);
     cad.avisos.forEach((x) => avisar('CADUCIDAD_AVISO', x));

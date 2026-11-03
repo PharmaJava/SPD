@@ -52,3 +52,13 @@ gestiona su servicio de SPD de principio a fin:
 ```bash
 npm test
 ```
+
+## Apoya el proyecto
+
+¿Te ha gustado SPD? Apoya el software gratuito con una donación por PayPal a boarding87@gmail.com.
+Donar es voluntario y no da ninguna ventaja: el programa es igual para todos.
+
+## Autor
+
+SPD lo desarrolla **PharmaJava** (farmacéutico y programador). Es gratuito (freeware) y forma parte de la suite de
+herramientas y atención farmacéutica de [conveniodefarmacia.com](https://conveniodefarmacia.com).
