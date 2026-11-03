@@ -120,7 +120,6 @@ function cnDeAlerta(a: AlertaCalidad): { cn: string | null; malformado: boolean 
 interface IndiceEnvases {
   porLote: Map<string, Envase[]>;
   porCn: Map<string, Envase[]>;
-  cnDe: Map<Envase, string>;
 }
 
 const cnDeEnvase = (e: Envase): string => claveCn(e.cn) || e.cn;
@@ -128,15 +127,13 @@ const cnDeEnvase = (e: Envase): string => claveCn(e.cn) || e.cn;
 function indexarEnvases(envases: Envase[]): IndiceEnvases {
   const porLote = new Map<string, Envase[]>();
   const porCn = new Map<string, Envase[]>();
-  const cnDe = new Map<Envase, string>();
   for (const e of envases) {
     const kl = claveLote(e.lote);
     if (kl) (porLote.get(kl) ?? porLote.set(kl, []).get(kl)!).push(e);
     const kc = cnDeEnvase(e);
-    cnDe.set(e, kc);
     (porCn.get(kc) ?? porCn.set(kc, []).get(kc)!).push(e);
   }
-  return { porLote, porCn, cnDe };
+  return { porLote, porCn };
 }
 
 /** Envases que casan con UNA alerta; `aviso` si la alerta no se puede usar. */
@@ -147,7 +144,7 @@ function casar(a: AlertaCalidad, idx: IndiceEnvases): { envases: Envase[]; aviso
   if (!cn && !lote) return { envases: [], aviso: `La alerta ${a.referencia} no trae CN ni lote: no identifica ninguna caja. Revisarla a mano.` };
   if (lote) {
     const delLote = idx.porLote.get(lote) ?? [];
-    return { envases: cn ? delLote.filter((e) => idx.cnDe.get(e) === cn) : delLote };
+    return { envases: cn ? delLote.filter((e) => cnDeEnvase(e) === cn) : delLote };
   }
   return { envases: idx.porCn.get(cn!) ?? [] };
 }
@@ -240,10 +237,10 @@ export function trazabilidadInversa(alertas: AlertaCalidad[], ctx: ContextoTraza
       }
       envasesAparte.push({ envaseId: e.id, pacienteId: e.pacienteId, estado: e.estado });
     }
-    const pacientesAAvisar = [...new Set([
-      ...preparaciones.filter((x) => x.actuacion === 'avisar_paciente_entregado').map((x) => x.pacienteId),
-      ...envasesAparte.map((x) => x.pacienteId),
-    ])].sort((a, b) => a - b);
+    const aAvisar = new Set<number>();
+    for (const x of preparaciones) if (x.actuacion === 'avisar_paciente_entregado') aAvisar.add(x.pacienteId);
+    for (const x of envasesAparte) aAvisar.add(x.pacienteId);
+    const pacientesAAvisar = [...aAvisar].sort((x, y) => x - y);
     return { alerta, envases, envasesARetirar, preparaciones, pacientesAAvisar, envasesAparte, sinCajasEnSistema, avisos };
   });
 }

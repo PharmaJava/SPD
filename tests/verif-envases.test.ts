@@ -371,7 +371,8 @@ test('alerta de calidad: por CN+lote, solo lote, solo CN; insensible a mayúscul
   const casos: [ContextoEntrada['alertasCalidad'], boolean][] = [
     [[{ cn: '712729', lote: 'ABC123', referencia: 'R1' }], true],
     [[{ lote: 'abc123', referencia: 'R2' }], true],
-    [[{ lote: ' ABC   123 ', referencia: 'R2b' }], false],
+    [[{ lote: ' ABC   123 ', referencia: 'R2b' }], true],   // espacios internos y separadores se ignoran
+    [[{ lote: 'ABC-12', referencia: 'R2c' }], false],      // pero ABC12 no es ABC123
     [[{ cn: '712729', referencia: 'R3' }], true],
     [[{ cn: '712729.3', referencia: 'R3b' }], true],
     [[{ cn: '999999', lote: 'ABC123', referencia: 'R4' }], false],

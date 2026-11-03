@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { crearContextoPruebas } from './ayudas/contexto-pruebas.ts';
 import type { ContextoPruebas } from './ayudas/contexto-pruebas.ts';
 import { crearClinicaPreparacion } from '../src/servicios/clinica-preparacion.ts';
+import { crearClinicaBase } from '../src/servicios/clinica-base.ts';
 import type { RolUsuario, Resultado } from '../src/servicios/api.ts';
 
 const DESDE = '2026-11-03';            // martes; hoy = 2026-11-02 (reloj de pruebas)
@@ -79,7 +80,7 @@ test('evaluar: sin bloqueos, unidades y nombre del paciente', async () => {
   assert.equal(e.unidadesEsperadas, 21);
   assert.equal(e.unidadesAsignadas, 21);
   assert.equal(e.paciente.nombreCompleto, 'Ana López Pérez');
-  assert.equal(e.caducidadSpd?.caducidadSpd, '2026-11-16');
+  assert.equal(e.caducidadSpd?.caducidadSpd, '2026-11-15');
 });
 
 test('evaluar: leyenda con letra, color de la paleta y abreviatura distintos', async () => {
@@ -197,7 +198,7 @@ test('evaluar: una caja que caduca antes del fin del periodo no se usa', async (
 test('evaluar: ajustes de validez y de disposición', async () => {
   const m = await montar();
   m.t.db.run("INSERT INTO ajuste(clave,valor) VALUES ('dias_validez_spd','10')");
-  assert.equal(ok(await m.api.evaluarPreparacion(PARAMS)).caducidadSpd?.caducidadSpd, '2026-11-12');
+  assert.equal(ok(await m.api.evaluarPreparacion(PARAMS)).caducidadSpd?.caducidadSpd, '2026-11-11');
   const e20 = ok(await m.api.evaluarPreparacion({ ...PARAMS, diasValidez: 20, justificacion: 'Residencia lejana, entrega quincenal' }));
   assert.ok(e20.bloqueos.some((b) => b.codigo === 'VALIDEZ_EXTENDIDA_NO_ACTIVADA'));
   m.t.db.run("INSERT INTO ajuste(clave,valor) VALUES ('validez_extendida_permitida','true')");
@@ -225,7 +226,7 @@ test('crear: guarda un borrador con líneas y SIN descontar unidades', async () 
   assert.match(b.idPublico, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   assert.equal(b.pacienteNombre, 'Ana López Pérez');
   assert.equal(b.fechaFin, '2026-11-09');
-  assert.equal(b.caducidadSpd, '2026-11-16');
+  assert.equal(b.caducidadSpd, '2026-11-15');
   assert.equal(cuenta(m, 'preparacion_linea'), 21);
   assert.equal(restantes(m, 1).unidades_restantes, 28);
   assert.equal(restantes(m, 2).unidades_restantes, 30);
@@ -280,7 +281,7 @@ test('solape: no se prepara dos veces el mismo periodo; dos borradores sí', asy
   await prep(m);                                 // dos borradores no se pisan
   ok(await m.api.marcarPreparada(a.id));
   assert.equal(ko(await m.api.crearPreparacion(PARAMS)).codigo, 'PERIODO_SOLAPADO');
-  const siguiente = ok(await m.api.crearPreparacion({ ...PARAMS, desde: '2026-11-10' }));
+  const siguiente = ok(await m.api.crearPreparacion({ ...PARAMS, desde: '2026-11-10', dias: 6 }));
   assert.equal(siguiente.estado, 'borrador');
 });
 
@@ -301,7 +302,7 @@ test('marcarPreparada: recalcula la caducidad con la fecha real de preparación'
   const b = await prep(m);                       // se crea el 2-nov
   m.t.reloj.fecha = new Date('2026-11-03T09:00:00Z');
   const p = ok(await m.api.marcarPreparada(b.id));
-  assert.equal(p.caducidadSpd, '2026-11-17');
+  assert.equal(p.caducidadSpd, '2026-11-16');
 });
 
 test('marcarPreparada: pasado el primer día de administración no se puede', async () => {
@@ -538,7 +539,7 @@ test('entrega a un contacto: debe ser del paciente y estar autorizado', async ()
   ko(await m.api.registrarEntrega(v.id, { entregadoA: 'Ajeno', contactoId: 3 }));
   ok(await m.api.registrarEntrega(v.id, { entregadoA: 'Marta', contactoId: 2 }));
   assert.equal(m.t.db.get<{ contacto_id: number }>('SELECT contacto_id FROM entrega')!.contacto_id, 2);
-  const w = await (async () => { const b = await prep(m, { desde: '2026-11-10' }); return b; })();
+  const w = await (async () => { const b = await prep(m, { desde: '2026-11-10', dias: 6 }); return b; })();
   assert.ok(w.id);
 });
 
@@ -599,7 +600,7 @@ test('anular una validada: sólo farmacéutico o titular', async () => {
   usar(m, 'tecnico');
   assert.equal(ko(await m.api.anularPreparacion(v.id, 'Lo anulo yo')).codigo, 'PERMISO');
   assert.equal(restantes(m, 1).unidades_restantes, 14);
-  const b = (usar(m, 'farmaceutico'), await prep(m, { desde: '2026-11-10' }));
+  const b = (usar(m, 'farmaceutico'), await prep(m, { desde: '2026-11-10', dias: 6 }));
   usar(m, 'tecnico');
   assert.equal(ok(await m.api.anularPreparacion(b.id, 'Un borrador sí')).estado, 'anulado');
 });
@@ -617,7 +618,7 @@ test('anular: no devuelve más de lo que entró (datos incoherentes)', async () 
 test('listar: filtra por paciente y estado, más reciente primero', async () => {
   const m = await montar();
   const a = await prep(m);
-  const b = await prep(m, { desde: '2026-11-10' });
+  const b = await prep(m, { desde: '2026-11-10', dias: 6 });
   ok(await m.api.anularPreparacion(a.id, 'No hacía falta'));
   assert.deepEqual(ok(await m.api.listarPreparaciones()).map((p) => p.id), [b.id, a.id]);
   assert.deepEqual(ok(await m.api.listarPreparaciones({ estado: 'anulado' })).map((p) => p.id), [a.id]);
@@ -737,7 +738,7 @@ test('etiqueta y hoja: una alerta posterior sobre una caja usada las hace no imp
 test('etiqueta de 14 días: pasa a resumen por medicamento y sigue siendo imprimible', async () => {
   const m = await montar();
   m.t.db.run('UPDATE envase SET unidades_restantes = 60, unidades_inicio = 60 WHERE id IN (1,2)');
-  const b = ok(await m.api.crearPreparacion({ ...PARAMS, dias: 14 }));
+  const b = ok(await m.api.crearPreparacion({ ...PARAMS, dias: 13 }));
   const p = ok(await m.api.marcarPreparada(b.id));
   const val = ok(await m.api.validarPreparacion(p.id));
   const v = ok(await m.api.vistaEtiqueta(val.id));
@@ -758,7 +759,7 @@ test('hoja del paciente: mapa día × toma, descripción, lotes, caducidad y qui
   assert.match(h.html, /Comprimido blanco/);
   assert.match(h.html, /sin descripción física/);        // la metformina no tiene descripción confirmada
   assert.match(h.html, /Lote MET1 · cad\. 31\/05\/2028 · CN 654321/);
-  assert.match(h.html, /Caduca el SPD:<\/b> 16\/11\/2026/);
+  assert.match(h.html, /Caduca el SPD:<\/b> 15\/11\/2026/);
   assert.match(h.html, /Preparado por:<\/b> Técnico Prueba \(TE\)/);
   assert.match(h.html, /Validado por:<\/b> Farma Prueba \(FA\)/);
   assert.ok(h.html.includes(`data-codigo="${val.idPublico}"`));
@@ -783,4 +784,60 @@ test('cn: la leyenda lleva el CN preferente y cada línea el CN de la caja (vivo
   const snap = ok(await m.api.obtenerPreparacion(v.id)).evaluacion;
   assert.deepEqual(snap.leyenda.map((l) => l.cn), ['654321', '123456']);
   assert.ok(snap.lineasReparto.every((l) => typeof (l as { cn?: string }).cn === 'string'));
+});
+
+// ───────────── correcciones del tester clínico ─────────────
+
+test('finalizarTratamiento: devuelve los blísteres preparados que aún contienen el medicamento, como guardarPauta', async () => {
+  const m = await montar();
+  const p = await preparada(m);                                  // blíster preparado 3-9 nov con metformina y enalapril
+  const base = crearClinicaBase(m.t.ctx);
+  const r = ok(await base.finalizarTratamiento(1, 'Suspendido por el médico')) as unknown as { avisos: string[]; blisteresAfectados: { estado: string; fechaFin: string; idPublico: string }[] };
+  assert.equal(r.blisteresAfectados.length, 1);
+  assert.equal(r.blisteresAfectados[0].estado, 'preparado');
+  assert.equal(r.blisteresAfectados[0].fechaFin, '2026-11-09');
+  assert.equal(r.blisteresAfectados[0].idPublico, m.t.db.get<{ id_publico: string }>('SELECT id_publico FROM preparacion WHERE id = ?', [p.id])!.id_publico);
+  assert.ok(r.avisos.some((a) => /todavía contiene este medicamento/.test(a)));
+  // un tratamiento que no está en ningún blíster activo no avisa de nada
+  m.t.db.run("INSERT INTO tratamiento(id, paciente_id, principio_activo, emblistable) VALUES (7,1,'Otro',1)");
+  const sin = ok(await base.finalizarTratamiento(7, 'Fin')) as unknown as { blisteresAfectados: unknown[] };
+  assert.equal(sin.blisteresAfectados.length, 0);
+});
+
+test('finalizarTratamiento: la medicación «aparte» también cuenta como contenida en el blíster', async () => {
+  const m = await montar();
+  m.t.db.run("INSERT INTO tratamiento(id, paciente_id, principio_activo, dosis_texto, emblistable, motivo_no_emblistable) VALUES (3,1,'Insulina','100 UI',0,'nevera')");
+  pauta(m, 3, [[1, 1]]);
+  await preparada(m);
+  const r = ok(await crearClinicaBase(m.t.ctx).finalizarTratamiento(3, 'Fin')) as unknown as { blisteresAfectados: unknown[] };
+  assert.equal(r.blisteresAfectados.length, 1);
+});
+
+test('aparte: una caja caducada o con alerta bloquea la preparación; su lote y caducidad salen en la etiqueta', async () => {
+  const m = await montar();
+  m.t.db.run("INSERT INTO tratamiento(id, paciente_id, principio_activo, dosis_texto, emblistable, motivo_no_emblistable) VALUES (3,1,'Insulina','100 UI',0,'nevera')");
+  m.t.db.run("INSERT INTO medicamento(cn,nombre,descripcion_estado) VALUES ('999999','Insulina Test','sin_datos')");
+  pauta(m, 3, [[1, 1]]);
+  const caja = envase(m, { cn: '999999', tratamientoId: 3, lote: 'INS-1', caducidad: '2027-03-31', unidades: 3 });
+  const e = ok(await m.api.evaluarPreparacion(PARAMS));
+  assert.equal(e.validable, true, JSON.stringify(e.bloqueos));
+  const b = await prep(m);
+  const txt = m.t.db.get<{ texto: string }>('SELECT texto FROM preparacion_aparte WHERE preparacion_id = ?', [b.id])!.texto;
+  assert.match(txt, /lote INS-1, cad\. 2027-03-31/);
+  // caducada
+  m.t.db.run('UPDATE envase SET caducidad = ? WHERE id = ?', ['2026-11-05', caja]);
+  assert.ok(ok(await m.api.evaluarPreparacion(PARAMS)).bloqueos.some((x) => x.codigo === 'APARTE_CAJA_CADUCADA'));
+  // alerta (lote escrito de otra forma)
+  m.t.db.run('UPDATE envase SET caducidad = ? WHERE id = ?', ['2027-03-31', caja]);
+  m.t.db.run("INSERT INTO alerta_calidad(referencia, lote) VALUES ('R_INS','ins 1')");
+  assert.ok(ok(await m.api.evaluarPreparacion(PARAMS)).bloqueos.some((x) => x.codigo === 'APARTE_ALERTA_CALIDAD'));
+});
+
+test('PRN marcado emblistable: sale en la etiqueta como «A DEMANDA»', async () => {
+  const m = await montar();
+  m.t.db.run("INSERT INTO tratamiento(id, paciente_id, principio_activo, dosis_texto, emblistable) VALUES (3,1,'Paracetamol','1 g',1)");
+  pauta(m, 3, [[1, 1]], { patron: 'si_precisa' });
+  const b = await prep(m);
+  const txt = m.t.db.get<{ texto: string }>('SELECT texto FROM preparacion_aparte WHERE preparacion_id = ? AND tratamiento_id = 3', [b.id])!.texto;
+  assert.match(txt, /^A DEMANDA: Paracetamol 1 g/);
 });

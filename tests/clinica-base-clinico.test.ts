@@ -591,3 +591,57 @@ test('EnvaseDto: caducada y caducaPronto según la fecha de hoy', async () => {
   assert.deepEqual([f('PRONTO').caducada, f('PRONTO').caducaPronto], [false, true]);
   assert.deepEqual([f('VIEJO').caducada, f('VIEJO').caducaPronto], [true, false]);
 });
+
+// ───────────── correcciones del tester clínico ─────────────
+
+test('guardarPauta: cada_n_dias sin ancla hereda la fase de la versión anterior; un cambio de dosis semanal no la desplaza', async () => {
+  const { api, tc, t } = await escenario();
+  await bien(api.guardarPauta(t.id, pauta([1], { vigenteDesde: '2026-11-02', patron: 'dias_semana', diasSemana: [1] })));
+  tc.reloj.fecha = new Date('2026-11-02T09:00:00Z');
+  await bien(api.guardarPauta(t.id, pauta([1], { vigenteDesde: '2026-11-03', patron: 'cada_n_dias', cadaNDias: 7, fechaAncla: '2026-11-02' })));
+  // cambio de dosis el jueves, SIN ancla: hereda la del lunes (no se reinicia la cuenta en el jueves)
+  const r = await bien(api.guardarPauta(t.id, pauta([1], { vigenteDesde: '2026-11-05', patron: 'cada_n_dias', cadaNDias: 7, dosis: [{ momentoId: 1, unidades: 2 }] })));
+  const v3 = r.pautas[r.pautas.length - 1];
+  assert.equal(v3.fechaAncla, '2026-11-02');
+});
+
+test('guardarPauta: cada_n_dias SIN ancla y sin versión anterior que heredar: se rechaza', async () => {
+  const { api, t } = await escenario();
+  await mal(api.guardarPauta(t.id, pauta([1], { vigenteDesde: '2026-11-05', patron: 'cada_n_dias', cadaNDias: 7 })), 'VALIDACION', /fechaAncla/);
+  await mal(api.guardarPauta(t.id, pauta([1], { vigenteDesde: '2026-11-05', patron: 'ciclo', cicloOn: 5, cicloOff: 2 })), 'VALIDACION', /fechaAncla/);
+});
+
+test('guardarPauta: la secuencia se rompe respecto a la última toma de la versión previa → se rechaza', async () => {
+  const { api, tc, t } = await escenario();
+  tc.reloj.fecha = new Date('2026-11-02T09:00:00Z');
+  await bien(api.guardarPauta(t.id, pauta([1], { vigenteDesde: '2026-11-02', patron: 'cada_n_dias', cadaNDias: 7, fechaAncla: '2026-11-02' })));
+  // metotrexato: toma el lunes 2 y la nueva versión fija otra fase (jueves 5): dos dosis en 3 días
+  await mal(api.guardarPauta(t.id, pauta([1], { vigenteDesde: '2026-11-05', patron: 'cada_n_dias', cadaNDias: 7, fechaAncla: '2026-11-05', dosis: [{ momentoId: 1, unidades: 2 }] })),
+    'VALIDACION', /secuencia.*se rompe/i);
+  // con la misma fase sí
+  await bien(api.guardarPauta(t.id, pauta([1], { vigenteDesde: '2026-11-05', patron: 'cada_n_dias', cadaNDias: 7, fechaAncla: '2026-11-02', dosis: [{ momentoId: 1, unidades: 2 }] })));
+});
+
+test('guardarPauta: una pauta temporal que cierra la indefinida avisa de que el tratamiento quedará sin pauta', async () => {
+  const { api, t } = await escenario();
+  const r = await bien(api.guardarPauta(t.id, pauta([1], { vigenteDesde: '2026-11-04', vigenteHasta: '2026-11-08', dosis: [{ momentoId: 1, unidades: 2 }] }))) as unknown as { avisos: string[] };
+  assert.ok(r.avisos.some((a) => /SIN pauta/.test(a) && /temporal/.test(a)), JSON.stringify(r.avisos));
+});
+
+test('pautas guardadas sin ancla (legado): su fase efectiva sigue siendo vigente_desde', async () => {
+  const { api, db, t, p } = await escenario();
+  const id = db.run("INSERT INTO pauta_version(tratamiento_id,version,vigente_desde,patron,cada_n_dias,origen,creado_por) VALUES (?,9,'2026-12-01','cada_n_dias',3,'receta',1)", [t.id]).ultimoId;
+  db.run('INSERT INTO pauta_dosis(pauta_version_id,momento_id,unidades) VALUES (?,1,1)', [id]);
+  const [tr] = await bien(api.listarTratamientos(p.id));
+  assert.equal(tr.pautas.find((x) => x.version === 9)!.fechaAncla, '2026-12-01');
+});
+
+test('importarAlertaCalidad: una caja «aparte» (sin líneas de preparación) avisa a su paciente; el lote se cruza normalizado', async () => {
+  const { api, p, db } = await escenario();
+  const ap = await trat(api, p.id, { principioActivo: 'insulina', emblistable: false, motivoNoEmblistable: 'nevera' });
+  await bien(caja(api, p.id, { lote: 'INS-01', unidades: 3 }));
+  db.run('UPDATE envase SET tratamiento_id = ? WHERE lote = ?', [ap.id, 'INS-01']);
+  const tr = await bien(api.importarAlertaCalidad({ referencia: 'R_INS', lote: 'ins 1' })) as unknown as { pacientesAAvisar: number[]; envasesAparte: { pacienteId: number }[] };
+  assert.deepEqual(tr.pacientesAAvisar, [p.id]);
+  assert.equal(tr.envasesAparte.length, 1);
+});

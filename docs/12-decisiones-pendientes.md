@@ -16,6 +16,7 @@
 | 8 | **Momentos de toma:** los define el farmacéutico en el primer uso (plantilla de partida editable) | Sin valores sembrados en la base |
 | 9 | **Conservación tras la baja: 2 años** | A confirmar con abogado (doc 08) |
 | 10 | **No se admiten cajas que traiga el paciente** | Eliminado `procedencia` del modelo |
+| 13 | **Criterio estricto de «14 días»** (29-oct-2026, a raíz de un fallo reportado por un tester clínico): el SPD cubre como máximo 14 días **naturales contando el día de la preparación como el primero**. Preparado el día D con validez 14, el último día válido es **D+13**; un periodo de 15 días con validez 14 **bloquea** (`PERIODO_NO_CABE`), también si empieza el mismo día. Preparar un día antes de empezar y cubrir 14 días ya no cabe: o se prepara el mismo día, o el periodo es de 13. La misma cuenta vale para la validez ampliada (30 días → D+29) | `calcularCaducidadSpd()`; el mensaje de bloqueo lo explica; `tests/correcciones-tester.test.ts` |
 | 11 | **El instalador se distribuye desde las *releases* de GitHub** de tu repositorio | Ver doc 14 |
 
 ## Pendientes
