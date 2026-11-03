@@ -48,6 +48,14 @@ export function esRecursoDeInterfaz(url: string, carpetaInterfaz: string): boole
   return u.href.startsWith(base) && !u.pathname.includes('/../');
 }
 
+/**
+ * Ventana oculta de impresión: sólo se permite `data:` y ficheros que estén DENTRO de la carpeta de documentos temporales
+ * (dentro de los datos del usuario, no en la carpeta temporal compartida del sistema). Cualquier otra petición se cancela.
+ */
+export function esPeticionImpresionPermitida(url: string, carpetaImpresion: string): boolean {
+  return url.startsWith('data:') || esRecursoDeInterfaz(url, carpetaImpresion);
+}
+
 export type DecisionApertura = { accion: 'denegar' } | { accion: 'abrirEnNavegador'; url: string };
 
 /** Qué hacer cuando la página intenta abrir una ventana nueva (window.open, target=_blank). */

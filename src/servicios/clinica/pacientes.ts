@@ -52,6 +52,28 @@ const nombreCompleto = (r: R): string => [r.nombre, r.apellido1, r.apellido2].fi
 
 // ───────────────────────────── Pacientes ─────────────────────────────
 
+/** Un listado de pacientes es una lectura MASIVA de datos de salud: queda en la auditoría, pero una vez por sesión y minuto (y tipo). */
+export const MS_ENTRE_AUDITORIAS_LISTADO = 60_000;
+const ultimaAuditoriaListado = new WeakMap<object, { completo: number; busqueda: number }>();
+
+function auditarListado(ctx: Contexto, db: Db, f: { texto?: string; estado?: unknown; centroId?: number; origen?: unknown; centroTipo?: unknown }, resultados: number): void {
+  const sesion = ctx.sesion();
+  if (!sesion) return;
+  const busqueda = typeof f.texto === 'string' && f.texto.trim() !== '';
+  const ahora = ctx.ahora().getTime();
+  const visto = ultimaAuditoriaListado.get(sesion) ?? { completo: -Infinity, busqueda: -Infinity };
+  const clave = busqueda ? 'busqueda' : 'completo';
+  if (ahora - visto[clave] < MS_ENTRE_AUDITORIAS_LISTADO) return;
+  visto[clave] = ahora; ultimaAuditoriaListado.set(sesion, visto);
+  // Nada del texto buscado (puede ser un nombre): sólo que hubo búsqueda, los filtros y cuántos pacientes se vieron.
+  db.transaccion(() => ctx.auditar({
+    accion: 'consultar', entidad: 'listado_pacientes', entidadId: null,
+    despues: { busqueda, resultados, estado: f.estado ?? null, origen: f.origen ?? null, centroId: f.centroId ?? null, centroTipo: f.centroTipo ?? null },
+    motivo: 'Consulta de listado de pacientes',
+  }));
+  ctx.persistir();
+}
+
 export function listarPacientes(ctx: Contexto, filtro: { texto?: string; estado?: EstadoPaciente | 'todos'; centroId?: number; origen?: OrigenPaciente; centroTipo?: TipoCentro } = {}): Promise<Resultado<PacienteResumen[]>> {
   return proteger(() => {
     exigirSesion(ctx);
@@ -95,6 +117,7 @@ export function listarPacientes(ctx: Contexto, filtro: { texto?: string; estado?
       finPrep.set(r.paciente_id, r.fin);
     }
     const cobertura = coberturaPorPaciente(db, hoy);
+    auditarListado(ctx, db, f, visibles.length);
 
     return visibles.map((r): PacienteResumen => ({
       id: r.id, nombreCompleto: nombreCompleto(r), estado: r.estado, centro: r.centro_nombre ?? null, habitacion: r.habitacion ?? null,

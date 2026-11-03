@@ -25,6 +25,8 @@ export interface ServiciosApp {
   crearCopiaAutomatica(): Promise<Resultado<{ ruta: string }>>;
   crearCopiaPreActualizacion(version: string): Promise<Resultado<{ ruta: string | null }>>;
   cerrar(): Promise<void>;
+  /** ¿Está desbloqueada la base? (lo mira la impresión: bloqueado, no se imprime ni se exporta) */
+  estaDesbloqueado(): boolean;
 }
 
 export function crearServiciosApp(op: OpcionesServicios): ServiciosApp {
@@ -40,5 +42,6 @@ export function crearServiciosApp(op: OpcionesServicios): ServiciosApp {
     crearCopiaAutomatica: () => sistema.crearCopiaAutomatica(),
     crearCopiaPreActualizacion: (v) => sistema.crearCopiaPreActualizacion(v),
     cerrar: () => sistema.cerrar(),
+    estaDesbloqueado: () => sistema.estaDesbloqueado(),
   };
 }

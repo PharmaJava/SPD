@@ -47,6 +47,8 @@ export interface Sistema {
   api: ApiSistema;
   ctx: Contexto;
   cerrar(): Promise<void>;
+  /** ¿Está desbloqueada la base? (síncrono; lo usa la impresión del proceso principal) */
+  estaDesbloqueado(): boolean;
   /** Equivale a `api.bloquear()`; lo llama el proceso principal tras la inactividad. */
   bloquearPorInactividad(): Promise<Resultado<EstadoSistema>>;
   /** Tras `FICHERO_DANADO_COPIA_DISPONIBLE`: abre la copia anterior (el usuario ya ha aceptado perder los últimos cambios). */
@@ -89,9 +91,15 @@ export function crearSistema(opciones: OpcionesSistema): Sistema {
   const almacen = crearAlmacen({
     rutaDatos: opciones.rutaDatos, wasmPath: opciones.wasmPath, ahora, debounceMs: opciones.debounceMs,
     temporizador: opciones.temporizador, alError: opciones.alError, kdf: opciones.kdf,
+    // Sello de la auditoría para el fichero de estado (detección de marcha atrás): id y hash de la última entrada.
+    sello: (base) => {
+      const f = base.get<{ id: number; hash: string }>('SELECT id, hash FROM auditoria ORDER BY id DESC LIMIT 1');
+      return { contador: f ? Number(f.id) : 0, hash: f ? String(f.hash) : '' };
+    },
   });
 
   let sesion: UsuarioPublico | null = null;
+  let avisoSeguridad: string | null = null;
   const relojMs = () => ahora().getTime();
   const limContrasena = limitadorContrasena(relojMs);
   const limPines = new Map<number, LimitadorFallos>();
@@ -142,6 +150,7 @@ export function crearSistema(opciones: OpcionesSistema): Sistema {
     try { inicializado = almacen.existe(); } catch { /* sin acceso a la carpeta: se dice como no inicializado */ }
     return {
       inicializado, desbloqueado: almacen.estaDesbloqueado(), sesion,
+      ...(almacen.estaDesbloqueado() && avisoSeguridad ? { avisoSeguridad } : {}),
       version, rutaDatos: opciones.rutaDatos, esperaIntento: limContrasena.espera(),
     };
   }
@@ -353,7 +362,7 @@ export function crearSistema(opciones: OpcionesSistema): Sistema {
     let r;
     try { r = await almacen.prepararRestauracion(bytes, String(contrasenaCopia ?? contrasena)); }
     catch (e) {
-      if (e instanceof ErrorSpd && e.codigo === COD_CONTRASENA) throw err(contrasenaCopia ? 'La contraseña indicada no abre esa copia.' : 'La copia está protegida con otra contraseña (¿es de antes de cambiarla?). Indica la contraseña que tenía entonces.', 'CONTRASENA_COPIA');
+      if (e instanceof ErrorSpd && e.codigo === COD_CONTRASENA) throw err(contrasenaCopia ? 'Ni la contraseña ni la clave de recuperación indicadas abren esa copia.' : 'La copia está protegida con otra contraseña (¿es de antes de cambiarla?). Indica la contraseña que tenía entonces (o su clave de recuperación).', 'CONTRASENA_COPIA');
       if (e instanceof ErrorSpd && e.codigo === 'VERSION_BASE') throw err(e.message, 'COPIA_MAS_NUEVA');
       throw e;
     }
@@ -365,8 +374,9 @@ export function crearSistema(opciones: OpcionesSistema): Sistema {
       const previa = await hacerCopia(quien.id, { origen: 'antes_restaurar', motivo: `Antes de restaurar la copia ${nombre}` }, true);
       await r.aplicar();
       reiniciarSesion(); limPines.clear();
-      auditarYGuardar({ accion: 'restaurar', entidad: 'copia', entidadId: null, motivo: `Restaurada la copia ${nombre}; estado anterior guardado en ${previa.ruta.split(/[\\/]/).pop()}; ${perdidas} entradas de auditoría posteriores a la copia quedan sólo en la copia previa` }, null);
+      auditarYGuardar({ accion: 'restaurar', entidad: 'copia', entidadId: null, motivo: `Restaurada la copia ${nombre}; estado anterior guardado en ${previa.ruta.split(/[\\/]/).pop()}; ${perdidas} entradas de auditoría posteriores a la copia quedan sólo en la copia previa${r.claveDistinta ? '; la copia tenía otra clave de datos (anterior a un cambio de contraseña) y se ha recifrado con la actual' : ''}` }, null);
       await almacen.flush(true);
+      almacen.fijarEstado({ permitirRetroceso: true });   // restauración legítima: la auditoría vuelve atrás A PROPÓSITO y queda registrada
       return {
         copiaPrevia: previa.ruta.split(/[\\/]/).pop()!, entradasAuditoriaPerdidas: perdidas,
         aviso: `Copia restaurada. Se ha perdido lo hecho después de ella${perdidas ? ` (${perdidas} entradas de auditoría)` : ''}. Para deshacerlo, restaura «${previa.ruta.split(/[\\/]/).pop()}». Vuelve a iniciar sesión con tu PIN.`,
@@ -390,6 +400,29 @@ export function crearSistema(opciones: OpcionesSistema): Sistema {
     throw err(`Contraseña incorrecta. ${textoEspera(s)}`, COD_CONTRASENA);
   }
 
+  /**
+   * Al abrir: compara la auditoría con el fichero de estado. Si la base es MÁS ANTIGUA que la última vez que se abrió, puede
+   * ser una copia vieja puesta en su sitio: se avisa, se audita (queda constancia) y el estado actual pasa a ser la referencia.
+   * Va ANTES de escribir la entrada de «desbloquear» (que subiría el contador).
+   */
+  function comprobarMarchaAtras(): void {
+    avisoSeguridad = null;
+    let r;
+    try { r = almacen.comprobarEstado(); } catch { return; }
+    if (r.tipo === 'retroceso') {
+      const g = r.guardado, a = r.actual;
+      avisoSeguridad = a.contador < g.contador
+        ? `Los datos son MÁS ANTIGUOS que la última vez que se abrió el programa (la auditoría llega a la entrada ${a.contador} y antes llegaba a la ${g.contador}). Puede que se haya puesto una copia antigua en su sitio. Si no la has restaurado tú desde Ajustes, avisa al titular y revisa la auditoría.`
+        : `La historia de la auditoría no coincide con la de la última vez que se abrió el programa (entrada ${a.contador}). Puede que se haya puesto una copia antigua en su sitio. Si no la has restaurado tú desde Ajustes, avisa al titular.`;
+    } else if (r.tipo === 'manipulado') {
+      avisoSeguridad = `El fichero de estado que acompaña a los datos no es válido (${r.motivo}). Alguien lo ha modificado o los datos no son los de siempre. Revisa la auditoría.`;
+    }
+    if (avisoSeguridad) {
+      try { escribirAuditoria({ accion: 'alerta_seguridad', entidad: 'sistema', motivo: avisoSeguridad }, null); almacen.persistir(); } catch { /* el aviso se enseña igual */ }
+      almacen.fijarEstado({ permitirRetroceso: true });   // se avisa una vez; queda en la auditoría
+    } else almacen.fijarEstado();
+  }
+
   async function desbloqueo(contrasena: string, usarCopia: boolean): Promise<{ estado: EstadoSistema; aviso?: string }> {
     if (almacen.estaDesbloqueado()) return { estado: estadoSync() };
     if (!almacen.existe()) throw err('Todavía no hay datos: haz el primer uso.', 'NO_INICIALIZADO');
@@ -399,6 +432,7 @@ export function crearSistema(opciones: OpcionesSistema): Sistema {
     catch (e) { if (e instanceof ErrorSpd && e.codigo === COD_CONTRASENA) fallarContrasena(); throw e; }
     limContrasena.reiniciar();
     reiniciarSesion();
+    comprobarMarchaAtras();
     auditarYGuardar({ accion: 'desbloquear', entidad: 'sistema', motivo: r.aviso ? 'Se restauró la copia anterior del fichero' : null }, null);
     return { estado: estadoSync(), ...(r.aviso ? { aviso: r.aviso } : {}) };
   }
@@ -424,6 +458,7 @@ export function crearSistema(opciones: OpcionesSistema): Sistema {
     bytes.fill(0);
     limContrasena.reiniciar();
     reiniciarSesion();
+    comprobarMarchaAtras();
     auditarYGuardar({ accion: 'recuperar', entidad: 'sistema', motivo: 'Contraseña restablecida con la clave de recuperación' }, null);
     return { estado: estadoSync(), ...(r.aviso ? { aviso: r.aviso } : {}) };
   }
@@ -431,7 +466,7 @@ export function crearSistema(opciones: OpcionesSistema): Sistema {
   async function bloqueo(motivo: string | null): Promise<EstadoSistema> {
     if (!almacen.estaDesbloqueado()) { reiniciarSesion(); return estadoSync(); }
     try { escribirAuditoria({ accion: 'bloquear', entidad: 'sistema', motivo }, sesion?.id ?? null); almacen.persistir(); } catch { /* si no se puede auditar, se bloquea igual */ }
-    reiniciarSesion();
+    reiniciarSesion(); avisoSeguridad = null;
     const r = await almacen.bloquear();
     if (r.errorGuardado) throw err(`El programa se ha bloqueado, pero no se pudieron guardar los últimos cambios: ${r.errorGuardado}`, 'ERROR_GUARDADO');
     return estadoSync();
@@ -487,17 +522,21 @@ export function crearSistema(opciones: OpcionesSistema): Sistema {
 
     bloquear: () => proteger(() => bloqueo(null)),
 
-    cambiarContrasena: (actual, nueva) => proteger<null>(async () => {
+    cambiarContrasena: (actual, nueva) => proteger<ResultadoPrimerUso>(async () => {
       db();
       exigirSesion('titular');
       validarContrasenaNueva(nueva);
       exigirSinEspera();
-      try { await almacen.cambiarContrasena(String(actual ?? ''), nueva); }
+      let claveDatos: Uint8Array;
+      try { ({ claveDatos } = await almacen.cambiarContrasena(String(actual ?? ''), nueva)); }
       catch (e) { if (e instanceof ErrorSpd && e.codigo === COD_CONTRASENA) fallarContrasena(); throw e; }
       limContrasena.reiniciar();
-      auditarYGuardar({ accion: 'cambiar_contrasena', entidad: 'sistema' });
-      await almacen.flush();
-      return null;
+      try {
+        // La clave de datos ha ROTADO: la clave de recuperación de antes ya no abre el fichero. Se devuelve la nueva (hay que guardarla).
+        auditarYGuardar({ accion: 'cambiar_contrasena', entidad: 'sistema', motivo: 'Contraseña cambiada y clave de datos rotada (clave de recuperación nueva). Las copias anteriores siguen abriéndose con la contraseña de entonces.' });
+        await almacen.flush();
+        return { claveRecuperacion: textoRecuperacion(claveDatos), uriAutenticador: uriAutenticador(claveDatos, leerFarmacia(db())?.nombre || 'SPD') };
+      } finally { claveDatos.fill(0); }
     }),
 
     listarUsuarios: () => proteger(() => db().all('SELECT id, nombre, iniciales, rol FROM usuario WHERE activo = 1 ORDER BY id').map(aPublico)),
@@ -684,7 +723,7 @@ export function crearSistema(opciones: OpcionesSistema): Sistema {
       db();
       exigirSesion('titular', 'farmaceutico');
       const todas: CopiaDto[] = [];
-      for (const c of carpetasDeCopias()) for (const x of listarCopiasCarpeta(c)) todas.push(describirCopia(x, c));
+      for (const c of carpetasDeCopias()) for (const x of listarCopiasCarpeta(c, ahora())) todas.push(describirCopia(x, c));
       return todas.sort((a, b) => b.fecha.localeCompare(a.fecha));
     }),
 
@@ -700,6 +739,7 @@ export function crearSistema(opciones: OpcionesSistema): Sistema {
 
   return {
     api, ctx,
+    estaDesbloqueado: () => almacen.estaDesbloqueado(),
     async cerrar() {
       try { await bloqueo('cierre del programa'); } catch { /* ya está bloqueado; el error de guardado lo vio quien llamó antes */ }
     },

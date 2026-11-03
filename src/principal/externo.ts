@@ -4,8 +4,10 @@
  * Todo lo que toca Electron entra por `DepsExterno` (inyección): así la lógica se prueba con dobles y los
  * adaptadores reales (`depsElectron`) son finos. Detalles de seguridad:
  *  - El HTML se carga en una ventana OCULTA, con JavaScript desactivado, sandbox, partición propia y CSP que
- *    impide cualquier petición; se escribe en un fichero temporal de uso exclusivo (0700) que se BORRA siempre,
- *    porque contiene datos de pacientes.
+ *    impide cualquier petición; se escribe en un fichero temporal de uso exclusivo (0700) DENTRO de los datos del
+ *    usuario (userData/impresion-tmp, no en la carpeta temporal compartida del sistema) que se BORRA siempre,
+ *    porque contiene datos de pacientes. La sesión de impresión sólo deja leer ficheros de esa carpeta.
+ *  - Imprimir y exportar a PDF se rechazan si el programa está bloqueado.
  *  - Si piden una impresora concreta, se comprueba que existe; no se imprime «en otra».
  *  - Ningún método lanza: todos devuelven `Resultado`.
  */
@@ -18,7 +20,7 @@ import { generarCodigoSvg } from '../servicios/codigos.ts';
 import {
   argumentosPdf, argumentosPrint, impresoraInstalada, motivoHtmlInvalido, nombreFicheroSeguro, normalizarOpciones,
 } from './impresion.ts';
-import { CSP_IMPRESION } from './seguridad-ventana.ts';
+import { CSP_IMPRESION, esPeticionImpresionPermitida } from './seguridad-ventana.ts';
 
 /** Lo que implementa este módulo; las actualizaciones las añade actualizaciones.ts. */
 export type ApiExternaBase = Omit<ApiExterna, 'estadoActualizaciones' | 'guardarPreferenciasActualizaciones' | 'buscarActualizaciones' | 'listarVersiones'>;
@@ -35,6 +37,8 @@ export interface VentanaImpresion {
 
 export interface DepsExterno {
   crearVentanaImpresion(): VentanaImpresion;
+  /** ¿Está el programa desbloqueado? Bloqueado, no se imprime ni se exporta (los documentos llevan datos de pacientes). */
+  estaDesbloqueado(): boolean;
   /** Impresoras instaladas (no necesita ventana propia). */
   impresoras(): Promise<{ name: string; isDefault?: boolean }[]>;
   mostrarGuardar(o: { titulo: string; rutaSugerida: string; filtros: { name: string; extensions: string[] }[] }): Promise<{ cancelado: boolean; ruta?: string }>;
@@ -50,6 +54,7 @@ export interface DepsExterno {
   esperar?: (ms: number) => Promise<void>;
 }
 
+const MENSAJE_BLOQUEADO = 'El programa está bloqueado: introduce la contraseña de la farmacia para imprimir o exportar.';
 const mensaje = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 export function crearExterno(deps: DepsExterno): ApiExternaBase {
@@ -89,6 +94,7 @@ export function crearExterno(deps: DepsExterno): ApiExternaBase {
     },
 
     async imprimirHtml(html, opciones) {
+      if (!deps.estaDesbloqueado()) return fallo(MENSAJE_BLOQUEADO, 'BLOQUEADO');
       const malo = motivoHtmlInvalido(html);
       if (malo) return fallo(malo, 'IMPRESION_ENTRADA');
       const n = normalizarOpciones(opciones);
@@ -106,6 +112,7 @@ export function crearExterno(deps: DepsExterno): ApiExternaBase {
     },
 
     async exportarPdf(html, nombreSugerido, opciones) {
+      if (!deps.estaDesbloqueado()) return fallo(MENSAJE_BLOQUEADO, 'BLOQUEADO');
       const malo = motivoHtmlInvalido(html);
       if (malo) return fallo(malo, 'IMPRESION_ENTRADA');
       const n = normalizarOpciones(opciones);
@@ -149,16 +156,19 @@ export function depsElectron(
   electron: ModuloElectron,
   node: { os: typeof import('node:os'); fs: typeof import('node:fs/promises'); path: typeof import('node:path') },
   ventanaPrincipal: () => BrowserWindow | null,
+  /** Carpeta de documentos temporales de impresión (dentro de userData) y estado del bloqueo. */
+  impresion: { carpeta: string; estaDesbloqueado: () => boolean },
 ): DepsExterno {
   const { BrowserWindow: BW, dialog, app, net, session } = electron;
   const sesionImpresion = () => {
     const s = session.fromPartition('spd-impresion');
     s.webRequest.onHeadersReceived((d, cb) => cb({ responseHeaders: { ...d.responseHeaders, 'Content-Security-Policy': [CSP_IMPRESION] } }));
-    // Sólo el fichero local: cualquier otra petición (red incluida) se cancela.
-    s.webRequest.onBeforeRequest((d, cb) => cb({ cancel: !(d.url.startsWith('file://') || d.url.startsWith('data:')) }));
+    // Sólo ficheros de la carpeta de impresión (y data:): cualquier otra petición, red y otros ficheros locales incluidos, se cancela.
+    s.webRequest.onBeforeRequest((d, cb) => cb({ cancel: !esPeticionImpresionPermitida(d.url, impresion.carpeta) }));
     return s;
   };
   return {
+    estaDesbloqueado: () => impresion.estaDesbloqueado(),
     crearVentanaImpresion() {
       const win = new BW({
         show: false, width: 900, height: 1200,
@@ -202,7 +212,8 @@ export function depsElectron(
     fetch: ((url, init) => net.fetch(url, init as RequestInit)) as FetchLike,
     fs: {
       crearCarpetaTemporal: async () => {
-        const c = await node.fs.mkdtemp(node.path.join(node.os.tmpdir(), 'spd-impresion-'));
+        await node.fs.mkdir(impresion.carpeta, { recursive: true, mode: 0o700 });
+        const c = await node.fs.mkdtemp(node.path.join(impresion.carpeta, 'spd-impresion-'));
         await node.fs.chmod(c, 0o700).catch(() => {});
         return c;
       },
@@ -213,14 +224,20 @@ export function depsElectron(
   };
 }
 
-/** Borra los restos de impresiones anteriores (si el programa se cerró a mitad). Se llama al arrancar. */
-export async function purgarTemporalesImpresion(node: { os: typeof import('node:os'); fs: typeof import('node:fs/promises'); path: typeof import('node:path') }): Promise<number> {
+/**
+ * Borra los restos de impresiones anteriores (si el programa se cerró a mitad). Se llama al arrancar. Limpia la carpeta de
+ * impresión de los datos del usuario y, por si quedó algo de versiones anteriores, la carpeta temporal del sistema.
+ */
+export async function purgarTemporalesImpresion(node: { os: typeof import('node:os'); fs: typeof import('node:fs/promises'); path: typeof import('node:path') }, carpetaImpresion?: string): Promise<number> {
   let n = 0;
-  try {
-    const base = node.os.tmpdir();
-    for (const e of await node.fs.readdir(base)) {
-      if (e.startsWith('spd-impresion-')) { await node.fs.rm(node.path.join(base, e), { recursive: true, force: true }).catch(() => {}); n++; }
-    }
-  } catch { /* sin permisos o sin carpeta: no es grave */ }
+  const limpiar = async (base: string) => {
+    try {
+      for (const e of await node.fs.readdir(base)) {
+        if (e.startsWith('spd-impresion-')) { await node.fs.rm(node.path.join(base, e), { recursive: true, force: true }).catch(() => {}); n++; }
+      }
+    } catch { /* sin permisos o sin carpeta: no es grave */ }
+  };
+  if (carpetaImpresion) await limpiar(carpetaImpresion);
+  await limpiar(node.os.tmpdir());
   return n;
 }

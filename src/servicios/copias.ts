@@ -5,14 +5,17 @@
  * nombre: `spd-AAAAMMDD-HHMMSS.datos` (UTC). Rotación: 7 diarias, 4 semanales, 12 mensuales.
  * Sólo se tocan (y borran) ficheros con ESE patrón: lo demás que haya en la carpeta no se toca.
  */
-import { copyFileSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { closeSync, copyFileSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 import type { EstadoCopias } from './api.ts';
 import { ErrorSpd } from './contexto.ts';
+import { pareceFicheroSpd } from './seguridad.ts';
 
 export const COPIAS_DIARIAS = 7;
 export const COPIAS_SEMANALES = 4;
 export const COPIAS_MENSUALES = 12;
+/** Un nombre con una fecha más allá de esta holgura respecto a «ahora» es un nombre plantado (o un reloj roto): se ignora. */
+export const HOLGURA_FUTURO_MS = 10 * 60 * 1000;
 /** Más de 2 días sin copia → aviso. */
 export const MS_ATRASADA = 2 * 24 * 3600 * 1000;
 
@@ -56,12 +59,40 @@ export function fechaDeNombre(nombre: string): Date | null {
   return f.getUTCFullYear() === a && f.getUTCMonth() === mes - 1 && f.getUTCDate() === d && f.getUTCHours() === h ? f : null;
 }
 
-export function listarCopias(carpeta: string): CopiaInfo[] {
+/**
+ * Copias con el patrón de nombre. Con `ahora`, se IGNORAN las que dicen una fecha futura (más allá de una holgura corta):
+ * un fichero plantado con fecha de 2099 sería «la más reciente» para siempre, daría el aviso de «copia al día» por bueno
+ * y la rotación borraría las verdaderas.
+ */
+export function listarCopias(carpeta: string, ahora?: Date): CopiaInfo[] {
   let nombres: string[];
   try { nombres = readdirSync(carpeta); } catch { return []; }
   const r: CopiaInfo[] = [];
-  for (const nombre of nombres) { const fecha = fechaDeNombre(nombre); if (fecha) r.push({ nombre, fecha, meta: leerMeta(join(carpeta, nombre)) }); }
+  for (const nombre of nombres) {
+    const fecha = fechaDeNombre(nombre);
+    if (!fecha) continue;
+    if (ahora && fecha.getTime() > ahora.getTime() + HOLGURA_FUTURO_MS) continue;
+    r.push({ nombre, fecha, meta: leerMeta(join(carpeta, nombre)) });
+  }
   return r.sort((a, b) => a.fecha.getTime() - b.fecha.getTime() || a.nombre.localeCompare(b.nombre));
+}
+
+/** ¿El fichero empieza con la cabecera de SPD (magia + versión) y es un fichero normal? Lee sólo los primeros bytes. */
+export function tieneCabeceraSpd(ruta: string): boolean {
+  let fd: number | null = null;
+  try {
+    if (!lstatSync(ruta).isFile()) return false;
+    fd = openSync(ruta, 'r');
+    const b = Buffer.alloc(64);
+    const n = readSync(fd, b, 0, 64, 0);
+    return pareceFicheroSpd(b.subarray(0, n));
+  } catch { return false; }
+  finally { if (fd !== null) try { closeSync(fd); } catch { /* nada */ } }
+}
+
+/** Copias que cuentan: nombre propio, fecha no futura y cabecera mágica de SPD (un fichero vacío o ajeno con ese nombre no vale). */
+export function listarCopiasValidas(carpeta: string, ahora: Date): CopiaInfo[] {
+  return listarCopias(carpeta, ahora).filter(c => tieneCabeceraSpd(join(carpeta, c.nombre)));
 }
 
 /** Lunes de la semana (UTC) como clave AAAA-MM-DD. */
@@ -98,8 +129,9 @@ export function seleccionarConservar(copias: CopiaInfo[]): Set<string> {
 }
 
 /** Aplica la rotación. Devuelve los nombres borrados. Nunca borra `proteger`. */
-export function rotarCopias(carpeta: string, proteger?: string): string[] {
-  const copias = listarCopias(carpeta);
+export function rotarCopias(carpeta: string, proteger?: string, ahora: Date = new Date()): string[] {
+  // Sólo las copias de verdad: un nombre plantado (fecha futura o sin cabecera de SPD) ni cuenta ni se borra, y no desplaza a las buenas.
+  const copias = listarCopiasValidas(carpeta, ahora);
   const conservar = seleccionarConservar(copias);
   // Las copias de seguridad previas a actualizar o restaurar más recientes NO se borran por rotación.
   const protegerUltimas = (origen: OrigenCopia, n: number) => {
@@ -135,13 +167,13 @@ export function crearCopiaFichero(origen: string, carpeta: string, ahora: Date, 
     try { rmSync(tmp, { force: true }); } catch { /* nada */ }
     throw new ErrorSpd(`No se pudo crear la copia: ${e instanceof Error ? e.message : String(e)}`, 'COPIA_FALLIDA');
   }
-  rotarCopias(carpeta, nombre);
+  rotarCopias(carpeta, nombre, ahora);
   return destino;
 }
 
 export function estadoDeCopias(carpeta: string | null, ahora: Date): EstadoCopias {
   if (!carpeta) return { ultima: null, atrasada: true, carpeta: null, total: 0 };
-  const copias = listarCopias(carpeta);
+  const copias = listarCopiasValidas(carpeta, ahora);
   const ult = copias.length ? copias[copias.length - 1].fecha : null;
   return {
     ultima: ult ? ult.toISOString() : null,

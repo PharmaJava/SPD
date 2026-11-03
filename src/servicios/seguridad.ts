@@ -2,12 +2,15 @@
  * Cifrado del fichero de datos y claves (doc 10).
  *
  * Esquema:
- *   contraseña ──scrypt(N=2^15,r=8,p=1,sal)──▶ clave derivada (32 B)
+ *   contraseña ──scrypt(N=2^17,r=8,p=1,sal)──▶ clave derivada (32 B)   (los ficheros antiguos con N=2^15 se siguen leyendo
+ *                                                                      y se migran al cambiar la contraseña o al desbloquear)
  *   clave de datos (32 B aleatorios) ──AES-256-GCM(clave derivada)──▶ «envoltura»
  *   base de datos (bytes de SQLite) ──AES-256-GCM(clave de datos, iv nuevo en cada guardado)──▶ carga
  *
- * Cambiar la contraseña sólo rehace la envoltura. La clave de recuperación ES la clave de
- * datos (src/dominio/clave-recuperacion.ts), por eso se puede abrir sin contraseña.
+ * Cambiar la contraseña ROTA la clave de datos (clave nueva, base recifrada, envoltura nueva y clave de recuperación nueva):
+ * así quien conociera la contraseña o la clave de recuperación anteriores no abre el fichero nuevo. Recuperar con la clave
+ * de recuperación o migrar los parámetros de scrypt sólo rehacen la envoltura (la clave de datos es la misma).
+ * La clave de recuperación ES la clave de datos (src/dominio/clave-recuperacion.ts), por eso se puede abrir sin contraseña.
  *
  * Formato binario de `spd.datos`:
  *   0  magic «SPDDATOS» (8 B)
@@ -19,18 +22,30 @@
  * La cabecera ENTERA (magic, versión, longitud y JSON) va como datos adicionales autenticados (AAD)
  * de la carga y de la envoltura: cambiar un solo byte de cualquier parte hace fallar el GCM.
  */
-import { createCipheriv, createDecipheriv, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHmac, hkdfSync, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { ErrorSpd } from './contexto.ts';
 
 const MAGIC = Buffer.from('SPDDATOS', 'latin1');
 export const VERSION_FORMATO = 1;
 
-export const KDF_POR_DEFECTO = { n: 1 << 15, r: 8, p: 1 } as const;
+/** Parámetros para guardar y cambiar la contraseña. Los ficheros antiguos (N=2^15) se leen y se migran a estos. */
+export const KDF_POR_DEFECTO = { n: 1 << 17, r: 8, p: 1 } as const;
 export interface ParametrosKdf { n: number; r: number; p: number }
 
-/** Techo de los parámetros que se aceptan al LEER un fichero (evita que un fichero hostil agote la memoria). */
-const KDF_MAX_N = 1 << 20;
-const MAXMEM = 256 * 1024 * 1024;
+/** Techo de los parámetros que se aceptan al LEER un fichero (evita que un fichero hostil agote la memoria o el tiempo). */
+export const KDF_MAX_N = 1 << 18;
+export const KDF_MAX_P = 4;
+const KDF_MAX_R = 32;
+/** Memoria máxima que se deja usar a scrypt (N=2^18, r=8 necesita ~256 MiB). */
+const MAXMEM = 512 * 1024 * 1024;
+/** Memoria que necesita scrypt (aprox., la de OpenSSL: 128·r·(N+p+2)). */
+const memoriaScrypt = (k: ParametrosKdf) => 128 * k.r * (k.n + k.p + 2);
+const enteroPos = (x: unknown): x is number => typeof x === 'number' && Number.isInteger(x) && x >= 1;
+/** ¿Se aceptan estos parámetros al leer? N potencia de 2 en [2, 2^18], r ≤ 32, p ≤ 4 y memoria dentro del tope. */
+export function kdfAceptable(k: ParametrosKdf): boolean {
+  return enteroPos(k.n) && enteroPos(k.r) && enteroPos(k.p) && k.n >= 2 && k.n <= KDF_MAX_N && (k.n & (k.n - 1)) === 0
+    && k.r <= KDF_MAX_R && k.p <= KDF_MAX_P && memoriaScrypt(k) <= MAXMEM;
+}
 
 export const COD_CONTRASENA = 'CONTRASENA_INCORRECTA';
 export const COD_FICHERO = 'FICHERO_CORRUPTO';
@@ -49,7 +64,10 @@ const b64 = (b: Uint8Array) => Buffer.from(b).toString('base64');
 const deB64 = (s: string) => Buffer.from(s, 'base64');
 
 function derivar(contrasena: string, sal: Uint8Array, kdf: ParametrosKdf): Buffer {
-  return scryptSync(Buffer.from(contrasena.normalize('NFKC'), 'utf8'), sal, 32, { N: kdf.n, r: kdf.r, p: kdf.p, maxmem: MAXMEM });
+  // Nunca un error interno de OpenSSL hacia fuera: parámetros fuera de rango o de memoria → ErrorSpd claro.
+  if (!kdfAceptable(kdf)) throw new ErrorSpd(`Los parámetros de derivación de la clave (N=${kdf.n}, r=${kdf.r}, p=${kdf.p}) están fuera de lo aceptado: el fichero está dañado o ha sido modificado.`, COD_FICHERO);
+  try { return scryptSync(Buffer.from(contrasena.normalize('NFKC'), 'utf8'), sal, 32, { N: kdf.n, r: kdf.r, p: kdf.p, maxmem: MAXMEM }); }
+  catch { throw new ErrorSpd('No se pudo derivar la clave con los parámetros del fichero (memoria insuficiente o parámetros no válidos).', COD_FICHERO); }
 }
 
 function cifrarGcm(clave: Uint8Array, iv: Uint8Array, claro: Uint8Array, aad: Uint8Array): { tag: Buffer; cifrado: Buffer } {
@@ -90,7 +108,7 @@ function parsear(fichero: Uint8Array): Parseado {
   if (!k || !e || k.alg !== 'scrypt' || !entero(k.n) || !entero(k.r) || !entero(k.p)
     || typeof k.sal !== 'string' || typeof e.iv !== 'string' || typeof e.tag !== 'string' || typeof e.cifrado !== 'string'
     || typeof cabecera.ivCarga !== 'string') throw corrupto('cabecera incompleta');
-  if (k.n < 2 || k.n > KDF_MAX_N || (k.n & (k.n - 1)) !== 0 || k.r < 1 || k.r > 32 || k.p < 1 || k.p > 16) throw corrupto('parámetros de derivación fuera de rango');
+  if (!kdfAceptable({ n: k.n, r: k.r, p: k.p })) throw corrupto('parámetros de derivación fuera de rango');
   if (deB64(cabecera.ivCarga).length !== 12 || deB64(e.iv).length !== 12 || deB64(e.tag).length !== 16 || deB64(e.cifrado).length !== 32 || deB64(k.sal).length < 16) throw corrupto('cabecera con tamaños no válidos');
   return { cabecera, aad, tagCarga: f.subarray(13 + lon, 13 + lon + 16), cifradoCarga: f.subarray(13 + lon + 16) };
 }
@@ -169,6 +187,29 @@ export function reenvolver(fichero: Uint8Array, claveDatos: Uint8Array, nuevaCon
   return construir(envolver(claveDatos, nuevaContrasena, kdf), claveDatos, bytesDb);
 }
 
+/** Parámetros de scrypt con los que está envuelto el fichero (sin autenticar nada: sólo para decidir si hay que migrar). */
+export function parametrosKdfDelFichero(fichero: Uint8Array): ParametrosKdf {
+  const { cabecera } = parsear(fichero);
+  return { n: cabecera.kdf.n, r: cabecera.kdf.r, p: cabecera.kdf.p };
+}
+
+/** ¿Están los parámetros del fichero por debajo de los que se usarían hoy? (hay que migrar al desbloquear o al cambiar la contraseña) */
+export function kdfPorMigrar(fichero: Uint8Array, objetivo: ParametrosKdf = KDF_POR_DEFECTO): boolean {
+  const k = parametrosKdfDelFichero(fichero);
+  return k.n < objetivo.n || k.r < objetivo.r || k.p < objetivo.p;
+}
+
+/**
+ * Cambio de contraseña con ROTACIÓN de la clave de datos: abre con la clave actual, genera una clave de datos nueva, recifra la
+ * base con ella y rehace la envoltura con la contraseña nueva. Devuelve el fichero nuevo y la clave nueva (la de recuperación).
+ */
+export function rotarClaveDeDatos(fichero: Uint8Array, claveActual: Uint8Array, nuevaContrasena: string, kdf: ParametrosKdf = KDF_POR_DEFECTO): { fichero: Uint8Array; claveDatos: Uint8Array } {
+  if (typeof nuevaContrasena !== 'string' || nuevaContrasena.length === 0) throw new ErrorSpd('La contraseña no puede estar vacía.', 'CONTRASENA_VACIA');
+  const { bytesDb } = abrirConClaveDeDatos(fichero, claveActual);
+  const claveDatos = new Uint8Array(randomBytes(32));
+  return { fichero: construir(envolver(claveDatos, nuevaContrasena, kdf), claveDatos, bytesDb), claveDatos };
+}
+
 /** Guarda una base nueva con la misma envoltura y un iv nuevo. Se comprueba antes que la clave corresponde al fichero. */
 export function guardarCarga(fichero: Uint8Array, claveDatos: Uint8Array, bytesDb: Uint8Array): Uint8Array {
   const p = parsear(fichero);
@@ -198,7 +239,7 @@ export function verificarPin(pin: string, almacenado: string): boolean {
     const partes = String(almacenado).split('$');
     if (partes.length !== 6 || partes[0] !== 'scrypt') return false;
     const n = Number(partes[1]), r = Number(partes[2]), p = Number(partes[3]);
-    if (!Number.isInteger(n) || n < 2 || n > KDF_MAX_N || !Number.isInteger(r) || r < 1 || r > 32 || !Number.isInteger(p) || p < 1 || p > 16) return false;
+    if (!kdfAceptable({ n, r, p })) return false;
     const esperado = deB64(partes[5]);
     if (esperado.length !== 32) return false;
     const h = scryptSync(Buffer.from(String(pin).normalize('NFKC'), 'utf8'), deB64(partes[4]), 32, { N: n, r, p, maxmem: MAXMEM });
@@ -246,3 +287,23 @@ export class LimitadorFallos {
 export const limitadorContrasena = (reloj: () => number) => new LimitadorFallos(esperaContrasena, reloj);
 /** 5 fallos seguidos → 30 s de bloqueo; pasado el bloqueo el contador vuelve a cero. */
 export const limitadorPin = (reloj: () => number) => new LimitadorFallos(f => (f >= PIN_MAX_FALLOS ? PIN_BLOQUEO_S : 0), reloj, true);
+
+
+// ───────────────────────────── Fichero de estado (detección de marcha atrás) ─────────────────────────────
+
+/** Clave para firmar el fichero de estado, derivada de la clave de datos (HKDF-SHA256). Cambia al rotar la clave de datos. */
+export function claveDeEstado(claveDatos: Uint8Array): Buffer {
+  return Buffer.from(hkdfSync('sha256', claveDatos, Buffer.alloc(0), Buffer.from('SPD-estado-v1', 'utf8'), 32));
+}
+
+/** HMAC-SHA256 (hex) de un texto con la clave de estado. */
+export function firmarEstado(claveDatos: Uint8Array, texto: string): string {
+  const k = claveDeEstado(claveDatos);
+  try { return createHmac('sha256', k).update(texto, 'utf8').digest('hex'); } finally { k.fill(0); }
+}
+
+/** Comparación en tiempo constante de dos firmas hexadecimales. */
+export function firmaIgual(a: string, b: string): boolean {
+  const x = Buffer.from(String(a), 'utf8'), y = Buffer.from(String(b), 'utf8');
+  return x.length === y.length && timingSafeEqual(x, y);
+}

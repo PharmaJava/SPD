@@ -167,12 +167,12 @@ test('compatibilidad: copia de un esquema POSTERIOR se rechaza con aviso; una de
 test('retención: la rotación no borra las últimas copias previas a actualizar/restaurar y borra la ficha de las que quita', () => {
   const dir = mkdtempSync(join(tmpdir(), 'spd-rot-'));
   try {
-    const mk = (f: Date, origen: string) => { const n = nombreCopia(f); writeFileSync(join(dir, n), 'x'); writeFileSync(join(dir, n + '.json'), JSON.stringify({ origen, motivo: '', versionApp: '1', esquema: 1 })); return n; };
+    const mk = (f: Date, origen: string) => { const n = nombreCopia(f); writeFileSync(join(dir, n), Buffer.concat([Buffer.from('SPDDATOS', 'latin1'), Buffer.from([1]), Buffer.alloc(40)])); writeFileSync(join(dir, n + '.json'), JSON.stringify({ origen, motivo: '', versionApp: '1', esquema: 1 })); return n; };
     const pre: string[] = [];
     for (let i = 0; i < 5; i++) pre.push(mk(new Date(Date.UTC(2026, 0, 10 + i, 10)), 'antes_actualizar'));
     const manuales: string[] = [];
     for (let m = 0; m < 14; m++) manuales.push(mk(new Date(Date.UTC(2025, m % 12, 5, 8)), 'manual'));
-    const borradas = rotarCopias(dir);
+    const borradas = rotarCopias(dir, undefined, new Date('2026-11-03T10:00:00Z'));
     const quedan = listarCopias(dir).map(c => c.nombre);
     for (const n of pre.slice(-3)) assert.ok(quedan.includes(n), 'pre-actualización reciente conservada ' + n);
     assert.ok(borradas.length > 0);

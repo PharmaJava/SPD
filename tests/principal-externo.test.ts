@@ -8,6 +8,7 @@ interface Traza { escritos: Record<string, string | Uint8Array>; borradas: strin
 function doble(over: Partial<DepsExterno> & { imprimir?: VentanaImpresion['imprimir']; aPdf?: VentanaImpresion['aPdf']; cargar?: VentanaImpresion['cargarArchivo'] } = {}) {
   const t: Traza = { escritos: {}, borradas: [], ventanas: 0, destruidas: 0, impresiones: [], pdfs: [], guardar: [] };
   const deps: DepsExterno = {
+    estaDesbloqueado: over.estaDesbloqueado ?? (() => true),
     crearVentanaImpresion: () => {
       t.ventanas++;
       return {

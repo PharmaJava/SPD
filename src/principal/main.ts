@@ -102,10 +102,12 @@ async function arrancar(): Promise<void> {
     app.exit(1); return;
   }
   endurecerSesion();
-  await purgarTemporalesImpresion({ os, fs, path });
+  // Documentos temporales de impresión: dentro de los datos del usuario (no en %TEMP%, que es compartido).
+  const carpetaImpresion = path.join(app.getPath('userData'), 'impresion-tmp');
+  await purgarTemporalesImpresion({ os, fs, path }, carpetaImpresion);
 
   const node = { os, fs, path };
-  const externo = crearExterno(depsElectron(electron, node, () => ventana));
+  const externo = crearExterno(depsElectron(electron, node, () => ventana, { carpeta: carpetaImpresion, estaDesbloqueado: () => servicios?.estaDesbloqueado() ?? false }));
   const rutaDatos = modoPruebas ? path.join(modoPruebas.rutaDatos, 'datos') : path.join(app.getPath('userData'), 'datos');
   const wasmPath = app.isPackaged ? path.join(process.resourcesPath, 'recursos', 'sql-wasm.wasm') : path.join(__dirname, '..', 'recursos', 'sql-wasm.wasm');
   // Actualizaciones: nada se descarga ni instala sin aceptar el diálogo; ver actualizaciones.ts.

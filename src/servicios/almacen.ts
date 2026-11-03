@@ -10,18 +10,24 @@
  *
  * Sin Electron: la carpeta llega por parámetro.
  */
-import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { abrirDb } from './db.ts';
 import type { Db } from './db.ts';
 import { ErrorSpd } from './contexto.ts';
 import {
-  abrirConClaveDeDatos, abrirConContrasena, COD_CONTRASENA, COD_FICHERO, crearAlmacenNuevo, guardarCarga, pareceFicheroSpd, reenvolver,
+  abrirConClaveDeDatos, abrirConContrasena, COD_CONTRASENA, COD_FICHERO, crearAlmacenNuevo, guardarCarga, KDF_POR_DEFECTO, kdfPorMigrar,
+  pareceFicheroSpd, reenvolver, rotarClaveDeDatos,
 } from './seguridad.ts';
 import type { AbiertoFichero, ParametrosKdf } from './seguridad.ts';
+import { claveDesdeTexto } from '../dominio/clave-recuperacion.ts';
+import { escribirAtomico } from './fs-atomico.ts';
+import { debeActualizar, escribirEstado, evaluarRetroceso, leerEstado, NOMBRE_ESTADO } from './estado-local.ts';
+import type { EstadoRollback, Sello } from './estado-local.ts';
 
 export const NOMBRE_FICHERO = 'spd.datos';
 export const NOMBRE_COPIA = 'spd.datos.bak';
+export { NOMBRE_ESTADO };
 export const COD_COPIA_DISPONIBLE = 'FICHERO_DANADO_COPIA_DISPONIBLE';
 
 export interface Temporizador {
@@ -40,12 +46,19 @@ export interface OpcionesAlmacen {
   alError?: (e: Error) => void;
   /** Sólo pruebas: parámetros de scrypt más baratos al CREAR o reenvolver. Al leer manda lo que diga el fichero. */
   kdf?: ParametrosKdf;
+  /**
+   * Sello de la auditoría de una base (contador monótono + hash del último eslabón). Si se da, el almacén mantiene el
+   * fichero de estado `spd.estado` y puede detectar una marcha atrás (ver estado-local.ts).
+   */
+  sello?: (db: Db) => Sello;
 }
 
 /** Una copia ya descifrada, comprobada y migrada, lista para sustituir al estado actual (o para descartarse). */
 export interface Restauracion {
   /** Base de la copia (ya migrada al esquema vigente), sólo para leer (p. ej. la auditoría). */
   readonly db: Db;
+  /** La copia tiene OTRA clave de datos (es anterior a un cambio de contraseña, o de otra instalación): se recifra con la actual. */
+  readonly claveDistinta: boolean;
   /** Sustituye el estado actual por la copia: el estado actual pasa a `spd.datos.bak`. */
   aplicar(): Promise<void>;
   descartar(): void;
@@ -67,13 +80,23 @@ export interface Almacen {
   /** Abre con la clave de datos y fija una contraseña nueva (recuperación). */
   recuperar(claveDatos: Uint8Array, nuevaContrasena: string, opc?: { usarCopia?: boolean }): Promise<{ aviso?: string }>;
   /**
-   * Fase 1 de restaurar una copia: descifra y verifica la cabecera, comprueba que es de ESTA instalación (misma clave de
-   * datos) y la abre (migrándola si es de un esquema anterior; si es posterior → VERSION_BASE). No cambia nada.
+   * Fase 1 de restaurar una copia: descifra y verifica la cabecera con la contraseña de ESA copia (o, si no es la
+   * contraseña, con su clave de recuperación) y la abre (migrándola si es de un esquema anterior; si es posterior →
+   * VERSION_BASE). Si la copia tiene otra clave de datos (anterior a un cambio de contraseña) se recifra con la actual al
+   * aplicarla: la clave de recuperación vigente sigue valiendo. No cambia nada.
    */
   prepararRestauracion(bytesCopia: Uint8Array, contrasenaCopia: string): Promise<Restauracion>;
   /** ¿Es esta la contraseña actual? (no cambia nada) */
   verificarContrasena(contrasena: string): boolean;
-  cambiarContrasena(actual: string, nueva: string): Promise<void>;
+  /**
+   * Cambia la contraseña ROTANDO la clave de datos: clave nueva, base recifrada, envoltura nueva. Devuelve la clave nueva
+   * (= clave de recuperación nueva, a mostrar y confirmar). La anterior deja de abrir el fichero actual y su `.bak`.
+   */
+  cambiarContrasena(actual: string, nueva: string): Promise<{ claveDatos: Uint8Array }>;
+  /** Compara el sello de auditoría de la base abierta con el fichero de estado (marcha atrás). No escribe nada. */
+  comprobarEstado(): EstadoRollback;
+  /** Anota el sello actual en el fichero de estado. Sin `permitirRetroceso` nunca baja el contador ya anotado. */
+  fijarEstado(opc?: { permitirRetroceso?: boolean }): void;
   /** Marca cambios y programa el guardado diferido. */
   persistir(): void;
   /** Guarda ya (si hay cambios o `forzar`). */
@@ -95,21 +118,11 @@ function leer(ruta: string): Uint8Array | null {
   catch (e) { if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null; throw e; }
 }
 
-function escribirAtomico(ruta: string, bytes: Uint8Array): void {
-  const tmp = ruta + '.tmp';
-  const fd = openSync(tmp, 'w');
-  try {
-    let desde = 0;
-    while (desde < bytes.length) desde += writeSync(fd, bytes, desde, bytes.length - desde);
-    fsyncSync(fd);
-  } finally { closeSync(fd); }
-  try { renameSync(tmp, ruta); }
-  catch (e) { try { rmSync(tmp, { force: true }); } catch { /* nada */ } throw e; }
-}
-
 export function crearAlmacen(op: OpcionesAlmacen): Almacen {
   const rutaFichero = join(op.rutaDatos, NOMBRE_FICHERO);
   const rutaCopia = join(op.rutaDatos, NOMBRE_COPIA);
+  const rutaEstado = join(op.rutaDatos, NOMBRE_ESTADO);
+  const kdfObjetivo: ParametrosKdf = op.kdf ?? KDF_POR_DEFECTO;
   const ahora = op.ahora ?? (() => new Date());
   const debounceMs = op.debounceMs ?? 400;
   const temporizador = op.temporizador ?? temporizadorReal;
@@ -172,6 +185,19 @@ export function crearAlmacen(op: OpcionesAlmacen): Almacen {
     db = d; claveDatos = clave; ficheroActual = fichero; sucio = false; errorGuardado = null;
   };
 
+  const selloActual = (): Sello | null => (op.sello && db ? op.sello(db) : null);
+
+  /** Anota el sello tras un guardado correcto. Nunca baja el contador (eso sólo lo hace `fijarEstado` con permiso). Best effort. */
+  const actualizarEstado = (permitirRetroceso = false): void => {
+    const nuevo = selloActual();
+    if (!nuevo || !claveDatos) return;
+    try {
+      const l = leerEstado(rutaEstado, claveDatos);
+      if (l.tipo === 'valido' && !permitirRetroceso && !debeActualizar(l.sello, nuevo)) return;
+      escribirEstado(rutaEstado, claveDatos, nuevo);
+    } catch (e) { op.alError?.(e instanceof Error ? e : new Error(String(e))); }
+  };
+
   /** Escribe en disco, en orden. `previo` (estado anterior) va a la .bak antes de sustituir. */
   const encolarEscritura = (nuevo: Uint8Array, previo: Uint8Array | null): Promise<void> => {
     const trabajo = cola.then(() => {
@@ -192,7 +218,7 @@ export function crearAlmacen(op: OpcionesAlmacen): Almacen {
     const nuevo = guardarCarga(ficheroActual, claveDatos, db.exportar());
     ficheroActual = nuevo;
     sucio = false;
-    try { await encolarEscritura(nuevo, previo); errorGuardado = null; }
+    try { await encolarEscritura(nuevo, previo); errorGuardado = null; actualizarEstado(); }
     catch (e) {
       sucio = true;
       errorGuardado = e instanceof Error ? e.message : String(e);
@@ -223,6 +249,15 @@ export function crearAlmacen(op: OpcionesAlmacen): Almacen {
       if (db) return {};
       const r = await abrirConFallback({ contrasena }, !!opc.usarCopia);
       instalar(r.db, r.abierto.claveDatos, r.fichero);
+      // Fichero con scrypt más flojo que el de hoy (p. ej. N=2^15): se rehace la envoltura con la contraseña que acaba de abrirlo.
+      // La clave de datos no cambia; si algo falla, el fichero sigue abriéndose como antes.
+      try {
+        if (kdfPorMigrar(r.fichero, kdfObjetivo)) {
+          const migrado = reenvolver(r.fichero, r.abierto.claveDatos, contrasena, kdfObjetivo);
+          await encolarEscritura(migrado, migrado);   // la .bak también: abre con la misma clave y no debe quedarse con el scrypt viejo
+          ficheroActual = migrado;
+        }
+      } catch (e) { op.alError?.(e instanceof Error ? e : new Error(String(e))); }
       return r.aviso ? { aviso: r.aviso } : {};
     },
 
@@ -240,24 +275,32 @@ export function crearAlmacen(op: OpcionesAlmacen): Almacen {
     async prepararRestauracion(bytesCopia, contrasenaCopia) {
       if (!db || !claveDatos || !ficheroActual) throw new Error('bloqueado');
       if (!pareceFicheroSpd(bytesCopia)) throw new ErrorSpd('Ese fichero no es una copia de SPD (cabecera no válida).', 'COPIA_INVALIDA');
-      const abierto = abrirConContrasena(bytesCopia, contrasenaCopia);   // contraseña errónea o fichero manipulado: lanza
+      // Contraseña de la copia; si no es esa, se prueba como clave de recuperación (la de entonces).
+      let abierto: AbiertoFichero;
+      try { abierto = abrirConContrasena(bytesCopia, contrasenaCopia); }
+      catch (e) {
+        if (!(e instanceof ErrorSpd) || e.codigo !== COD_CONTRASENA) throw e;
+        let clave: Uint8Array | null = null;
+        try { clave = claveDesdeTexto(contrasenaCopia); } catch { /* no tiene forma de clave de recuperación */ }
+        if (!clave) throw e;
+        try { abierto = abrirConClaveDeDatos(bytesCopia, clave); }
+        catch (e2) { if (e2 instanceof ErrorSpd && e2.codigo === COD_FICHERO) throw e; throw e2; }   // clave que no abre: «contraseña incorrecta»
+      }
       let nueva: Db;
-      try {
-        if (!Buffer.from(abierto.claveDatos).equals(Buffer.from(claveDatos))) {
-          throw new ErrorSpd('La copia pertenece a otra instalación de SPD (otra clave de datos): no se restaura aquí para no invalidar la clave de recuperación.', 'COPIA_OTRA_INSTALACION');
-        }
-        nueva = await abrirBase(abierto.bytesDb);
-      } finally { abierto.claveDatos.fill(0); }
+      const claveDistinta = !Buffer.from(abierto.claveDatos).equals(Buffer.from(claveDatos));
+      try { nueva = await abrirBase(abierto.bytesDb); }
+      finally { abierto.claveDatos.fill(0); }
       let cerrada = false;
       return {
-        db: nueva,
+        db: nueva, claveDistinta,
         descartar() { if (!cerrada) { cerrada = true; nueva.cerrar(); } },
         async aplicar() {
           if (cerrada) throw new Error('restauración ya usada');
           if (!db || !claveDatos || !ficheroActual) throw new Error('bloqueado');
           await flush(true);
           const previo = ficheroActual;
-          // Misma envoltura (contraseña actual) y misma clave: sólo cambia el contenido.
+          // Misma envoltura (contraseña actual) y MISMA clave de datos actual: sólo cambia el contenido. Una copia con otra
+          // clave de datos queda recifrada con la vigente (así la clave de recuperación actual sigue valiendo).
           const nuevo = guardarCarga(ficheroActual, claveDatos, nueva.exportar());
           await encolarEscritura(nuevo, previo);   // el estado actual → .bak; si falla, no se toca nada en memoria
           const vieja = db;
@@ -278,11 +321,37 @@ export function crearAlmacen(op: OpcionesAlmacen): Almacen {
       if (!almacen.verificarContrasena(actual)) throw new ErrorSpd('La contraseña actual no es correcta.', COD_CONTRASENA);
       await flush(true);   // la base en memoria, ya en el fichero
       const previo = ficheroActual;
-      const nuevo = reenvolver(ficheroActual, claveDatos, nueva, op.kdf);
-      ficheroActual = nuevo;
-      try { await encolarEscritura(nuevo, previo); }
-      catch (e) { ficheroActual = previo; throw e; }
+      const claveVieja = claveDatos;
+      const antes = leerEstado(rutaEstado, claveVieja);   // con la clave que aún vale: el contador ya visto no se pierde al rotar
+      const rot = rotarClaveDeDatos(ficheroActual, claveVieja, nueva, kdfObjetivo);
+      try { await encolarEscritura(rot.fichero, rot.fichero); }   // la .bak TAMBIÉN: si no, seguiría abriendo con la contraseña/clave de antes
+      catch (e) {
+        try { escribirAtomico(rutaCopia, previo); } catch { /* la .bak anterior no se pudo reponer: sigue abriendo con lo de antes */ }
+        rot.claveDatos.fill(0);
+        throw e;
+      }
+      claveDatos = rot.claveDatos; ficheroActual = rot.fichero;
+      const sello = selloActual();
+      if (sello) {
+        try {
+          const base = antes.tipo === 'valido' && antes.sello.contador > sello.contador ? antes.sello : sello;
+          escribirEstado(rutaEstado, claveDatos, base);
+        } catch (e) { op.alError?.(e instanceof Error ? e : new Error(String(e))); }
+      }
+      claveVieja.fill(0);
+      return { claveDatos: new Uint8Array(claveDatos) };
     },
+
+    comprobarEstado() {
+      const sello = selloActual();
+      if (!db || !claveDatos || !sello) return { tipo: 'ausente' };
+      const l = leerEstado(rutaEstado, claveDatos);
+      if (l.tipo === 'ausente') return { tipo: 'ausente' };
+      if (l.tipo === 'invalido') return { tipo: 'manipulado', motivo: l.motivo };
+      return evaluarRetroceso(l.sello, sello) === 'ok' ? { tipo: 'ok' } : { tipo: 'retroceso', guardado: l.sello, actual: sello };
+    },
+
+    fijarEstado(opc = {}) { actualizarEstado(!!opc.permitirRetroceso); },
 
     persistir() {
       if (!db) return;

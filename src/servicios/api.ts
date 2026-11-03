@@ -40,6 +40,8 @@ export interface EstadoSistema {
   desbloqueado: boolean;
   sesion: UsuarioPublico | null;
   version: string;
+  /** Aviso de seguridad al desbloquear (p. ej. posible restauración de una copia antigua). Se borra al bloquear. */
+  avisoSeguridad?: string | null;
   /** Carpeta donde viven los datos cifrados (informativo). */
   rutaDatos: string;
   /** Segundos de espera antes de poder volver a probar la contraseña (0 = ya se puede). */
@@ -117,7 +119,12 @@ export interface ApiSistema {
   /** Restablece la contraseña con la clave de recuperación (texto). */
   recuperar(claveRecuperacion: string, nuevaContrasena: string): Promise<Resultado<EstadoSistema>>;
   bloquear(): Promise<Resultado<EstadoSistema>>;
-  cambiarContrasena(actual: string, nueva: string): Promise<Resultado<null>>;
+  /**
+   * Cambia la contraseña y ROTA la clave de datos (recifra la base). Devuelve la clave de recuperación NUEVA: la anterior
+   * deja de valer para el fichero actual. La interfaz la muestra y exige confirmarla. Las copias antiguas se siguen abriendo
+   * con la contraseña (o la clave de recuperación) de cuando se hicieron.
+   */
+  cambiarContrasena(actual: string, nueva: string): Promise<Resultado<ResultadoPrimerUso>>;
 
   listarUsuarios(): Promise<Resultado<UsuarioPublico[]>>;
   iniciarSesion(usuarioId: number, pin: string): Promise<Resultado<UsuarioPublico>>;

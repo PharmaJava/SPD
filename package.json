@@ -25,6 +25,7 @@
     "sql.js": "^1.15.2"
   },
   "devDependencies": {
+    "@electron/fuses": "^1.8.0",
     "@sveltejs/vite-plugin-svelte": "^7.3.1",
     "@types/node": "^26.6.6",
     "@types/sql.js": "^1.4.11",

@@ -8,6 +8,9 @@ import {
 } from '../src/servicios/copias.ts';
 import { ErrorSpd } from '../src/servicios/contexto.ts';
 
+/** Contenido mínimo con cabecera de SPD (magia + versión): lo único que miran la rotación y el estado de las copias. */
+const CAB = Buffer.concat([Buffer.from('SPDDATOS', 'latin1'), Buffer.from([1]), Buffer.alloc(40)]);
+const HOY = new Date('2026-11-03T10:00:00Z');
 const temp = () => mkdtempSync(join(tmpdir(), 'spd-copias-'));
 const dia = (iso: string) => new Date(iso + 'T10:00:00Z');
 const codigo = (f: () => unknown) => { try { f(); } catch (e) { return e instanceof ErrorSpd ? e.codigo : 'OTRO'; } return 'SIN_ERROR'; };
@@ -67,9 +70,9 @@ test('rotación: nunca más de 7 + 4 + 12 y siempre la más reciente', () => {
 test('rotarCopias borra sólo lo que sobra y sólo ficheros con el patrón de copia', () => {
   const c = temp();
   try {
-    for (const k of serie(30)) writeFileSync(join(c, k.nombre), 'x');
+    for (const k of serie(30)) writeFileSync(join(c, k.nombre), CAB);
     writeFileSync(join(c, 'importante.txt'), 'no tocar');
-    const borradas = rotarCopias(c);
+    const borradas = rotarCopias(c, undefined, HOY);
     assert.ok(borradas.length > 0);
     assert.ok(existsSync(join(c, 'importante.txt')));
     const quedan = listarCopias(c);
@@ -95,8 +98,8 @@ test('crearCopiaFichero copia byte a byte, sin dejar temporales, y no toca el or
 test('crearCopiaFichero rota y no borra la copia recién hecha', () => {
   const c = temp(); const origen = join(c, 'spd.datos'); const carpeta = join(c, 'copias');
   try {
-    writeFileSync(origen, 'datos'); mkdirSync(carpeta);
-    for (const k of serie(40, '2026-10-20')) writeFileSync(join(carpeta, k.nombre), 'viejo');
+    writeFileSync(origen, CAB); mkdirSync(carpeta);
+    for (const k of serie(40, '2026-10-20')) writeFileSync(join(carpeta, k.nombre), CAB);
     const ruta = crearCopiaFichero(origen, carpeta, new Date('2026-11-02T09:00:00Z'));
     assert.ok(existsSync(ruta));
     assert.ok(listarCopias(carpeta).length <= 23);
@@ -119,8 +122,8 @@ test('estado: sin carpeta o sin copias está atrasada; con copia reciente no; pa
   try {
     assert.deepEqual(estadoDeCopias(null, new Date()), { ultima: null, atrasada: true, carpeta: null, total: 0 });
     assert.deepEqual(estadoDeCopias(c, new Date()), { ultima: null, atrasada: true, carpeta: c, total: 0 });
-    writeFileSync(join(c, 'spd-20261102-100000.datos'), 'x');
-    writeFileSync(join(c, 'spd-20261031-100000.datos'), 'x');
+    writeFileSync(join(c, 'spd-20261102-100000.datos'), CAB);
+    writeFileSync(join(c, 'spd-20261031-100000.datos'), CAB);
     const e = estadoDeCopias(c, new Date('2026-11-03T10:00:00Z'));
     assert.equal(e.ultima, '2026-11-02T10:00:00.000Z'); assert.equal(e.total, 2); assert.equal(e.atrasada, false);
     assert.equal(estadoDeCopias(c, new Date('2026-11-04T10:00:00Z')).atrasada, false);          // justo 2 días

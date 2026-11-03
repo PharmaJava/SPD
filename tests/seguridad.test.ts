@@ -172,13 +172,13 @@ test('reenvolver exige la clave de datos buena y una contraseña no vacía', () 
   assert.equal(codigo(() => reenvolver(fichero, claveDatos, '', KDF)), 'CONTRASENA_VACIA');
 });
 
-test('los parámetros por defecto son scrypt N=2^15, r=8, p=1 y quedan escritos en la cabecera', () => {
-  assert.deepEqual({ ...KDF_POR_DEFECTO }, { n: 32768, r: 8, p: 1 });
+test('los parámetros por defecto son scrypt N=2^17, r=8, p=1 y quedan escritos en la cabecera', () => {
+  assert.deepEqual({ ...KDF_POR_DEFECTO }, { n: 131072, r: 8, p: 1 });
   const { fichero } = crearAlmacenNuevo('contraseña-1', CONTENIDO);
   const f = Buffer.from(fichero);
   const cab = JSON.parse(f.subarray(13, 13 + f.readUInt32BE(9)).toString());
   assert.equal(cab.kdf.alg, 'scrypt');
-  assert.equal(cab.kdf.n, 32768); assert.equal(cab.kdf.r, 8); assert.equal(cab.kdf.p, 1);
+  assert.equal(cab.kdf.n, 131072); assert.equal(cab.kdf.r, 8); assert.equal(cab.kdf.p, 1);
   assert.equal(abrirConContrasena(fichero, 'contraseña-1').bytesDb.length, CONTENIDO.length);
 });
 
