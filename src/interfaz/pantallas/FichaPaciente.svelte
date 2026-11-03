@@ -3,6 +3,7 @@
   import { spd } from '../api.ts';
   import type { PacienteDto, TratamientoDto, SaludDatoDto, ContactoDto, CentroDto, EstadoConsentimientosDto, MomentoTomaDto, RolUsuario } from '../../servicios/api.ts';
   import { ir } from '../router.ts';
+  import { ETIQUETA_TIPO_CENTRO } from '../../dominio/origen-paciente.ts';
   import Cargando from '../componentes/Cargando.svelte';
   import Aviso from '../componentes/Aviso.svelte';
   import Pestanas from '../componentes/Pestanas.svelte';
@@ -45,6 +46,7 @@
   });
   const cob = $derived(coberturaVista(cobertura));
   const anios = $derived(edad(paciente?.fechaNacimiento));
+  const centroDe = $derived(paciente?.centroId != null ? (centros.find(c => c.id === paciente!.centroId) ?? { nombre: 'Centro', tipo: 'otro' as const }) : null);
   const contador = $derived((tratamientos ?? []).filter(t => !t.finalizadoEn).length);
 </script>
 
@@ -58,6 +60,7 @@
       <div class="dato" style="flex:1; min-width:220px">
         <h1>{paciente.nombre} {paciente.apellido1} {paciente.apellido2 ?? ''}</h1>
         <span class="suave">{anios != null ? anios + ' años' : 'Edad no indicada'}{paciente.habitacion ? ' · Hab. ' + paciente.habitacion : ''}
+          {#if centroDe}<span class="etiqueta info" title={centroDe.nombre}>{ETIQUETA_TIPO_CENTRO[centroDe.tipo]} · {centroDe.nombre}</span>{:else}<span class="etiqueta">Individual</span>{/if}
           {#if paciente.estado !== 'activo'} <span class="etiqueta atencion">{ESTADOS_PACIENTE[paciente.estado]}</span>{/if}</span>
       </div>
       <div class="dato"><span class="rotulo">Alergias</span>

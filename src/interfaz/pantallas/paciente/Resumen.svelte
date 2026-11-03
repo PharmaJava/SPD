@@ -1,5 +1,6 @@
 <script lang="ts">
   import { spd } from '../../api.ts';
+  import { ETIQUETA_TIPO_CENTRO } from '../../../dominio/origen-paciente.ts';
   import type { PacienteDto, TratamientoDto, EstadoConsentimientosDto, ContactoDto, MomentoTomaDto, CentroDto } from '../../../servicios/api.ts';
   import Aviso from '../../componentes/Aviso.svelte';
   import { ir } from '../../router.ts';
@@ -59,7 +60,7 @@
       <dl class="par">
         <dt>Nacimiento</dt><dd>{fecha(paciente.fechaNacimiento)}</dd>
         <dt>Teléfono</dt><dd>{paciente.telefono ?? '—'}</dd>
-        <dt>Centro</dt><dd>{paciente.centroId ? (centros.find(c => c.id === paciente.centroId)?.nombre ?? 'Centro') : 'Domicilio'}{paciente.habitacion ? ' · ' + paciente.habitacion : ''}</dd>
+        <dt>Origen</dt><dd>{#if paciente.centroId}{@const ce = centros.find(c => c.id === paciente.centroId)}{ce?.nombre ?? 'Centro'}{ce ? ' · ' + ETIQUETA_TIPO_CENTRO[ce.tipo] : ''}{:else}Individual (domicilio){/if}{paciente.habitacion ? ' · ' + paciente.habitacion : ''}</dd>
         <dt>Revisión</dt><dd>{fecha(paciente.proximaRevision)}</dd>
         {#if paciente.letraGrande}<dt>Hoja</dt><dd>Letra grande</dd>{/if}
         {#if paciente.necesitaBraille}<dt>Braille</dt><dd>Sí</dd>{/if}
