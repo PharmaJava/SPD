@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 import { CSP_INTERFAZ, CSP_IMPRESION, esUrlInterfaz, esRecursoDeInterfaz, decidirApertura, urlInterfaz } from '../src/principal/seguridad-ventana.ts';
 
 const INDEX = '/app/dist/interfaz/index.html';
@@ -33,8 +34,10 @@ test('esUrlInterfaz: sólo la página propia (con hash o consulta)', () => {
 });
 
 test('esRecursoDeInterfaz: sólo ficheros dentro de la carpeta de la interfaz', () => {
-  assert.equal(esRecursoDeInterfaz('file:///app/dist/interfaz/assets/a.js', CARPETA), true);
-  for (const x of ['file:///app/dist/interfaz-otra/a.js', 'file:///app/dist/interfaz/../principal/main.cjs', 'file:///etc/passwd', 'https://cima.aemps.es/x.js', 'http://x/', 'ftp://x']) {
+  // En Windows una ruta POSIX gana la letra de unidad al convertirse en URL: la base se calcula igual que en el código.
+  const raiz = pathToFileURL(CARPETA + '/').href.replace(/interfaz\/$/, '');
+  assert.equal(esRecursoDeInterfaz(raiz + 'interfaz/assets/a.js', CARPETA), true);
+  for (const x of [raiz + 'interfaz-otra/a.js', raiz + 'interfaz/../principal/main.cjs', 'file:///etc/passwd', 'https://cima.aemps.es/x.js', 'http://x/', 'ftp://x']) {
     assert.equal(esRecursoDeInterfaz(x, CARPETA), false, x);
   }
 });
