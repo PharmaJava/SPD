@@ -25,6 +25,10 @@ name: Publicar versión
 on:
   push:
     tags: ['v*']
+    # Alternativa cuando no se pueden subir etiquetas: cambiar el contenido de este fichero en main
+    # publica la versión de package.json (la etiqueta vX.Y.Z se crea al publicar la Release).
+    branches: [main]
+    paths: ['.github/release/publicar.txt']
   workflow_dispatch:
     inputs:
       etiqueta:
@@ -41,6 +45,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.inputs.etiqueta || github.ref }}
+      - name: Etiqueta desde package.json (si se lanzó por cambio de fichero en main)
+        if: github.ref_type == 'branch' && github.event.inputs.etiqueta == ''
+        shell: pwsh
+        run: |
+          $v = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          "ETIQUETA=v$v" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
