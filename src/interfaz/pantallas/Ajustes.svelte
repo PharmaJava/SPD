@@ -12,7 +12,7 @@
   import ClaveGrupos from '../componentes/ClaveGrupos.svelte';
   import { pausarBloqueo } from '../lib/inactividad.ts';
   import EditorMomentos, { type FilaMomento } from '../componentes/EditorMomentos.svelte';
-  import { avisar, copiarTexto, fortaleza, inicialesDe, nombreRol, type Aspecto, type Tema } from '../componentes/util.ts';
+  import { avisar, copiarTexto, fortaleza, inicialesDe, mensajeError, nombreRol, type Aspecto, type Tema } from '../componentes/util.ts';
 
   let { rol, seccion, aspecto, cambiaAspecto, alcambiar, alcerrar }: {
     rol: RolUsuario; seccion?: string; aspecto: Aspecto; cambiaAspecto: (a: Aspecto) => void; alcambiar: () => void; alcerrar: () => void;
@@ -50,6 +50,7 @@
   // ───── Usuarios ─────
   let usuarios = $state<UsuarioPublico[] | null>(null); let nuevoU = $state(false);
   let nu = $state({ nombre: '', iniciales: '', rol: 'farmaceutico' as RolUsuario, numColegiado: '', pin: '', pin2: '' });
+  const inicialesRepetidas = $derived(nu.iniciales.trim() ? (usuarios ?? []).filter(u => u.iniciales.toUpperCase() === nu.iniciales.trim().toUpperCase()).map(u => u.nombre) : []);
   const sucioU = $derived(!!(nu.nombre.trim() || nu.iniciales.trim() || nu.numColegiado.trim() || nu.pin || nu.pin2));
   let dlgU: { pedirCerrar: () => void } | undefined = $state(); let errU = $state<Record<string, string>>({}); let ocupadoU = $state(false);
   $effect(() => { if (activa === 'usuarios' && !usuarios) spd.listarUsuarios().then(r => { if (r.ok) usuarios = r.datos; }); });
@@ -62,7 +63,7 @@
     ocupadoU = true;
     const r = await spd.crearUsuario({ nombre: nu.nombre.trim(), iniciales: nu.iniciales.trim().toUpperCase(), rol: nu.rol, numColegiado: nu.numColegiado.trim() || undefined, pin: nu.pin });
     ocupadoU = false;
-    if (r.ok) { nuevoU = false; usuarios = null; avisar('Usuario creado.'); spd.listarUsuarios().then(x => { if (x.ok) usuarios = x.datos; }); } else errU.general = r.error;
+    if (r.ok) { nuevoU = false; usuarios = null; avisar('Usuario creado.'); for (const a of r.datos.avisos ?? []) avisar(a, 'atencion', 12000); spd.listarUsuarios().then(x => { if (x.ok) usuarios = x.datos; }); } else errU.general = mensajeError(r);
   }
 
   // ───── Momentos ─────
@@ -430,7 +431,8 @@
 <Dialogo bind:this={dlgU} abierto={nuevoU} titulo="Nuevo usuario" sucio={sucioU} onclose={() => (nuevoU = false)}>
   <Campo etiqueta="Nombre" bind:valor={nu.nombre} error={errU.nombre} requerido autofocus />
   <div class="cols-2">
-    <Campo etiqueta="Iniciales" bind:valor={nu.iniciales} error={errU.iniciales} maxlength={4} requerido />
+    <Campo etiqueta="Iniciales" bind:valor={nu.iniciales} error={errU.iniciales} maxlength={4} requerido
+      ayuda={inicialesRepetidas.length ? `Ya las usa ${inicialesRepetidas.join(', ')}: en las etiquetas y registros impresos no se distinguirá quién hizo cada cosa. Mejor elige otras.` : 'Salen en las etiquetas y registros impresos para saber quién hizo cada cosa.'} />
     <Campo etiqueta="Función" tipo="seleccion" bind:valor={nu.rol} opciones={(['titular', 'farmaceutico', 'tecnico', 'administrativo'] as const).map(r => ({ valor: r, texto: nombreRol(r) }))} />
   </div>
   {#if nu.rol === 'farmaceutico' || nu.rol === 'titular'}<Campo etiqueta="Nº de colegiado" bind:valor={nu.numColegiado} />{/if}

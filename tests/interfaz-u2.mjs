@@ -52,7 +52,7 @@ await api('iniciarSesion', usuarios[0].id, PIN);
 const momentos = await api('listarMomentos');
 const pac = await api('guardarPaciente', { nombre: 'Ana', apellido1: 'López', apellido2: 'Pérez', fechaNacimiento: '1940-03-04', dniNie: '12345678Z', necesitaBraille: false, letraGrande: false, direccion: 'Calle Luna 5', codigoPostal: '41001', municipio: 'Sevilla' });
 const cnMet = '654321', cnEna = '123456';
-await api('guardarMedicamento', { cn: cnMet, nombre: 'Metformina 850 mg 28 comprimidos', formaFarmaceutica: 'Comprimido recubierto con película', unidadesEnvase: 28 });
+await api('guardarMedicamento', { cn: cnMet, nombre: 'Metformina 850 mg 28 comprimidos', formaFarmaceutica: 'Comprimido recubierto con película', unidadesEnvase: 28, color: 'blanco', forma: 'oblongo', descripcionFisica: 'Comprimido blanco, oblongo', marcasGrabado: 'M850' }, true);
 await api('guardarMedicamento', { cn: cnEna, nombre: 'Enalapril 10 mg 30 comprimidos', formaFarmaceutica: 'Comprimido', unidadesEnvase: 30, color: 'blanco', forma: 'redondo', descripcionFisica: 'Comprimido blanco, redondo, ranurado', marcasGrabado: 'E10' }, true);
 const tMet = await api('guardarTratamiento', { pacienteId: pac.id, principioActivo: 'Metformina', dosisTexto: '850 mg', cnPreferente: cnMet, emblistable: true });
 const tEna = await api('guardarTratamiento', { pacienteId: pac.id, principioActivo: 'Enalapril', dosisTexto: '10 mg', cnPreferente: cnEna, emblistable: true });

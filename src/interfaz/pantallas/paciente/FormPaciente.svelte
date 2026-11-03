@@ -4,7 +4,9 @@
   import type { PacienteDto, CentroDto, NuevoPaciente } from '../../../servicios/api.ts';
   import Campo from '../../componentes/Campo.svelte';
   import Aviso from '../../componentes/Aviso.svelte';
-  import { avisar } from '../../componentes/util.ts';
+  import Dialogo from '../../componentes/Dialogo.svelte';
+  import { ir } from '../../router.ts';
+  import { avisar, mensajeError } from '../../componentes/util.ts';
   import { TIPOS_CENTRO, ETIQUETA_TIPO_CENTRO, buscarCentroIgual, sugerirCentros } from '../../../dominio/origen-paciente.ts';
   import type { TipoCentro } from '../../../dominio/origen-paciente.ts';
 
@@ -35,6 +37,14 @@
   const huellaInicial = huella();
   $effect(() => { sucio = huella() !== huellaInicial; });
   let err = $state<Record<string, string>>({}); let ocupado = $state(false); let general = $state<string | null>(null);
+  // Guardado con avisos (p. ej. posible paciente duplicado): se enseñan ANTES de seguir, con enlace al otro paciente.
+  let guardado = $state<PacienteDto | null>(null);
+  const avisosGuardado = $derived((guardado?.avisos ?? []).map(texto => ({ texto, otroId: /\(nº (\d+),/.exec(texto)?.[1] })));
+  function continuar(irAlOtro?: string) {
+    const g = guardado; if (!g) return;
+    guardado = null; avisar(inicial ? 'Datos guardados.' : 'Paciente creado.'); onguardado(g);
+    if (irAlOtro) ir(`pacientes/${irAlOtro}`);
+  }
 
   async function guardar() {
     err = {}; general = null;
@@ -67,7 +77,9 @@
     };
     const r = await spd.guardarPaciente(dto);
     ocupado = false;
-    if (r.ok) { avisar(inicial ? 'Datos guardados.' : 'Paciente creado.'); onguardado(r.datos); } else general = r.error;
+    if (!r.ok) { general = mensajeError(r); return; }
+    if (r.datos.avisos?.length) { guardado = r.datos; return; }
+    avisar(inicial ? 'Datos guardados.' : 'Paciente creado.'); onguardado(r.datos);
   }
 </script>
 
@@ -136,3 +148,12 @@
     <button class="btn principal" onclick={guardar} disabled={ocupado}>{inicial ? 'Guardar cambios' : 'Crear paciente'}</button>
   </div>
 </div>
+
+<Dialogo abierto={!!guardado} titulo="Paciente guardado: revisa esto" ancho={520} onclose={() => continuar()}>
+  <p>El paciente se ha guardado, pero conviene comprobar {avisosGuardado.length === 1 ? 'un aviso' : 'unos avisos'}:</p>
+  {#each avisosGuardado as a (a.texto)}
+    <Aviso tipo="atencion" titulo={a.otroId ? 'Posible paciente duplicado' : 'Atención'}>{a.texto}</Aviso>
+    {#if a.otroId}<button class="btn" type="button" onclick={() => continuar(a.otroId)} data-prueba="ver-duplicado">Guardar y ver al otro paciente</button>{/if}
+  {/each}
+  {#snippet pie()}<button class="btn principal" type="button" onclick={() => continuar()} data-prueba="continuar-aviso">Entendido, continuar</button>{/snippet}
+</Dialogo>

@@ -8,6 +8,9 @@
   import { spd, datos } from '../api.ts';
   import type { Ajustes, EntradaEnvaseParams, MedicamentoDto, ResultadoEntradaEnvase, TratamientoDto } from '../../servicios/api.ts';
   import { normalizarCN, parsearGS1, GS } from '../../dominio/gs1.ts';
+  import { MAX_UNIDADES_ENVASE } from '../../dominio/entrada-envase.ts';
+  import { mensajeError } from '../componentes/util.ts';
+  import Dialogo from '../componentes/Dialogo.svelte';
   import { fecha, hoyIso } from '../lib/formato.ts';
   import '../estilos/u2.css';
   import BuscaPaciente from './preparacion/BuscaPaciente.svelte';
@@ -37,6 +40,8 @@
   let guardando = $state(false);
   let exito = $state('');
   let errorGuardar = $state('');
+  // Aviso «parece ya registrada»: el programa no guarda hasta que la persona confirma que es OTRA caja física.
+  let duplicadoAbierto = $state(false); let duplicadoNumeros = $state('');
 
   type Entrada = { hora: string; fecha: string; paciente: string; medicamento: string; lote: string; caducidad: string; unidades: number };
   let hoy = $state<Entrada[]>([]);
@@ -225,13 +230,22 @@
   function pasarA(sig: () => HTMLElement | undefined) { return (e: KeyboardEvent) => { if (e.key === 'Enter') { e.preventDefault(); sig()?.focus(); } }; }
   function enterUnidades(e: KeyboardEvent) { if (e.key === 'Enter') { e.preventDefault(); if (puedeGuardar) void guardar(); else btnGuardar?.focus(); } }
 
-  async function guardar() {
+  async function guardar(esOtraCaja = false) {
     const p = parametros(); if (!p || !puedeGuardar) return;
     guardando = true; errorGuardar = ''; exito = '';
-    const r = await spd.registrarEnvase(p);
+    const r = await spd.registrarEnvase(esOtraCaja ? { ...p, confirmarDuplicado: true } : p);
     guardando = false;
-    if (!r.ok) { errorGuardar = r.error; pita(); return; }
-    if (!r.datos.ok) { resultado = r.datos; pita(); return; }
+    if (!r.ok) { errorGuardar = mensajeError(r); pita(); return; }
+    if (!r.datos.ok) {
+      const dup = r.datos.bloqueos.find(b => b.codigo === 'POSIBLE_DUPLICADO');
+      const otros = r.datos.bloqueos.filter(b => b !== dup);
+      if (dup && !otros.length) {
+        duplicadoNumeros = /\(nº ([\d, ]+)\)/.exec(dup.texto)?.[1]?.trim() ?? '';
+        duplicadoAbierto = true; return;
+      }
+      resultado = { ...r.datos, bloqueos: otros }; pita(); return;
+    }
+    duplicadoAbierto = false;
     const nombre = r.datos.medicamentoNombre ?? medicamento?.nombre ?? `CN ${cn6}`;
     const n = r.datos.normalizado;
     const nueva: Entrada = { hora: new Date().toTimeString().slice(0, 5), fecha: hoyIso(), paciente: paciente!.nombre, medicamento: nombre, lote: n?.lote ?? lote, caducidad: n?.caducidad ?? caducidad, unidades: n?.unidades ?? unidades };
@@ -301,7 +315,7 @@
           <input id="cn" bind:value={cn} inputmode="numeric" autocomplete="off" class="mono" data-prueba="cn" /></div>
         <div class="campo campo-grande"><label for="unidades">Unidades de la caja</label>
           <input id="unidades" bind:this={campoUnidades} value={unidadesTexto} oninput={(e) => { unidadesTxt = e.currentTarget.value; unidadesEditadas = true; }} onkeydown={enterUnidades} inputmode="numeric" autocomplete="off" class="mono" data-prueba="unidades" />
-          {#if medicamento?.unidadesEnvase}<span class="ayuda">Del medicamento: {medicamento.unidadesEnvase}</span>{/if}</div>
+          <span class="ayuda">Un número entero entre 1 y {MAX_UNIDADES_ENVASE}.{#if medicamento?.unidadesEnvase} Del medicamento: {medicamento.unidadesEnvase}.{/if}</span></div>
         <div class="campo campo-grande"><label for="lote">Lote <span class="suave">(obligatorio)</span></label>
           <input id="lote" bind:this={campoLote} bind:value={lote} oninput={alLote} onblur={() => { lote = normalizarLote(lote); }} onkeydown={pasarA(() => campoCaducidad)} autocomplete="off" spellcheck="false" data-prueba="lote" /></div>
         <div class="campo campo-grande"><label for="caducidad">Caducidad <span class="suave">(obligatoria)</span></label>
@@ -338,7 +352,7 @@
         {:else if cn6 && (!lote.trim() || !caducidad.trim())}<span class="suave">Faltan el lote y la caducidad.</span>
         {:else if hayBloqueos}<span class="suave">Resuelve el aviso en rojo para poder guardar.</span>{/if}
         <span class="espacio"></span>
-        <button class="btn principal grande" type="button" bind:this={btnGuardar} onclick={guardar} disabled={!puedeGuardar} data-prueba="guardar">
+        <button class="btn principal grande" type="button" bind:this={btnGuardar} onclick={() => guardar()} disabled={!puedeGuardar} data-prueba="guardar">
           {guardando ? 'Guardando…' : 'Guardar la caja'} <span class="atajo">Intro</span></button>
       </div>
     </section>
@@ -378,3 +392,13 @@
     </section>
   </aside>
 </div>
+
+<Dialogo abierto={duplicadoAbierto} titulo="Esta caja parece ya registrada" ancho={520} onclose={() => (duplicadoAbierto = false)}>
+  <p><strong>Esta caja parece ya registrada (mismo lote, caducidad y unidades). ¿Es otra caja física distinta?</strong></p>
+  <p class="suave">{duplicadoNumeros ? `Ya hay una caja de este paciente con los mismos datos (nº ${duplicadoNumeros}). ` : 'Ya hay una caja de este paciente con los mismos datos. '}Si es la misma caja que ya registraste, no la guardes otra vez: se contarían dos veces sus unidades.</p>
+  {#snippet pie()}
+    <!-- svelte-ignore a11y_autofocus -->
+    <button class="btn principal" type="button" autofocus onclick={() => (duplicadoAbierto = false)} data-prueba="duplicado-no">No, cancelar</button>
+    <button class="btn" type="button" onclick={() => guardar(true)} disabled={guardando} data-prueba="duplicado-si">Sí, es otra caja</button>
+  {/snippet}
+</Dialogo>

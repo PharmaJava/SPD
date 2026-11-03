@@ -6,7 +6,8 @@
   import '../estilos/u2.css';
   import Modal from './preparacion/Modal.svelte';
   import Nota from './preparacion/Nota.svelte';
-  import { escaparHtml, guardarLocal, leerLocal, mdBasico, mensaje } from './preparacion/util.ts';
+  import { escaparHtml, guardarLocal, ir, leerLocal, mdBasico, mensaje, rutas } from './preparacion/util.ts';
+  import { mensajeError } from '../componentes/util.ts';
 
   type Calidad = 'paciente' | 'representante_legal' | 'guardador_de_hecho';
   let { pacienteId }: { pacienteId: number } = $props();
@@ -22,6 +23,8 @@
   let nombreFirmante = $state(''); let dniFirmante = $state('');
   let vista = $state<VistaDocumento | null>(null); let cargandoVista = $state(false); let errorVista = $state('');
   let trabajando = $state(false); let mensajeOk = $state('');
+  // Ya hay una firma vigente de este documento: sólo se registra otra si sustituye a la anterior, con motivo (la anterior queda revocada, no se borra).
+  let yaFirmado = $state(false); let sustituyendo = $state(false); let motivoSust = $state(''); let errorSust = $state('');
 
   let revocando = $state<{ id: number; titulo: string } | null>(null); let abiertoRev = $state(false); let motivo = $state(''); let errorRev = $state('');
 
@@ -34,14 +37,29 @@
     'firmante.nombre': 'nombre de quien firma', 'firmante.dni_nie': 'DNI/NIE de quien firma', 'firmante.calidad': 'calidad de quien firma',
   };
   const dato = (r: string) => NOMBRE_DATO[r] ?? r.replace(/\./g, ': ').replace(/dni_nie/g, 'DNI/NIE').replace(/_/g, ' ');
-  const faltasVista = $derived.by(() => {
-    const f = vista?.faltan ?? [];
-    return {
-      farmacia: f.filter(r => r.startsWith('farmacia.')).map(dato),
-      persona: f.filter(r => /^(paciente|firmante)\./.test(r)).map(dato),
-      otros: f.filter(r => !/^(farmacia|paciente|firmante)\./.test(r)).map(dato),
-    };
+  type Entidad = 'paciente' | 'firmante' | 'farmacia' | 'autorizado' | 'documento' | 'otro';
+  const entidadDe = (r: string): Entidad => (['paciente', 'firmante', 'farmacia', 'autorizado'] as const).find(e => r.startsWith(e + '.')) ?? 'otro';
+  /** Lo que falta agrupado por de quién es el dato, con la etiqueta de cada campo y a dónde ir a corregirlo. */
+  const gruposFalta = $derived.by(() => {
+    const detalle = vista?.faltanDetalle ?? (vista?.faltan ?? []).map(r => ({ ruta: r, entidad: entidadDe(r), campo: r, etiqueta: dato(r) }));
+    const orden: Entidad[] = ['farmacia', 'paciente', 'firmante', 'autorizado', 'documento', 'otro'];
+    return orden.map(e => {
+      const campos = [...new Set(detalle.filter(f => f.entidad === e).map(f => (f.etiqueta === f.ruta ? dato(f.ruta) : f.etiqueta)))];
+      return { entidad: e, campos };
+    }).filter(g => g.campos.length);
   });
+  /** Dónde se corrige cada grupo (la ficha, Ajustes…). `ruta` navega; `texto` explica lo que no tiene pantalla propia. */
+  function dondeCorregir(e: Entidad): { titulo: string; enlace?: { texto: string; ruta: string }; ayuda?: string } {
+    switch (e) {
+      case 'farmacia': return { titulo: 'Faltan datos de la farmacia', enlace: { texto: 'Ir a Ajustes → Farmacia', ruta: '#/ajustes/farmacia' } };
+      case 'paciente': return { titulo: 'Faltan datos del paciente', enlace: { texto: 'Completar en la pestaña Datos', ruta: rutas.paciente(pacienteId, 'datos') } };
+      case 'firmante': return calidad === 'paciente'
+        ? { titulo: 'Faltan datos de quien firma (el paciente)', enlace: { texto: 'Completar en la pestaña Datos', ruta: rutas.paciente(pacienteId, 'datos') } }
+        : { titulo: 'Faltan datos de quien firma', ayuda: 'Escríbelos arriba, o elige a la persona entre los contactos del paciente.' };
+      case 'autorizado': return { titulo: 'Faltan datos de la persona autorizada', enlace: { texto: 'Completar en Contactos (pestaña Datos)', ruta: rutas.paciente(pacienteId, 'datos') } };
+      default: return { titulo: 'Faltan otros datos del documento', ayuda: 'Este documento necesita información que el programa no tiene todavía; no se puede registrar la firma hasta tenerla.' };
+    }
+  }
   const claveIds = $derived(`spd.docs.firmados.${pacienteId}`);
   const CALIDADES: { v: Calidad; t: string }[] = [{ v: 'paciente', t: 'El propio paciente' }, { v: 'representante_legal', t: 'Su representante legal' }, { v: 'guardador_de_hecho', t: 'Un guardador de hecho' }];
 
@@ -72,7 +90,7 @@
   const firmanteListo = $derived(calidad === 'paciente' || !!firmante().nombre);
 
   async function abrirDoc(p: PlantillaDocumentoDto) {
-    actual = p; calidad = 'paciente'; contactoId = ''; nombreFirmante = ''; dniFirmante = ''; mensajeOk = ''; vista = null; errorVista = ''; abierto = true;
+    yaFirmado = false; sustituyendo = false; motivoSust = ''; errorSust = ''; actual = p; calidad = 'paciente'; contactoId = ''; nombreFirmante = ''; dniFirmante = ''; mensajeOk = ''; vista = null; errorVista = ''; abierto = true;
     await refrescarVista();
   }
   async function refrescarVista() {
@@ -95,12 +113,17 @@
     trabajando = false;
     mensajeOk = r.ok ? 'Enviado a la impresora.' : `No se pudo imprimir: ${r.error}`;
   }
-  async function marcarFirmado() {
+  async function marcarFirmado(sustituir = false) {
     if (!actual) return;
-    trabajando = true; errorVista = '';
-    const r = await spd.registrarDocumentoFirmado(actual.codigo, pacienteId, firmante());
+    if (sustituir && motivoSust.trim().length < 5) { errorSust = 'Escribe el motivo de la sustitución (unas palabras bastan, mínimo 5 letras): queda en el historial.'; return; }
+    trabajando = true; errorVista = ''; errorSust = '';
+    const r = await spd.registrarDocumentoFirmado(actual.codigo, pacienteId, firmante(), sustituir ? { sustituir: true, motivo: motivoSust.trim() } : undefined);
     trabajando = false;
-    if (!r.ok) { errorVista = r.error; return; }
+    if (!r.ok) {
+      if (r.codigo === 'DOCUMENTO_YA_FIRMADO') { yaFirmado = true; return; }
+      if (sustituir) errorSust = mensajeError(r); else errorVista = mensajeError(r);
+      return;
+    }
     const ids = leerLocal<Record<string, number>>(claveIds, {}); ids[actual.codigo] = r.datos.id; guardarLocal(claveIds, ids);
     abierto = false; await cargar();
   }
@@ -161,19 +184,35 @@
     </div>
   {/if}
   {#if errorVista}<Nota gravedad="bloqueo">{errorVista}</Nota>{/if}
+  {#if yaFirmado}
+    <Nota gravedad="atencion" id="ya-firmado"><strong>Este documento ya está firmado y vigente.</strong> No se registra otra firma igual. Si la nueva sustituye a la anterior (otro firmante, otra versión del texto…), puedes sustituirla: la anterior queda revocada en el historial, no se borra.
+      {#snippet accion()}{#if !sustituyendo}<button class="btn" type="button" onclick={() => (sustituyendo = true)} data-prueba="sustituir-firma">Sustituir firma anterior</button>{/if}{/snippet}
+    </Nota>
+    {#if sustituyendo}
+      <div class="campo"><label for="motivo-sust">Motivo de la sustitución (obligatorio)</label>
+        <textarea id="motivo-sust" bind:value={motivoSust} placeholder="Por qué se firma de nuevo: p. ej. firma ahora el representante legal"></textarea></div>
+      {#if errorSust}<Nota gravedad="bloqueo">{errorSust}</Nota>{/if}
+      <div class="fila"><button class="btn principal" type="button" onclick={() => marcarFirmado(true)} disabled={trabajando || (vista?.faltan.length ?? 0) > 0 || !firmanteListo} data-prueba="confirmar-sustitucion">Sustituir la firma anterior</button>
+        <button class="btn" type="button" onclick={() => { sustituyendo = false; yaFirmado = false; motivoSust = ''; errorSust = ''; }}>No sustituir</button></div>
+    {/if}
+  {/if}
   {#if mensajeOk}<Nota gravedad="info">{mensajeOk}</Nota>{/if}
   {#if cargandoVista && !vista}<div class="cargando-linea">Preparando el documento…</div>{/if}
   {#if vista}
     {#each vista.avisos as a (a)}<Nota gravedad="atencion">{a}</Nota>{/each}
-    {#if faltasVista.farmacia.length}<Nota gravedad="bloqueo"><strong>Faltan datos de la farmacia:</strong> {faltasVista.farmacia.join(', ')}. Complétalos en Ajustes → Farmacia; mientras tanto no se puede registrar la firma.</Nota>{/if}
-    {#if faltasVista.persona.length}<Nota gravedad="bloqueo"><strong>Faltan datos {calidad === 'paciente' ? 'del paciente' : 'del paciente o de quien firma'}:</strong> {faltasVista.persona.join(', ')}. {calidad === 'paciente' ? 'Complétalos en la pestaña «Datos» de la ficha.' : 'Los del paciente, en la pestaña «Datos»; los de quien firma, escríbelos arriba o elige a la persona entre sus contactos.'}</Nota>{/if}
-    {#if faltasVista.otros.length}<Nota gravedad="bloqueo"><strong>Faltan otros datos del documento:</strong> {faltasVista.otros.join(', ')}. Este documento necesita información que el programa no tiene todavía; no se puede registrar la firma hasta tenerla.</Nota>{/if}
+    {#each gruposFalta as g (g.entidad)}
+      {@const d = dondeCorregir(g.entidad)}
+      <Nota gravedad="bloqueo"><strong>{d.titulo}:</strong> {g.campos.join(', ')}.{#if d.ayuda} {d.ayuda}{/if}
+        {#snippet accion()}{#if d.enlace}<button class="btn" type="button" onclick={() => { abierto = false; ir(d.enlace!.ruta); }} data-prueba="falta-{g.entidad}">{d.enlace.texto}</button>{/if}{/snippet}
+      </Nota>
+    {/each}
+    {#if gruposFalta.length}<p class="suave pequeno sin-margen">Mientras falte algún dato no se puede registrar la firma.</p>{/if}
     <div class="tarjeta" style="max-height:46vh;overflow:auto;line-height:1.5" data-prueba="texto-documento">{@html mdBasico(vista.texto)}</div>
   {/if}
   {#snippet pie()}
     <button class="btn" type="button" onclick={() => (abierto = false)}>Cerrar</button>
     <button class="btn" type="button" onclick={imprimir} disabled={!vista || trabajando}>Imprimir</button>
-    <button class="btn principal" type="button" onclick={marcarFirmado} disabled={!vista || trabajando || !firmanteListo || (vista?.faltan.length ?? 0) > 0} data-prueba="marcar-firmado">Marcar como firmado</button>
+    <button class="btn principal" type="button" onclick={() => marcarFirmado()} disabled={!vista || trabajando || !firmanteListo || (vista?.faltan.length ?? 0) > 0} data-prueba="marcar-firmado">Marcar como firmado</button>
   {/snippet}
 </Modal>
 

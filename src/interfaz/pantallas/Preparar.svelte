@@ -17,6 +17,7 @@
   import type { EntradaPreparar } from './preparacion/tipos.ts';
   import VistaPrevia from './preparacion/VistaPrevia.svelte';
   import { borrarLocal, cargarSesion, corto, guardarLocal, leerLocal, mensaje, tomarPaso } from './preparacion/util.ts';
+  import { mensajeError } from '../componentes/util.ts';
 
   let { pacienteId }: { pacienteId?: number } = $props();
   type Paso = 'revisar' | 'llenar' | 'validar';
@@ -36,12 +37,13 @@
   let evaluando = $state(false); let errorEval = $state('');
   let preparacion = $state<PreparacionDto | null>(null);
   let paso = $state<Paso>('revisar');
-  let marcando = $state(false); let errorMarcar = $state('');
+  let marcando = $state(false); let errorMarcar = $state(''); let codigoMarcar = $state('');
   let listo = $state(false); let errorCarga = $state('');
   let hojaAbierta = $state(false);
 
   const claveLlenado = $derived(`spd.llenado.${entrada.paciente?.id ?? 0}.${entrada.desde}.${entrada.dias}`);
   const bloqueada = $derived(!!preparacion);
+  const pacienteIdPrep = $derived(entrada.paciente?.id);
 
   onMount(async () => {
     sesion = await cargarSesion();
@@ -96,7 +98,7 @@
   });
 
   async function marcarPreparado(c: { temperatura: number; humedad: number; observaciones?: string }) {
-    marcando = true; errorMarcar = '';
+    marcando = true; errorMarcar = ''; codigoMarcar = '';
     try {
       let id = preparacion?.id;
       if (!id) {
@@ -108,7 +110,7 @@
       const r = await datos(spd.obtenerPreparacion(id));
       preparacion = r.preparacion; evaluacion = r.evaluacion;
       paso = 'validar';
-    } catch (e) { errorMarcar = mensaje(e); } finally { marcando = false; }
+    } catch (e) { errorMarcar = mensajeError(e); codigoMarcar = (e as { codigo?: string }).codigo ?? ''; } finally { marcando = false; }
   }
   function cambioPreparacion(p: PreparacionDto) { preparacion = p; }
   function nueva() { borrarLocal(CLAVE_CURSO); preparacion = null; evaluacion = null; entrada = { ...nuevaEntrada(), paciente: null }; paso = 'revisar'; errorMarcar = ''; errorCarga = ''; }
@@ -149,7 +151,7 @@
     onSiguiente={() => (paso = 'llenar')} onHoja={() => (hojaAbierta = true)} />
 {:else if paso === 'llenar' && evaluacion}
   {#key claveLlenado}
-    <PasoLlenar {evaluacion} claveGuardado={claveLlenado} {ajustes} {marcando} {errorMarcar} yaPreparado={preparacion?.estado === 'preparado'}
+    <PasoLlenar {evaluacion} claveGuardado={claveLlenado} {ajustes} {marcando} {errorMarcar} {codigoMarcar} {pacienteIdPrep} yaPreparado={preparacion?.estado === 'preparado'}
       onMarcar={marcarPreparado} onHoja={() => (hojaAbierta = true)} onAtras={() => (paso = 'revisar')} />
   {/key}
 {:else if paso === 'validar' && evaluacion && preparacion}

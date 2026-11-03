@@ -14,11 +14,12 @@
   import Mapa from './Mapa.svelte';
   import Modal from './Modal.svelte';
   import Nota from './Nota.svelte';
-  import { colorMed, guardarLocal, leerLocal, pita } from './util.ts';
+  import { colorMed, guardarLocal, ir, leerLocal, pita } from './util.ts';
+  import { QUE_HACER, solucionComun } from './ayuda-bloqueos.ts';
 
   type Tarea = { clave: string; mapa: number; fila: number; columna: number; tratamientoId: number; unidades: number; lote?: string };
-  let { evaluacion, claveGuardado, ajustes, marcando, errorMarcar, yaPreparado = false, onMarcar, onHoja, onAtras }: {
-    evaluacion: EvaluacionPreparacion; claveGuardado: string; ajustes: Ajustes | null; marcando: boolean; errorMarcar: string; yaPreparado?: boolean;
+  let { evaluacion, claveGuardado, ajustes, marcando, errorMarcar, codigoMarcar = '', pacienteIdPrep, yaPreparado = false, onMarcar, onHoja, onAtras }: {
+    evaluacion: EvaluacionPreparacion; claveGuardado: string; ajustes: Ajustes | null; marcando: boolean; errorMarcar: string; codigoMarcar?: string; pacienteIdPrep?: number; yaPreparado?: boolean;
     onMarcar: (c: { temperatura: number; humedad: number; observaciones?: string }) => void; onHoja: () => void; onAtras: () => void;
   } = $props();
 
@@ -74,13 +75,13 @@
       activo = otro?.tratamientoId ?? id;
     }
   }
-  // Un doble clic (o una tecla que se repite) no puede marcar dos alvéolos: cada puesto se pone con las manos, no cabe otro marcado en medio segundo.
+  // Un doble clic (o una tecla que se repite) no puede marcar dos alvéolos: cada puesto se pone con las manos, no cabe otro marcado en un cuarto de segundo.
   let ultimoMarcado = 0;
   function marcarSiguiente(e?: Event) {
     if (e instanceof KeyboardEvent && e.repeat) return;
     if (e instanceof MouseEvent && e.detail > 1) return;
     const ahora = performance.now();
-    if (ahora - ultimoMarcado < 500) return;
+    if (ahora - ultimoMarcado < 250) return;
     const s = siguiente; if (!s) return;
     ultimoMarcado = ahora;
     hechosLista = [...hechosLista, s.clave];
@@ -209,7 +210,12 @@
       </div>
       <div class="campo"><label for="obs">Observaciones (opcional)</label><textarea id="obs" bind:value={observaciones}></textarea></div>
       {#if errorSala}<Nota gravedad="bloqueo">{errorSala}</Nota>{/if}
-      {#if errorMarcar}<Nota gravedad="bloqueo">{errorMarcar}</Nota>{/if}
+      {#if errorMarcar}
+        {@const sol = solucionComun(codigoMarcar, errorMarcar, pacienteIdPrep)}
+        <Nota gravedad="bloqueo">{errorMarcar}{#if QUE_HACER[codigoMarcar]}<br /><span class="suave">{QUE_HACER[codigoMarcar]}</span>{/if}
+          {#snippet accion()}{#if sol}<button class="btn" type="button" onclick={() => (sol.hacer ? sol.hacer() : ir(sol.ruta!))}>{sol.texto}</button>{/if}{/snippet}
+        </Nota>
+      {/if}
     </section>
   </aside>
 </div>

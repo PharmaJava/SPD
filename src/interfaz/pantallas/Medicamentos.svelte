@@ -61,6 +61,9 @@
   onMount(async () => {
     sesion = await cargarSesion(); await buscar(); void contarIncompletas();
     const cn = tomarPaso('spd.medicamentos.altaCn'); if (cn) abrirAlta(cn);
+    // Viene de un aviso «descripción sin confirmar»: abre directamente la ficha de ese medicamento.
+    const abrir = tomarPaso('spd.medicamentos.abrirCn');
+    if (abrir) { const r = await spd.obtenerMedicamento(abrir); if (r.ok && r.datos) elegir(r.datos); }
   });
 
   function cargarForm(m: MedicamentoDto) {

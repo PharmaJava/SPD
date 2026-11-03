@@ -2,12 +2,12 @@
   import { untrack } from 'svelte';
   import { spd } from '../../api.ts';
   import type { TratamientoDto, MomentoTomaDto, PautaDto } from '../../../servicios/api.ts';
-  import { tomasDelPeriodo, avisosPauta } from '../../../dominio/calendario-pauta.ts';
+  import { tomasDelPeriodo, avisosPauta, MAX_UNIDADES_POR_TOMA } from '../../../dominio/calendario-pauta.ts';
   import Dialogo from '../../componentes/Dialogo.svelte';
   import Campo from '../../componentes/Campo.svelte';
   import Aviso from '../../componentes/Aviso.svelte';
-  import { hoyIso, sumarDias, unidades } from '../../lib/formato.ts';
-  import { DIAS_SEMANA, DIAS_SEMANA_LARGO, avisar } from '../../componentes/util.ts';
+  import { fecha, hoyIso, sumarDias, unidades } from '../../lib/formato.ts';
+  import { DIAS_SEMANA, DIAS_SEMANA_LARGO, avisar, mensajeError } from '../../componentes/util.ts';
   import { ORIGENES, PATRONES } from './constantes.ts';
 
   let { tratamiento, momentos, onguardado, oncancelar }: {
@@ -29,12 +29,18 @@
   let origenDetalle = $state(''); let instrucciones = $state(a0?.instrucciones ?? '');
   let dosis = $state<Record<number, number>>(Object.fromEntries((a0?.dosis ?? []).map(d => [d.momentoId, d.unidades])));
   let error = $state<string | null>(null); let ocupado = $state(false);
+  // «Corregir un error»: si el servicio rechaza porque ya hay una pauta que empieza ese mismo día, se ofrece sustituirla dejando constancia del motivo.
+  let ofrecerCorreccion = $state(false); let correccion = $state(false); let motivoCorreccion = $state('');
+  const hayPautaEseDia = $derived(!!tratamiento?.pautas.some(p => p.vigenteDesde === vigenteDesde));
+  const esHoy = $derived(vigenteDesde === hoyIso());
 
   const PASOS = [0, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3, 3.5, 4, 5, 6, 8, 10];
   const opcionesDosis = (v: number) => (PASOS.includes(v) ? PASOS : [...PASOS, v].sort((a, b) => a - b)).map(x => ({ valor: x, texto: x === 0 ? 'Nada' : unidades(x) }));
 
   function pauta(): PautaDto {
-    const p: PautaDto = { vigenteDesde, patron, origen, origenDetalle: origenDetalle.trim() || null, instrucciones: instrucciones.trim() || null,
+    const esCorreccion = correccion && hayPautaEseDia;
+    const p: PautaDto = { vigenteDesde, patron, origen: esCorreccion ? 'correccion' : origen,
+      origenDetalle: (esCorreccion ? motivoCorreccion : origenDetalle).trim() || null, instrucciones: instrucciones.trim() || null,
       dosis: activos.filter(m => (dosis[m.id] ?? 0) > 0).map(m => ({ momentoId: m.id, unidades: dosis[m.id]! })) };
     if (patron === 'dias_semana') p.diasSemana = [...diasSemana].sort((a, b) => a - b);
     if (patron === 'cada_n_dias') { p.cadaNDias = Number(cadaNDias); if (fechaAncla) p.fechaAncla = fechaAncla; }
@@ -50,6 +56,7 @@
       if (!(Number.isInteger(p.cicloOn) && p.cicloOn! >= 1)) return 'Indica cuántos días seguidos se toma.';
       if (!(Number.isInteger(p.cicloOff) && p.cicloOff! >= 0)) return 'Indica cuántos días de descanso hay (0 si no hay).';
     }
+    if (p.origen === 'correccion' && hayPautaEseDia && (p.origenDetalle ?? '').length < 5) return 'Para corregir una pauta escribe qué estaba mal (unas palabras bastan, mínimo 5 letras): queda en el historial.';
     if (p.patron !== 'si_precisa' && !p.dosis.length) return 'Indica la dosis en al menos un momento del día.';
     return null;
   }
@@ -75,7 +82,8 @@
     ocupado = true;
     const r = await spd.guardarPauta(tratamiento.id, p);
     ocupado = false;
-    if (r.ok) { avisar('Pauta guardada. La anterior queda en el historial.'); onguardado(r.datos); } else error = r.error;
+    if (r.ok) { avisar(p.origen === 'correccion' && hayPautaEseDia ? 'Pauta corregida. La versión errónea queda en el historial con tu motivo.' : 'Pauta guardada. La anterior queda en el historial.'); onguardado(r.datos); }
+    else { error = mensajeError(r); ofrecerCorreccion = hayPautaEseDia && !correccion; }
   }
   function alternarDia(d: number) { diasSemana = diasSemana.includes(d) ? diasSemana.filter(x => x !== d) : [...diasSemana, d]; }
 </script>
@@ -113,7 +121,8 @@
                     {#each opcionesDosis(dosis[m.id] ?? 0) as o (o.valor)}<option value={o.valor}>{o.texto}</option>{/each}
                   </select></div>
               {/each}
-            </div></div>
+            </div>
+            <span class="ayuda">Como máximo {MAX_UNIDADES_POR_TOMA} unidades en cada toma.</span></div>
         {:else}<Aviso tipo="info">Esta medicación no se prepara en el blíster: queda anotada en el tratamiento y en la hoja del paciente.</Aviso>{/if}
       </div>
     </div>
@@ -141,6 +150,17 @@
     </div>
     <Campo etiqueta="Instrucciones para la toma" tipo="area" filas={2} bind:valor={instrucciones} ayuda="Se imprimen en la hoja del paciente. Ejemplo: «con el desayuno»." />
     {#if error}<Aviso tipo="bloqueo" titulo="No se ha guardado">{error}</Aviso>{/if}
+    {#if ofrecerCorreccion || (correccion && hayPautaEseDia)}
+      <div class="seccion" data-prueba="corregir-pauta">
+        {#if !correccion}
+          <Aviso tipo="atencion" titulo="Ya hay una pauta de ese día">Ya existe una pauta que empieza el {fecha(vigenteDesde)}. Si la anterior era un error, puedes corregirla: la versión errónea no se borra, queda en el historial con tu motivo. Si el cambio es nuevo, elige un día posterior.</Aviso>
+          <button class="btn" type="button" onclick={() => { correccion = true; ofrecerCorreccion = false; error = null; }} data-prueba="corregir-hoy">{esHoy ? 'Corregir un error de hoy' : 'Corregir un error de esa fecha'}</button>
+        {:else}
+          <Campo etiqueta="¿Qué estaba mal en la pauta anterior?" bind:valor={motivoCorreccion} requerido ayuda="Obligatorio. Por ejemplo: «se tecleó 2 en la cena en vez de 1». Queda en el historial y en la auditoría." />
+          <button class="btn enlace" type="button" onclick={() => { correccion = false; motivoCorreccion = ''; }}>No es una corrección: la cambio por un día posterior</button>
+        {/if}
+      </div>
+    {/if}
   {/if}
   {#snippet pie()}
     <button class="btn" onclick={oncancelar}>Cancelar</button>

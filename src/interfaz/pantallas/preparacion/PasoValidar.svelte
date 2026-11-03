@@ -9,7 +9,9 @@
   import Mapa from './Mapa.svelte';
   import Nota from './Nota.svelte';
   import VistaPrevia from './VistaPrevia.svelte';
-  import { corto, NOMBRE_ROL, puedeValidar } from './util.ts';
+  import { corto, ir, NOMBRE_ROL, puedeValidar } from './util.ts';
+  import { QUE_HACER, solucionComun } from './ayuda-bloqueos.ts';
+  import { mensajeError } from '../../componentes/util.ts';
 
   let { evaluacion, preparacion, sesion, ajustes, onCambio, onAtras, onNueva }: {
     evaluacion: EvaluacionPreparacion; preparacion: PreparacionDto; sesion: UsuarioPublico | null; ajustes: Ajustes | null;
@@ -22,11 +24,19 @@
 
   let comparado = $state(false);
   let validando = $state(false); let errorValidar = $state('');
+
+  // La evaluación puede quedarse vieja (p. ej. se registró una alergia después de preparar): si al validar el servicio protesta, se vuelve a pedir.
+  let evalLocal = $state<EvaluacionPreparacion | null>(null);
+  const ev = $derived(evalLocal ?? evaluacion);
+  const alergias = $derived(ev.avisos.filter(a => a.codigo === 'POSIBLE_ALERGIA'));
+  const alergiaSinConfirmar = $derived(ev.bloqueos.some(b => b.codigo === 'ALERGIA_SIN_CONFIRMAR'));
+  let alergiaRevisada = $state(false);
+  const OCULTOS = ['ROL_NO_PUEDE_VALIDAR', 'ALERGIA_SIN_CONFIRMAR'];   // el de rol ya tiene su aviso; la alergia, su tarjeta
   let entregando = $state(false);
 
   const lotes = $derived.by(() => {
     const m = new Map<number, { nombre: string; lote: string; caducidad: string; unidades: number }>();
-    for (const l of evaluacion.lineasReparto) {
+    for (const l of ev.lineasReparto) {
       const x = m.get(l.envaseId) ?? { nombre: l.nombre, lote: l.lote, caducidad: l.caducidad, unidades: 0 };
       x.unidades += l.unidades; m.set(l.envaseId, x);
     }
@@ -35,9 +45,15 @@
 
   async function validar() {
     validando = true; errorValidar = '';
-    const r = await spd.validarPreparacion(preparacion.id);
+    // La confirmación sólo viaja si la persona la ha marcado en pantalla Y hay una posible alergia delante.
+    const r = await spd.validarPreparacion(preparacion.id, alergiaSinConfirmar && alergiaRevisada ? { confirmarAlergias: true } : undefined);
+    if (!r.ok) {
+      errorValidar = mensajeError(r);
+      const o = await spd.obtenerPreparacion(preparacion.id);
+      if (o.ok) { evalLocal = o.datos.evaluacion; alergiaRevisada = false; }
+      validando = false; return;
+    }
     validando = false;
-    if (!r.ok) { errorValidar = r.error; return; }
     onCambio(r.datos);
   }
 
@@ -83,19 +99,40 @@
     {#if preparacion.fueraDeEstandar && preparacion.justificacionValidez}<Nota gravedad="atencion">Validez ampliada. Justificación: {preparacion.justificacionValidez}</Nota>{/if}
   </section>
 
+  {#if alergias.length}
+    <section class="tarjeta" aria-labelledby="t-alergia" data-prueba="posible-alergia">
+      <h2 id="t-alergia">Posible alergia detectada</h2>
+      <Nota gravedad={validada ? 'atencion' : 'bloqueo'}>
+        {alergias.length === 1 ? 'Un medicamento de este blíster coincide con una alergia registrada del paciente:' : 'Estos medicamentos coinciden con alergias registradas del paciente:'}
+        <ul class="margen-s">{#each alergias as a (a.texto)}<li>{a.texto}</li>{/each}</ul>
+      </Nota>
+      {#if !validada && alergiaSinConfirmar}
+        {#if puede}
+          <label class="fila" style="gap:.8rem;cursor:pointer">
+            <input type="checkbox" bind:checked={alergiaRevisada} style="width:1.6rem;min-height:1.6rem" data-prueba="alergia-revisada" />
+            <span class="negrita">He revisado la posible alergia con el paciente o el prescriptor.</span>
+          </label>
+          <p class="suave pequeno sin-margen">Sin esta confirmación el blíster no se puede validar. Queda anotado quién la ha dado y cuándo.</p>
+        {:else}
+          <Nota gravedad="info">Esta posible alergia la tiene que revisar un farmacéutico (o el titular) antes de validar el blíster.</Nota>
+        {/if}
+      {/if}
+    </section>
+  {/if}
+
   {#if !validada}
     <div class="dos-col">
       <section class="tarjeta" aria-labelledby="t-comp">
         <h2 id="t-comp">Comprueba el blíster contra el mapa</h2>
-        {#each evaluacion.mapas as m (m.indice)}
-          {#if evaluacion.mapas.length > 1}<h3>Blíster {m.indice + 1} · {fecha(m.desde)} – {fecha(m.hasta)}</h3>{/if}
-          <Mapa mapa={m} alveolos={evaluacion.alveolos} leyenda={evaluacion.leyenda} />
+        {#each ev.mapas as m (m.indice)}
+          {#if ev.mapas.length > 1}<h3>Blíster {m.indice + 1} · {fecha(m.desde)} – {fecha(m.hasta)}</h3>{/if}
+          <Mapa mapa={m} alveolos={ev.alveolos} leyenda={ev.leyenda} />
         {/each}
       </section>
       <aside class="apilado">
         <section class="tarjeta" aria-labelledby="t-asp">
           <h2 id="t-asp">Cómo es cada comprimido</h2>
-          <Leyenda leyenda={evaluacion.leyenda} mostrarDescripcion />
+          <Leyenda leyenda={ev.leyenda} mostrarDescripcion />
         </section>
         <section class="tarjeta" aria-labelledby="t-lot">
           <h2 id="t-lot">Cajas usadas</h2>
@@ -108,7 +145,12 @@
       </aside>
     </div>
 
-    {#each evaluacion.bloqueos.filter(b => b.codigo !== 'ROL_NO_PUEDE_VALIDAR') as b (b.codigo)}<Nota gravedad="bloqueo">{b.texto}</Nota>{/each}
+    {#each ev.bloqueos.filter(b => !OCULTOS.includes(b.codigo)) as b (b.codigo + b.texto)}
+      {@const s = solucionComun(b.codigo, b.texto, preparacion.pacienteId)}
+      <Nota gravedad="bloqueo">{b.texto}{#if QUE_HACER[b.codigo]}<br /><span class="suave">{QUE_HACER[b.codigo]}</span>{/if}
+        {#snippet accion()}{#if s}<button class="btn" type="button" onclick={() => (s.hacer ? s.hacer() : ir(s.ruta!))}>{s.texto}</button>{/if}{/snippet}
+      </Nota>
+    {/each}
     {#if errorValidar}<Nota gravedad="bloqueo">{errorValidar}</Nota>{/if}
 
     {#if puede}
@@ -150,7 +192,7 @@
   <button class="btn" type="button" onclick={onAtras} disabled={validada}>← Volver a llenar</button>
   <span class="espacio"></span>
   {#if !validada}
-    {#if puede}<button class="btn principal grande" type="button" onclick={validar} disabled={!comparado || validando} data-prueba="validar">{validando ? 'Validando…' : 'Validar el blíster'}</button>{/if}
+    {#if puede}<button class="btn principal grande" type="button" onclick={validar} disabled={!comparado || validando || (alergiaSinConfirmar && !alergiaRevisada)} data-prueba="validar">{validando ? 'Validando…' : 'Validar el blíster'}</button>{/if}
   {:else if !entregada}
     <button class="btn principal grande" type="button" onclick={() => (entregando = true)} data-prueba="registrar-entrega">Registrar entrega</button>
   {:else}

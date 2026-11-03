@@ -8,6 +8,7 @@
   import Mapa from './Mapa.svelte';
   import Nota from './Nota.svelte';
   import { ir, rutas } from './util.ts';
+  import { QUE_HACER, solucionComun } from './ayuda-bloqueos.ts';
   import { SOLO_PARA_VALIDAR, type EntradaPreparar } from './tipos.ts';
 
 
@@ -35,7 +36,7 @@
   const falta = $derived(evaluacion?.faltantes ?? []);
 
   /** Enlace de solución según el código estable del bloqueo. */
-  function solucion(codigo: string): { texto: string; ruta?: string; hacer?: () => void } | null {
+  function solucion(codigo: string, texto: string): { texto: string; ruta?: string; hacer?: () => void } | null {
     const p = entrada.paciente?.id;
     switch (codigo) {
       case 'UNIDADES_INSUFICIENTES': case 'CAJA_CADUCA_EN_PERIODO': case 'SIN_LOTES_USADOS': case 'ENVASE_DE_OTRO_TRATAMIENTO':
@@ -45,7 +46,7 @@
         return p ? { texto: 'Revisar el tratamiento', ruta: rutas.paciente(p, 'tratamiento') } : null;
       case 'PERIODO_NO_CABE': return entrada.modoInicio === 'hoy' ? null : { texto: 'Empezar hoy', hacer: () => modo('hoy') };
       case 'VALIDEZ_EXTENDIDA_NO_ACTIVADA': return { texto: 'Ir a Ajustes', ruta: '#/ajustes' };
-      default: return null;
+      default: return solucionComun(codigo, texto, p);
     }
   }
   const cad = $derived(evaluacion?.caducidadSpd);
@@ -105,8 +106,8 @@
         <section class="tarjeta" aria-labelledby="t-bloq">
           <h2 id="t-bloq">Antes de preparar hay que resolver esto</h2>
           {#each bloqueosQueImpiden as b (b.codigo + b.texto)}
-            {@const s = solucion(b.codigo)}
-            <Nota gravedad="bloqueo">{b.texto}
+            {@const s = solucion(b.codigo, b.texto)}
+            <Nota gravedad="bloqueo">{b.texto}{#if QUE_HACER[b.codigo]}<br /><span class="suave">{QUE_HACER[b.codigo]}</span>{/if}
               {#snippet accion()}{#if s}<button class="btn" type="button" onclick={() => (s.hacer ? s.hacer() : ir(s.ruta!))}>{s.texto}</button>{/if}{/snippet}
             </Nota>
           {/each}
@@ -126,8 +127,8 @@
         <section class="tarjeta">
           <h2>Se puede preparar, pero todavía no validar</h2>
           {#each bloqueosDeValidar as b (b.codigo)}
-            {@const s = solucion(b.codigo)}
-            <Nota gravedad="atencion">{b.texto}
+            {@const s = solucion(b.codigo, b.texto)}
+            <Nota gravedad="atencion">{b.texto}{#if QUE_HACER[b.codigo]}<br /><span class="suave">{QUE_HACER[b.codigo]}</span>{/if}
               {#snippet accion()}{#if s}<button class="btn" type="button" onclick={() => (s.hacer ? s.hacer() : ir(s.ruta!))}>{s.texto}</button>{/if}{/snippet}
             </Nota>
           {/each}

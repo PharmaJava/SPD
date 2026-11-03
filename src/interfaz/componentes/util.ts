@@ -1,13 +1,28 @@
 /** Utilidades comunes de la interfaz de base (U1). Sin DOM salvo aplicarAspecto/copiar. */
 import { writable } from 'svelte/store';
 
-/** Mensaje para la persona: nunca códigos ni texto técnico. */
+/** Texto para la persona cuando el servicio sólo manda el código (o un mensaje que es un código en bruto). */
+const TEXTO_POR_CODIGO: Record<string, string> = {
+  POSIBLE_DUPLICADO: 'Esta caja parece ya registrada (mismo lote, caducidad y unidades). No se ha guardado.',
+  ALERGIA_SIN_CONFIRMAR: 'Hay una posible alergia sin confirmar. Un farmacéutico o el titular debe revisarla con el paciente o el prescriptor antes de validar.',
+  DESCRIPCION_FISICA_SIN_CONFIRMAR: 'Falta confirmar cómo es el comprimido (su descripción física). Un farmacéutico o el titular debe hacerlo en Medicamentos.',
+  PERIODO_SOLAPADO: 'Este paciente ya tiene un blíster que cubre alguno de esos días. Elige otras fechas o revisa el blíster anterior.',
+  FECHA_PREPARACION_FUTURA: 'La fecha de preparación es futura: un blíster se prepara hoy o antes. Revisa la fecha y la hora de este ordenador.',
+  PAUTA_CON_HUECOS: 'Hay días sin pauta entre dos pautas del mismo medicamento. Corrige las fechas de las pautas en la ficha del paciente.',
+  DOCUMENTO_YA_FIRMADO: 'Este documento ya está firmado y vigente. Si la firma nueva sustituye a la anterior, hay que indicarlo y explicar el motivo.',
+};
+
+/**
+ * Mensaje para la persona: nunca códigos ni texto técnico.
+ * Acepta un Error (`message`) o el Resultado fallido del contrato (`error`); si el texto viene vacío o es un código en bruto,
+ * usa el de la tabla por código.
+ */
 export function mensajeError(e: unknown): string {
-  const err = e as { message?: string; codigo?: string } | undefined;
+  const err = e as { message?: string; error?: string; codigo?: string } | undefined;
   if (err?.codigo === 'SIN_CONEXION') return 'No se puede hablar con el programa. Cierra y vuelve a abrir SPD; si sigue igual, avisa a quien lo mantiene.';
-  const m = err?.message?.trim();
-  if (!m) return 'Ha ocurrido algo inesperado. Inténtalo de nuevo.';
-  return m;
+  const m = (err?.message ?? err?.error)?.trim();
+  if (m && !/^[A-Z][A-Z0-9_]{3,}$/.test(m)) return m;
+  return (err?.codigo ? TEXTO_POR_CODIGO[err.codigo] : undefined) ?? 'Ha ocurrido algo inesperado. Inténtalo de nuevo.';
 }
 
 export interface Tostada { id: number; texto: string; tipo: 'ok' | 'info' | 'atencion' | 'bloqueo' }
