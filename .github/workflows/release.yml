@@ -28,7 +28,7 @@ on:
     # Alternativa cuando no se pueden subir etiquetas: cambiar el contenido de este fichero en main
     # publica la versión de package.json (la etiqueta vX.Y.Z se crea al publicar la Release).
     branches: [main]
-    paths: ['.github/release/publicar.txt']
+    paths: ['.github/publicar/version.txt']
   workflow_dispatch:
     inputs:
       etiqueta:
