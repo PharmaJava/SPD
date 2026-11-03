@@ -22,10 +22,13 @@ gestiona su servicio de SPD de principio a fin:
 
 > **Programa gratuito (freeware)**: ver [LICENSE.txt](LICENSE.txt). Ámbito: España (nacional).
 
-> Estado: **fase de diseño**. Lo escrito hasta ahora es la especificación
-> (`docs/`), el esquema de base de datos (`db/schema.sql`), las plantillas de
-> consentimiento y el primer módulo de dominio con pruebas (lectura de
-> DataMatrix GS1).
+> Estado: **versión 1.0**. Programa completo para Windows (instalador y portable en
+> [Releases](https://github.com/PharmaJava/SPD/releases)). Pendiente antes de uso real:
+> revisión jurídica de los consentimientos (son borradores), prueba de la lectura de
+> CIMA e impresión con el hardware de cada farmacia, y firma de código (el instalador
+> no está firmado: Windows SmartScreen avisará).
+>
+> Desarrollado por **PharmaJava** · parte de la suite de herramientas y atención farmacéutica de [conveniodefarmacia.com](https://conveniodefarmacia.com).
 
 ## Documentación
 
