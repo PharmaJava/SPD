@@ -29,7 +29,7 @@ export interface Db {
 
 export interface OpcionesDb { wasmPath?: string }
 
-export const VERSION_ESQUEMA = 2;
+export const VERSION_ESQUEMA = 3;
 
 let motor: Awaited<ReturnType<typeof initSqlJs>> | null = null;
 let motorWasm: string | undefined;
@@ -66,6 +66,44 @@ function migrar(db: Db): void {
     return;
   }
   if (v < 2) db.transaccion(() => { migrarV2(db); db.exec('PRAGMA user_version = 2;'); });
+  if (v < 3) db.transaccion(() => { migrarV3(db); db.exec('PRAGMA user_version = 3;'); });
+}
+
+/**
+ * v2 → v3: documentos «gestionados sin firma individual» (`origen`, `motivo_gestion` y la calidad `sin_firma`).
+ * SQLite no cambia un CHECK existente, así que se reconstruye la tabla copiando TODAS las filas tal cual
+ * (todas quedan con origen 'firma'): ni se pierde ni se reescribe ningún documento firmado. Idempotente.
+ */
+export function migrarV3(db: Db): void {
+  if (db.all<{ name: string }>('PRAGMA table_info(documento_firmado)').some((c) => c.name === 'origen')) return;
+  db.exec(`CREATE TABLE documento_firmado_v3 (
+    id INTEGER PRIMARY KEY,
+    id_publico TEXT NOT NULL UNIQUE,
+    paciente_id INTEGER NOT NULL REFERENCES paciente(id),
+    plantilla_id INTEGER NOT NULL REFERENCES plantilla_documento(id),
+    firmante TEXT NOT NULL,
+    firmante_calidad TEXT NOT NULL,
+    contacto_id INTEGER REFERENCES contacto(id),
+    firmado_en TEXT NOT NULL,
+    texto_impreso TEXT NOT NULL,
+    hash_texto TEXT NOT NULL,
+    escaneo BLOB,
+    revocado_en TEXT,
+    motivo_revocacion TEXT,
+    registrado_por INTEGER NOT NULL REFERENCES usuario(id),
+    origen TEXT NOT NULL DEFAULT 'firma' CHECK (origen IN ('firma','gestionado_sin_firma')),
+    motivo_gestion TEXT,
+    CHECK (
+      (origen = 'firma' AND firmante_calidad IN ('paciente','representante_legal','guardador_de_hecho'))
+      OR (origen = 'gestionado_sin_firma' AND firmante_calidad = 'sin_firma' AND motivo_gestion IS NOT NULL AND length(trim(motivo_gestion)) >= 5)
+    )
+  )`);
+  db.exec(`INSERT INTO documento_firmado_v3 (id, id_publico, paciente_id, plantilla_id, firmante, firmante_calidad, contacto_id, firmado_en,
+             texto_impreso, hash_texto, escaneo, revocado_en, motivo_revocacion, registrado_por)
+           SELECT id, id_publico, paciente_id, plantilla_id, firmante, firmante_calidad, contacto_id, firmado_en,
+             texto_impreso, hash_texto, escaneo, revocado_en, motivo_revocacion, registrado_por FROM documento_firmado`);
+  db.exec('DROP TABLE documento_firmado');
+  db.exec('ALTER TABLE documento_firmado_v3 RENAME TO documento_firmado');
 }
 
 /** v1 → v2: origen del paciente. Los pacientes existentes no cambian (sin centro = individual). */

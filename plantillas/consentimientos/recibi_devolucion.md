@@ -1,4 +1,4 @@
-<!-- BORRADOR v1 -->
+<!-- v1 -->
 # Recibí de medicamentos al finalizar el servicio de SPD
 
 {{firmante.nombre}} ({{firmante.calidad}}) recibe de {{farmacia.nombre}} los

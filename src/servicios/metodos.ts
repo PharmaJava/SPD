@@ -32,7 +32,7 @@ export const GRUPO_DE_METODO: Record<NombreMetodo, GrupoMetodo> = {
   crearPreparacion: 'clinica', marcarPreparada: 'clinica', validarPreparacion: 'clinica', registrarEntrega: 'clinica',
   anularPreparacion: 'clinica', listarPreparaciones: 'clinica', obtenerPreparacion: 'clinica', vistaEtiqueta: 'clinica',
   vistaHojaPaciente: 'clinica', listarPlantillasDocumento: 'clinica', vistaDocumento: 'clinica',
-  registrarDocumentoFirmado: 'clinica', revocarDocumento: 'clinica', estadoConsentimientos: 'clinica',
+  registrarDocumentoFirmado: 'clinica', revocarDocumento: 'clinica', estadoConsentimientos: 'clinica', gestionarDocumentosSinFirma: 'clinica',
   // ApiExterna (sólo proceso principal)
   consultarCima: 'externa', listarImpresoras: 'externa', imprimirHtml: 'externa', exportarPdf: 'externa',
   elegirCarpeta: 'externa', codigoSvg: 'externa', copiarAlPortapapeles: 'externa',

@@ -18,11 +18,16 @@
 | 10 | **No se admiten cajas que traiga el paciente** | Eliminado `procedencia` del modelo |
 | 13 | **Criterio estricto de «14 días»** (29-oct-2026, a raíz de un fallo reportado por un tester clínico): el SPD cubre como máximo 14 días **naturales contando el día de la preparación como el primero**. Preparado el día D con validez 14, el último día válido es **D+13**; un periodo de 15 días con validez 14 **bloquea** (`PERIODO_NO_CABE`), también si empieza el mismo día. Preparar un día antes de empezar y cubrir 14 días ya no cabe: o se prepara el mismo día, o el periodo es de 13. La misma cuenta vale para la validez ampliada (30 días → D+29) | `calcularCaducidadSpd()`; el mensaje de bloqueo lo explica; `tests/correcciones-tester.test.ts` |
 | 11 | **El instalador se distribuye desde las *releases* de GitHub** de tu repositorio | Ver doc 14 |
+| 14 | **Sin marca de «borrador» en los documentos** (3-nov-2026): se quita el banner de la pantalla de documentos y la marca del documento impreso/PDF (`esBorrador` desaparece del contrato). La cautela «son borradores para revisar con un abogado» queda **sólo** en Ajustes → Acerca de (aviso legal), el README y el manual | El papel que firma el paciente es solo el texto del documento. Sigue pendiente la revisión jurídica (B) |
+| 15 | **Consentimientos opcionales** (3-nov-2026): ajuste «Exigir consentimientos firmados para validar», **activado por defecto**; solo el titular lo cambia, con motivo, auditado | Desactivado, lo pendiente es información y no bloquea. **La farmacia asume la responsabilidad** de gestionarlos fuera del programa. Rol, alergia, caducidad y alertas de calidad siguen bloqueando. Doc 09 §9.4 |
+| 16 | **«Gestionado sin firma individual»** (3-nov-2026), por paciente y masivo por centro («Aceptar todo»): registro con origen propio, motivo obligatorio, usuario y fecha; solo titular/farmacéutico; revocable y auditado; **no se falsifica ni se imprime una firma** | Esquema v3 (`origen`, `motivo_gestion`, calidad `sin_firma`). **La farmacia asume la responsabilidad** de ese consentimiento (p. ej. recogido por la residencia). Doc 09 §9.5 |
+| 17 | **Notificaciones** (3-nov-2026): tostadas que se cierran con un clic (error/atención a los 10 s si no hay ratón encima, idénticas agrupadas, «Cerrar todas»); avisos de «Hoy» con «Marcar como visto»/«Quitar»; los de **seguridad nunca se ocultan**; solo se recuerdan tipos de avisos generales, jamás nombres | `src/dominio/avisos.ts`. El asistente de preparar muestra una vez el problema que antes salía en varias cajas rojas |
 
 ## Pendientes
 
 | # | Pregunta |
 |---|---|
-| B | Confirmar con abogado/Colegio: la validez de 30 días, los 2 años de conservación y la licencia |
+| B | Confirmar con abogado/Colegio: la validez de 30 días, los 2 años de conservación y la licencia, y **la revisión de los textos de consentimiento** (ya sin marca de borrador en pantalla; la cautela está en el aviso legal) |
+| E | Confirmar con abogado: el valor de **«gestionado sin firma individual»** (consentimiento recogido por un centro) y la **responsabilidad de la farmacia** al no exigir consentimientos |
 | C | Instalador sin firma de código: avisos de SmartScreen (doc 14) |
 | D | ¿El repo debe ser público para publicar releases? (doc 14) |

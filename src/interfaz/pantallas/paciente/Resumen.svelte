@@ -26,14 +26,14 @@
       <h2>Qué hay que hacer</h2>
       {#if paciente.estado !== 'activo'}<Aviso tipo="atencion" titulo="Paciente {paciente.estado === 'baja' ? 'de baja' : paciente.estado === 'pausado' ? 'pausado' : 'fallecido'}">{paciente.motivoEstado ?? 'No se preparan blísteres para este paciente.'}</Aviso>{/if}
       {#if consent && !consent.completo}
-        <Aviso tipo="atencion" titulo="Faltan consentimientos">{#if consent.faltan.length}Sin firmar: {tit(consent.faltan)}. {/if}{#if consent.desactualizados.length}Desactualizados: {tit(consent.desactualizados)}. {/if}{#if consent.revocados.length}Revocados: {tit(consent.revocados)}. {/if}
+        <Aviso tipo={consent.exigido ? 'atencion' : 'info'} titulo={consent.exigido ? 'Faltan consentimientos' : 'Consentimientos pendientes (la farmacia no los exige para validar)'}>{#if consent.faltan.length}Sin firmar: {tit(consent.faltan)}. {/if}{#if consent.desactualizados.length}Desactualizados: {tit(consent.desactualizados)}. {/if}{#if consent.revocados.length}Revocados: {tit(consent.revocados)}. {/if}
           <button class="btn enlace" onclick={() => irA('documentos')}>Ir a documentos</button></Aviso>
       {/if}
       {#if !activos.length}<Aviso tipo="info" titulo="Sin tratamientos">Añade los medicamentos que toma. <button class="btn enlace" onclick={() => irA('tratamiento')}>Ir a tratamiento</button></Aviso>{/if}
       {#each sinPauta as t}<Aviso tipo="atencion" titulo="Sin pauta">{t.principioActivo} no tiene pauta. <button class="btn enlace" onclick={() => irA('tratamiento')}>Definirla</button></Aviso>{/each}
       {#each sinAspecto as t}<Aviso tipo="atencion" titulo="Aspecto sin confirmar">{t.medicamento?.nombre}: hay que confirmar cómo es el medicamento antes de preparar.</Aviso>{/each}
       {#each sinCaja as t}<Aviso tipo="atencion" titulo="Sin cajas">No hay unidades de {t.principioActivo} para cubrir la pauta. <button class="btn enlace" onclick={() => ir('cajas/' + paciente.id)}>Registrar cajas</button></Aviso>{/each}
-      {#if paciente.estado === 'activo' && consent?.completo && activos.length && !sinPauta.length && !sinAspecto.length && !sinCaja.length}
+      {#if paciente.estado === 'activo' && (consent?.completo || consent?.exigido === false) && activos.length && !sinPauta.length && !sinAspecto.length && !sinCaja.length}
         <Aviso tipo="ok" titulo="Todo en orden">Se puede preparar.</Aviso>
       {/if}
       <div class="fila" style="margin-top:.8rem">

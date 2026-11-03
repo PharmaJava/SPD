@@ -536,7 +536,8 @@ describe('documentos: plantillas reales', () => {
       assert.ok(!r.texto.includes('⟦'));
       assert.ok(!r.texto.includes('<!--'));
       assert.deepEqual(r.faltan, []);
-      assert.equal(r.esBorrador, true);
+      assert.equal('esBorrador' in r, false);
+      assert.ok(!/borrador/i.test(r.texto));
       assert.equal(r.hash, createHash('sha256').update(r.texto, 'utf8').digest('hex'));
     });
     test(`${f}: con una variable menos => faltan, marcador, no definitivo`, () => {
@@ -679,11 +680,11 @@ describe('documentos: valores hostiles', () => {
     assert.equal(renderizarDocumento('{{motivo}}', { motivo: '[A COMPLETAR]' }).imprimibleDefinitivo, false);
   });
 
-  test('BORRADOR solo en comentario marca esBorrador y no se imprime', () => {
+  test('un comentario «borrador» no se imprime ni marca nada: el documento impreso no lleva marca', () => {
     const r = renderizarDocumento('<!-- borrador v1 -->\nHola', {});
-    assert.equal(r.esBorrador, true);
+    assert.equal('esBorrador' in r, false);
     assert.equal(r.texto, 'Hola');
-    assert.equal(renderizarDocumento('Hola BORRADOR', {}).esBorrador, false);
+    assert.equal(renderizarDocumento('Hola BORRADOR', {}).texto, 'Hola BORRADOR');   // lo que escribe la plantilla fuera de un comentario es texto normal
   });
 
   test('variables dentro de comentarios no cuentan como faltantes', () => {
@@ -693,7 +694,7 @@ describe('documentos: valores hostiles', () => {
 
   test('comentario sin cerrar no se imprime como si fuera contenido definitivo', () => {
     const r = renderizarDocumento('Hola\n<!-- BORRADOR sin cerrar {{farmacia.nombre}}', {});
-    assert.ok(r.esBorrador || r.imprimibleDefinitivo === false);
+    assert.equal(r.imprimibleDefinitivo, false);
   });
 
   test('un valor con "<!--" no se trata como comentario (se inserta tras quitar comentarios)', () => {

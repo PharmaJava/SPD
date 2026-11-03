@@ -72,7 +72,7 @@
         {#if otros.length}<div class="etiquetas" style="margin-top:.2rem">{#each otros as o (o.id)}<span class="etiqueta atencion">{SALUD_TIPOS[o.tipo]}: {o.descripcion}</span>{/each}</div>{/if}
       </div>
       <div class="dato"><span class="rotulo">Consentimiento</span>
-        {#if !consent}<span class="suave">…</span>{:else if consent.completo}<span class="etiqueta ok">Completo</span>{:else}<span class="etiqueta atencion">Faltan documentos</span>{/if}</div>
+        {#if !consent}<span class="suave">…</span>{:else if consent.completo}<span class="etiqueta ok">Completo</span>{:else if !consent.exigido}<span class="etiqueta info" title="La farmacia no exige los consentimientos para validar">Pendientes (no exigidos)</span>{:else}<span class="etiqueta atencion">Faltan documentos</span>{/if}</div>
       <div class="dato"><span class="rotulo">Cobertura</span><span class={cob.clase}>{cob.texto}</span></div>
     </div>
   </div>

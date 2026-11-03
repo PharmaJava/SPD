@@ -44,12 +44,13 @@ test('la siembra es idempotente y deja rastro una sola vez', async () => {
   assert.equal(t.auditadas.filter((a) => a.entidad === 'plantilla_documento').length, 6);
 });
 
-test('las 6 plantillas se renderizan: sin llaves sueltas, borrador, hash de 64 hex', async () => {
+test('las 6 plantillas se renderizan: sin llaves sueltas, SIN marca de borrador, hash de 64 hex', async () => {
   const { api } = await montar();
   for (const c of CODIGOS) {
     const v = ok(await api.vistaDocumento(c, 1, c === 'autorizacion_terceros' ? { ...REP, contactoId: 1 } : REP));
     assert.ok(!v.texto.includes('{{') && !v.texto.includes('}}'), c);
-    assert.equal(v.esBorrador, true, c);
+    assert.equal('esBorrador' in v, false, c);
+    assert.ok(!/borrador/i.test(v.texto), c);
     assert.match(v.hash, /^[0-9a-f]{64}$/, c);
     assert.ok(v.texto.includes('Pedro López') || c === 'consentimiento_spd' || true);
     assert.deepEqual(v.faltan, [], `${c}: ${v.faltan}`);
@@ -154,12 +155,15 @@ test('registrar: guarda el texto EXACTO, su hash y quién lo registró', async (
   assert.equal(f.revocado_en, null);
 });
 
-test('registrar un borrador se permite pero queda anotado en la auditoría', async () => {
+test('registrar una firma no arrastra ninguna marca de borrador a la auditoría ni al texto guardado', async () => {
   const { t, api } = await montar();
   ok(await api.registrarDocumentoFirmado('consentimiento_spd', 1, REP));
   const a = t.auditadas.find((x) => x.entidad === 'documento_firmado')!;
-  assert.match(a.motivo ?? '', /BORRADOR/);
-  assert.equal((a.despues as { borrador: boolean }).borrador, true);
+  assert.doesNotMatch(a.motivo ?? '', /BORRADOR/i);
+  assert.equal('borrador' in (a.despues as object), false);
+  assert.equal((a.despues as { origen: string }).origen, 'firma');
+  const f = t.db.get<{ texto_impreso: string }>('SELECT texto_impreso FROM documento_firmado ORDER BY id DESC LIMIT 1')!;
+  assert.doesNotMatch(f.texto_impreso, /borrador/i);
 });
 
 test('registrar con datos que faltan se rechaza', async () => {

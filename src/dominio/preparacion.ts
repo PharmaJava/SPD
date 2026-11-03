@@ -69,7 +69,8 @@ export interface EntradaPreparacion {
   /**
    * ¿Consentimiento del servicio (`consentimiento_spd`) vigente y sin revocar?
    * Un booleano, o el resultado de `estadoConsentimientos()` (entonces `completo`
-   * debe ser true: cualquier consentimiento requerido que falte bloquea).
+   * debe ser true: cualquier consentimiento requerido que falte bloquea, salvo que el
+   * titular haya desactivado la exigencia: `exigido === false` lo deja en un aviso).
    * Cualquier otra cosa (undefined…) cuenta como NO vigente.
    */
   consentimiento: boolean | EstadoConsentimientos;
@@ -108,10 +109,28 @@ export type CodigoBloqueo =
 export type CodigoAviso =
   | 'APARTE_NO_EMBLISTABLE' | 'A_DEMANDA' | 'PAUTA_SIN_COBERTURA' | 'SIN_TOMAS_EN_PERIODO' | 'CAJA_EXCLUIDA_POR_CADUCIDAD' | 'CAJA_SIN_UNIDADES'
   | 'TOMA_DOS_LOTES' | 'REPARTO_AVISO' | 'PAUTA_AVISO' | 'VALIDEZ_FUERA_DE_ESTANDAR' | 'CADUCIDAD_AVISO'
-  | 'POSIBLE_ALERGIA' | 'BORRADOR_SOLAPADO';
+  | 'POSIBLE_ALERGIA' | 'BORRADOR_SOLAPADO' | 'CONSENTIMIENTO_NO_EXIGIDO';
 
 export interface Bloqueo { codigo: CodigoBloqueo; texto: string }
 export interface Aviso { codigo: CodigoAviso; texto: string }
+
+/**
+ * Bloqueos tal como se ENSEÑAN: el mismo problema una sola vez. «Faltan N unidades» (por medicamento) y «las unidades
+ * asignadas no coinciden con las de la pauta» (total) son el mismo hecho si la suma de lo que falta explica la diferencia:
+ * entonces sólo se muestra el primero. Si la diferencia tiene otra causa, el segundo SE MANTIENE (no se oculta un problema
+ * distinto). Texto idéntico repetido también se junta. Esto es presentación: el programa sigue bloqueando por todos.
+ */
+export function bloqueosParaMostrar(
+  bloqueos: Bloqueo[],
+  unidades?: { unidadesEsperadas: number; unidadesAsignadas: number; faltantes: { faltan: number }[] },
+): Bloqueo[] {
+  const vistos = new Set<string>();
+  const unicos = bloqueos.filter((b) => { const k = `${b.codigo}|${b.texto}`; if (vistos.has(k)) return false; vistos.add(k); return true; });
+  if (!unidades || !unicos.some((b) => b.codigo === 'UNIDADES_INSUFICIENTES')) return unicos;
+  const sumaFalta = unidades.faltantes.reduce((a, f) => a + f.faltan, 0);
+  const explicada = Math.abs((unidades.unidadesEsperadas - unidades.unidadesAsignadas) - sumaFalta) < 0.01;
+  return explicada ? unicos.filter((b) => b.codigo !== 'UNIDADES_NO_CUADRAN') : unicos;
+}
 
 /** Una línea del reparto: de qué caja (y lote) sale cada toma. */
 export interface LineaReparto {
@@ -474,7 +493,12 @@ function evaluar(entrada: EntradaPreparacion, res: ResultadoPreparacion): void {
         c.desactualizados?.length ? `desactualizados: ${c.desactualizados.join(', ')}` : '',
         c.revocados?.length ? `revocados: ${c.revocados.join(', ')}` : '',
       ].filter(Boolean).join('; ');
-      bloquear('CONSENTIMIENTO_NO_VIGENTE', `Los consentimientos del paciente no están vigentes${partes ? ` (${partes})` : ''}.`);
+      if (c.exigido !== false) {
+        bloquear('CONSENTIMIENTO_NO_VIGENTE', `Los consentimientos del paciente no están vigentes${partes ? ` (${partes})` : ''}.`);
+      } else {
+        // El titular desactivó la exigencia: queda como información, nunca como bloqueo (la farmacia asume su gestión).
+        avisar('CONSENTIMIENTO_NO_EXIGIDO', `Consentimientos pendientes${partes ? ` (${partes})` : ''}: la farmacia no los exige para validar y asume su gestión fuera del programa.`);
+      }
     }
   } else {
     bloquear('CONSENTIMIENTO_NO_VIGENTE', 'No consta un consentimiento del servicio vigente: no se puede validar.');

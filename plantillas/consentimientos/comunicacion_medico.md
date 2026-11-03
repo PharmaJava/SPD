@@ -1,4 +1,4 @@
-<!-- BORRADOR v1 — revisar con un abogado -->
+<!-- v1 -->
 # Autorización para comunicarse con el médico prescriptor
 
 Autorizo a {{farmacia.nombre}} a comunicarse con mi médico o médicos

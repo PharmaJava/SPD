@@ -1,4 +1,4 @@
-<!-- BORRADOR v1 — revisar con un abogado -->
+<!-- v1 -->
 # Autorización a otra persona para recoger el SPD y recibir información
 
 Yo, {{paciente.nombre_completo}} (o {{firmante.nombre}}, en calidad de

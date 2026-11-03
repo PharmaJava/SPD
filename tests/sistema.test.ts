@@ -448,10 +448,38 @@ test('ajustes por defecto', async () => {
   try {
     const a = ok(await e.s.api.obtenerAjustes());
     assert.deepEqual(a, {
-      diasValidezSpd: 14, validezExtendidaPermitida: false, conservacionAniosTrasBaja: 2, bloqueoMinutos: 5, inicioDia: 'convencional', rotar180: false,
+      diasValidezSpd: 14, validezExtendidaPermitida: false, exigirConsentimientos: true, conservacionAniosTrasBaja: 2, bloqueoMinutos: 5, inicioDia: 'convencional', rotar180: false,
       sentidoTomas: 'izquierda_derecha', posicionInicial: 'izquierda', lector: { modo: 'teclado', separadorGs: '' },
       impresoraEtiquetas: null, impresoraDocumentos: null, carpetaCopias: null,
     });
+  } finally { await e.fin(); }
+});
+
+test('exigir consentimientos: por defecto SÍ; sólo el titular lo cambia, siempre con motivo, y queda auditado', async () => {
+  const e = await conPrimerUso();
+  try {
+    assert.equal(ok(await e.s.api.obtenerAjustes()).exigirConsentimientos, true);
+    mal(await e.s.api.guardarAjustes({ exigirConsentimientos: 'no' as never }), 'AJUSTE_INVALIDO');
+    mal(await e.s.api.guardarAjustes({ exigirConsentimientos: false }), 'MOTIVO_OBLIGATORIO');
+    mal(await e.s.api.guardarAjustes({ exigirConsentimientos: false, motivo: 'no' } as never), 'MOTIVO_OBLIGATORIO');
+    assert.equal(ok(await e.s.api.obtenerAjustes()).exigirConsentimientos, true, 'sin motivo no cambia');
+    const a = ok(await e.s.api.guardarAjustes({ exigirConsentimientos: false, motivo: 'Los consentimientos los gestiona la residencia' } as never));
+    assert.equal(a.exigirConsentimientos, false);
+    const l = ok(await e.s.api.listarAuditoria({ entidad: 'ajustes' }));
+    assert.equal(l[0].motivo, 'Los consentimientos los gestiona la residencia');
+    assert.match(l[0].resumen, /exigirConsentimientos: true → false/);
+    // volver a exigirlos también pide motivo (y otro ajuste cualquiera no lo toca)
+    mal(await e.s.api.guardarAjustes({ exigirConsentimientos: true }), 'MOTIVO_OBLIGATORIO');
+    assert.equal(ok(await e.s.api.guardarAjustes({ bloqueoMinutos: 7 })).exigirConsentimientos, false);
+    assert.equal(ok(await e.s.api.guardarAjustes({ exigirConsentimientos: true, motivo: 'Volvemos a exigirlos' } as never)).exigirConsentimientos, true);
+    // un farmacéutico no puede cambiarlo
+    await entrarComo(e, 'farmaceutico');
+    mal(await e.s.api.guardarAjustes({ exigirConsentimientos: false, motivo: 'Lo hago yo mismo' } as never), 'SIN_PERMISO');
+    assert.equal(ok(await e.s.api.obtenerAjustes()).exigirConsentimientos, true);
+    // persiste
+    await e.s.cerrar();
+    const s2 = e.reabrir(); ok(await s2.api.desbloquear(PASS));
+    assert.equal(ok(await s2.api.obtenerAjustes()).exigirConsentimientos, true);
   } finally { await e.fin(); }
 });
 

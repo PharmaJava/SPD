@@ -1,4 +1,4 @@
-<!-- BORRADOR v1 -->
+<!-- v1 -->
 # Baja del servicio de SPD / revocación del consentimiento
 
 {{firmante.nombre}} ({{firmante.calidad}}), respecto del paciente

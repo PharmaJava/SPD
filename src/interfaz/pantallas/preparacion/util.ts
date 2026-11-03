@@ -71,5 +71,13 @@ export function mdBasico(texto: string): string {
   }).join('<br>').replace(/<\/h3><br>/g, '</h3>');
 }
 
+/**
+ * HTML que se imprime (o se guarda como PDF) de un documento del paciente: EL TEXTO DEL DOCUMENTO Y NADA MÁS.
+ * Sin marca de borrador ni banner: el papel que firma el paciente no lleva avisos del programa (CLAUDE.md, regla 6).
+ */
+export function htmlDocumentoImprimible(texto: string, titulo: string): string {
+  return `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>${escaparHtml(titulo)}</title><style>@page{size:A4;margin:18mm}body{font-family:Georgia,serif;font-size:11.5pt;line-height:1.4;color:#000}mark{background:#fff3b0}h3{font-size:13pt}</style></head><body><div>${mdBasico(texto)}</div></body></html>`;
+}
+
 /** Identificador corto y legible de un blíster (el UUID completo no es para personas). */
 export const corto = (idPublico: string): string => 'SPD-' + idPublico.replace(/-/g, '').slice(0, 8).toUpperCase();

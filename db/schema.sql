@@ -1,6 +1,7 @@
 -- =============================================================================
 -- SPD — esquema de base de datos (SQLite + SQLCipher)
--- Versión de esquema 2 (v2: centro con tipo, activo y nombre normalizado). Las anteriores
+-- Versión de esquema 3 (v2: centro con tipo, activo y nombre normalizado; v3: documentos «gestionados sin
+-- firma individual»). Las anteriores
 -- se actualizan con las migraciones numeradas de src/servicios/db.ts.
 --
 -- Convenciones:
@@ -408,16 +409,24 @@ CREATE TABLE documento_firmado (
   id_publico      TEXT NOT NULL UNIQUE,
   paciente_id     INTEGER NOT NULL REFERENCES paciente(id),
   plantilla_id    INTEGER NOT NULL REFERENCES plantilla_documento(id),
-  firmante        TEXT NOT NULL,          -- paciente o representante
-  firmante_calidad TEXT NOT NULL CHECK (firmante_calidad IN ('paciente','representante_legal','guardador_de_hecho')),
+  firmante        TEXT NOT NULL,          -- paciente o representante (o «sin firma individual» si lo gestiona la farmacia)
+  firmante_calidad TEXT NOT NULL,         -- ver el CHECK de abajo
   contacto_id     INTEGER REFERENCES contacto(id),
-  firmado_en      TEXT NOT NULL,
-  texto_impreso   TEXT NOT NULL,          -- el texto EXACTO que se imprimió
+  firmado_en      TEXT NOT NULL,          -- fecha de la firma, o del registro si es «gestionado sin firma»
+  texto_impreso   TEXT NOT NULL,          -- el texto EXACTO que se imprimió (o la constancia, si no hay firma)
   hash_texto      TEXT NOT NULL,          -- SHA-256 del texto impreso
   escaneo         BLOB,                   -- PDF/imagen del papel firmado
   revocado_en     TEXT,
   motivo_revocacion TEXT,
-  registrado_por  INTEGER NOT NULL REFERENCES usuario(id)
+  registrado_por  INTEGER NOT NULL REFERENCES usuario(id),
+  -- 'firma' = firmado por el paciente o su representante. 'gestionado_sin_firma' = la farmacia lo da por gestionado
+  -- (p. ej. lo recogió la residencia) SIN firma individual: nunca se presenta como firmado y exige su motivo.
+  origen          TEXT NOT NULL DEFAULT 'firma' CHECK (origen IN ('firma','gestionado_sin_firma')),
+  motivo_gestion  TEXT,
+  CHECK (
+    (origen = 'firma' AND firmante_calidad IN ('paciente','representante_legal','guardador_de_hecho'))
+    OR (origen = 'gestionado_sin_firma' AND firmante_calidad = 'sin_firma' AND motivo_gestion IS NOT NULL AND length(trim(motivo_gestion)) >= 5)
+  )
 );
 
 -- Derechos RGPD ejercidos (acceso, rectificación, supresión, oposición…)

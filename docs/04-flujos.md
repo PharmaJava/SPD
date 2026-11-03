@@ -10,7 +10,9 @@
 3. Datos de salud relevantes (alergias, disfagia, función renal).
 4. **Consentimientos**: se imprimen, se firman y se registra la firma
    (doc 09). Sin el consentimiento del servicio registrado **no se puede
-   validar ninguna preparación** de ese paciente.
+   validar ninguna preparación** de ese paciente, salvo que el titular haya
+   desactivado esa exigencia (doc 09 §9.4). Si lo recoge un centro, puede
+   quedar «gestionado sin firma individual» (doc 09 §9.5).
 5. Revisión del tratamiento: se dan de alta las líneas y sus pautas. Para cada
    medicamento se consulta CIMA y el motor de aptitud (doc 05).
 6. Comprobación de uso con un blíster de prueba (se registra el resultado).

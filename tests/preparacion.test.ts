@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { tomasDelPeriodo, tomasDelPeriodoVersiones } from '../src/dominio/calendario-pauta.ts';
-import { evaluarPreparacion } from '../src/dominio/preparacion.ts';
+import { bloqueosParaMostrar, evaluarPreparacion } from '../src/dominio/preparacion.ts';
 import type { EntradaPreparacion, TratamientoPreparacion } from '../src/dominio/preparacion.ts';
 import { estadoConsentimientos } from '../src/dominio/documentos.ts';
 import { ubicarToma } from '../src/dominio/disposicion-blister.ts';
@@ -310,6 +310,55 @@ test('(d) consentimiento ausente o raro cuenta como no vigente', () => {
     const r = evaluarPreparacion(entrada({ consentimiento: c as never }));
     assert.deepEqual(codigos(r), ['CONSENTIMIENTO_NO_VIGENTE'], String(JSON.stringify(c)));
   }
+});
+
+test('(d) consentimientos NO exigidos por la farmacia: lo pendiente avisa, no bloquea; exigidos, bloquea', () => {
+  const vig = [{ codigo: 'consentimiento_spd', version: 2 }, { codigo: 'info_rgpd', version: 1 }];
+  const req = ['consentimiento_spd', 'info_rgpd'];
+  const exigido = estadoConsentimientos([], vig, req);                         // por defecto se exige
+  assert.ok(evaluarPreparacion(entrada({ consentimiento: exigido })).bloqueos.some(b => b.codigo === 'CONSENTIMIENTO_NO_VIGENTE'));
+  const libre = estadoConsentimientos([], vig, req, { exigir: false });
+  const r = evaluarPreparacion(entrada({ consentimiento: libre }));
+  assert.ok(!codigos(r).includes('CONSENTIMIENTO_NO_VIGENTE'), 'no bloquea');
+  assert.equal(r.validable, true);
+  const aviso = r.avisos.find(a => a.codigo === 'CONSENTIMIENTO_NO_EXIGIDO');
+  assert.ok(aviso, 'sigue apareciendo, como información');
+  assert.match(aviso.texto, /sin firmar: consentimiento_spd, info_rgpd/);
+  assert.match(aviso.texto, /asume su gestión fuera del programa/);
+  // revocado o desactualizado también se relajan; un estado antiguo sin el campo `exigido` SIGUE bloqueando
+  const revocado = estadoConsentimientos([{ codigo: 'consentimiento_spd', version: 2, revocadoEn: '2026-10-01' }, { codigo: 'info_rgpd', version: 1 }], vig, req, { exigir: false });
+  assert.equal(evaluarPreparacion(entrada({ consentimiento: revocado })).validable, true);
+  const antiguo = { completo: false, faltan: ['consentimiento_spd'], desactualizados: [], revocados: [], gestionados: [] };
+  assert.ok(codigos(evaluarPreparacion(entrada({ consentimiento: antiguo as never }))).includes('CONSENTIMIENTO_NO_VIGENTE'));
+  // el booleano `false` sigue bloqueando siempre: el ajuste sólo actúa con el resultado de estadoConsentimientos
+  assert.ok(codigos(evaluarPreparacion(entrada({ consentimiento: false }))).includes('CONSENTIMIENTO_NO_VIGENTE'));
+});
+
+test('(d) gestionado sin firma individual cuenta como vigente: valida sin aviso de consentimientos', () => {
+  const vig = [{ codigo: 'consentimiento_spd', version: 2 }, { codigo: 'info_rgpd', version: 1 }];
+  const e = estadoConsentimientos([{ codigo: 'consentimiento_spd', version: 2, origen: 'gestionado_sin_firma' }, { codigo: 'info_rgpd', version: 1, origen: 'gestionado_sin_firma' }], vig, ['consentimiento_spd', 'info_rgpd']);
+  const r = evaluarPreparacion(entrada({ consentimiento: e }));
+  assert.equal(r.validable, true);
+  assert.ok(!r.avisos.some(a => a.codigo === 'CONSENTIMIENTO_NO_EXIGIDO'));
+});
+
+test('bloqueosParaMostrar: «faltan N unidades» y «no coinciden» son lo mismo → una sola caja', () => {
+  const t = medicamentosA().map(x => ({ ...x, envases: x.tratamientoId === 1 ? [caja(11, 1, 'M-A', '2027-02-28', 3)] : x.envases }));
+  const r = evaluarPreparacion(entrada({ tratamientos: t }));
+  assert.ok(codigos(r).includes('UNIDADES_INSUFICIENTES') && codigos(r).includes('UNIDADES_NO_CUADRAN'), 'el programa bloquea por las dos');
+  const visto = bloqueosParaMostrar(r.bloqueos, r);
+  assert.ok(visto.some(b => b.codigo === 'UNIDADES_INSUFICIENTES'));
+  assert.ok(!visto.some(b => b.codigo === 'UNIDADES_NO_CUADRAN'), 'no se repite');
+  assert.equal(visto.filter(b => b.codigo.startsWith('UNIDADES')).length, new Set(r.faltantes.map(f => f.tratamientoId)).size);
+});
+
+test('bloqueosParaMostrar: si la diferencia NO la explica lo que falta, «no coinciden» se mantiene; texto idéntico se junta', () => {
+  const b = [{ codigo: 'UNIDADES_INSUFICIENTES' as const, texto: 'A: faltan 4 unidades' }, { codigo: 'UNIDADES_NO_CUADRAN' as const, texto: 'no cuadran' }];
+  assert.equal(bloqueosParaMostrar(b, { unidadesEsperadas: 10, unidadesAsignadas: 6, faltantes: [{ faltan: 4 }] }).length, 1);
+  assert.equal(bloqueosParaMostrar(b, { unidadesEsperadas: 10, unidadesAsignadas: 3, faltantes: [{ faltan: 4 }] }).length, 2, 'queda 3 sin explicar: otro problema');
+  assert.equal(bloqueosParaMostrar(b).length, 2, 'sin datos de unidades no se oculta nada');
+  assert.equal(bloqueosParaMostrar([{ codigo: 'REPARTO_ERROR', texto: 'x' }, { codigo: 'REPARTO_ERROR', texto: 'x' }, { codigo: 'REPARTO_ERROR', texto: 'y' }]).length, 2);
+  assert.equal(bloqueosParaMostrar([{ codigo: 'UNIDADES_NO_CUADRAN', texto: 'solo' }], { unidadesEsperadas: 4, unidadesAsignadas: 4, faltantes: [] }).length, 1, 'sin «faltan», «no coinciden» es el único aviso');
 });
 
 test('(d) consentimiento como resultado de estadoConsentimientos: completo, faltan, revocado, desactualizado', () => {

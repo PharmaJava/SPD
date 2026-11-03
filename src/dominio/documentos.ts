@@ -12,11 +12,15 @@
  *    los saltos de línea (no pueden abrir un título ni un párrafo nuevo) y se
  *    neutralizan `{{` y `}}` (nunca se re-evalúan ni llegan a otro renderizado).
  *  - Cada valor se limita a 300 caracteres, con aviso. Nada se corta en silencio.
- *  - Los comentarios HTML de la plantilla no se imprimen, pero si decían
- *    BORRADOR se devuelve `esBorrador` para marcarlo al imprimir.
+ *  - Los comentarios HTML de la plantilla no se imprimen. El documento impreso NO lleva
+ *    marca de borrador ni banner: la cautela jurídica («textos genéricos que conviene
+ *    revisar con un abogado») vive en el aviso legal de Ajustes, no en el papel del paciente.
  */
 
 import { createHash } from 'node:crypto';
+import type { OrigenDocumento } from './documentos-gestion.ts';
+export { GESTIONABLES_SIN_FIRMA, textoGestionadoSinFirma } from './documentos-gestion.ts';
+export type { OrigenDocumento } from './documentos-gestion.ts';
 
 /** Variables que el programa sabe rellenar (docs/09 §9.4). Una plantilla con otra, falla el test. */
 export const VARIABLES_DOCUMENTO: readonly string[] = [
@@ -34,7 +38,7 @@ export const VARIABLES_DOCUMENTO: readonly string[] = [
 /**
  * Variables OPCIONALES: vacías no bloquean y se imprimen con su texto. `farmacia.rgpd_dpd`: el delegado de protección de datos
  * sólo existe si la farmacia lo ha designado (no es obligatorio en toda farmacia): se dice con el texto genérico, nunca se
- * inventa un nombre. (Texto BORRADOR para revisar con un abogado.)
+ * inventa un nombre.
  */
 export const TEXTOS_OPCIONAL_VACIO: Readonly<Record<string, string>> = {
   'motivo': 'no indicado',
@@ -91,21 +95,14 @@ export interface DocumentoRenderizado {
   hash: string;
   /** Falta algún dato, queda un «[A COMPLETAR …]», llaves sin resolver o un valor se recortó → false. */
   imprimibleDefinitivo: boolean;
-  /** La plantilla traía un comentario con la palabra BORRADOR: imprimir marcado «BORRADOR». */
-  esBorrador: boolean;
   /** Fragmentos «[A COMPLETAR …]» que la farmacia debe rellenar en la plantilla. */
   sinCompletar: string[];
   /** Valores recortados, con saltos de línea quitados, etc. */
   avisos: string[];
 }
 
-function quitarComentarios(plantilla: string): { sinComentarios: string; esBorrador: boolean } {
-  let esBorrador = false;
-  const sinComentarios = plantilla.replace(RE_COMENTARIO, (_m, dentro: string) => {
-    if (/BORRADOR/i.test(dentro)) esBorrador = true;
-    return '';
-  });
-  return { sinComentarios, esBorrador };
+function quitarComentarios(plantilla: string): { sinComentarios: string } {
+  return { sinComentarios: plantilla.replace(RE_COMENTARIO, '') };
 }
 
 /** Todas las variables distintas de la plantilla, en orden de aparición (ignora las de comentarios). */
@@ -158,7 +155,7 @@ export function renderizarDocumento(
   plantilla: string,
   datos: Record<string, ValorDocumento>,
 ): DocumentoRenderizado {
-  const { sinComentarios, esBorrador } = quitarComentarios(plantilla);
+  const { sinComentarios } = quitarComentarios(plantilla);
   const faltan: string[] = [];
   const avisos: string[] = [];
   const ya = new Set<string>();
@@ -196,7 +193,6 @@ export function renderizarDocumento(
     faltanDetalle: detalleFaltan(faltan),
     hash: createHash('sha256').update(texto, 'utf8').digest('hex'),
     imprimibleDefinitivo: faltan.length === 0 && sinCompletar.length === 0 && !estado.recortado,
-    esBorrador,
     sinCompletar,
     avisos,
   };
@@ -204,10 +200,11 @@ export function renderizarDocumento(
 
 // ── Estado de los consentimientos de un paciente ──────────────────────────
 
-export interface ConsentimientoFirmado { codigo: string; version: number; revocadoEn?: string | null }
+export interface ConsentimientoFirmado { codigo: string; version: number; revocadoEn?: string | null; origen?: OrigenDocumento }
 export interface PlantillaVigente { codigo: string; version: number }
 
 export interface EstadoConsentimientos {
+  /** Todo lo requerido consta, vigente y sin revocar (firmado o gestionado). Es un HECHO: no depende del ajuste de la farmacia. */
   completo: boolean;
   /** Nunca firmados (o sin plantilla vigente que firmar). */
   faltan: string[];
@@ -215,19 +212,28 @@ export interface EstadoConsentimientos {
   desactualizados: string[];
   /** Su última versión firmada está revocada. */
   revocados: string[];
+  /** Constan vigentes SÓLO como «gestionado sin firma individual» (la farmacia lo asume): no hay firma del paciente. */
+  gestionados: string[];
+  /**
+   * ¿La farmacia exige estos consentimientos para validar? Por defecto SÍ. Sólo `false` explícito lo relaja
+   * (decisión del titular, auditada): entonces lo pendiente se enseña como información y NO bloquea.
+   */
+  exigido: boolean;
 }
 
-/** Sin estos vigentes y sin revocar NO se puede validar un SPD (docs/09 §9.1). */
+/** Sin estos vigentes y sin revocar NO se puede validar un SPD (docs/09 §9.1), salvo que el titular haya desactivado la exigencia. */
 export const REQUERIDOS_PARA_VALIDAR_SPD: readonly string[] = ['consentimiento_spd', 'info_rgpd'];
 
 export function estadoConsentimientos(
   firmados: ConsentimientoFirmado[],
   plantillasVigentes: PlantillaVigente[],
   requeridos: string[],
+  opciones: { exigir?: boolean } = {},
 ): EstadoConsentimientos {
   const faltan: string[] = [];
   const desactualizados: string[] = [];
   const revocados: string[] = [];
+  const gestionados: string[] = [];
   for (const codigo of [...new Set(requeridos)]) {
     const propios = firmados.filter(f => f.codigo === codigo);
     if (propios.length === 0) { faltan.push(codigo); continue; }
@@ -238,10 +244,19 @@ export function estadoConsentimientos(
     const versiones = plantillasVigentes.filter(p => p.codigo === codigo);
     const vigente = versiones.length === 0 ? undefined : { codigo, version: Math.max(...versiones.map(p => p.version)) };
     if (!vigente) { faltan.push(codigo); continue; }          // no hay versión vigente que dar por buena
-    if (maxVersion < vigente.version) desactualizados.push(codigo);
+    if (maxVersion < vigente.version) { desactualizados.push(codigo); continue; }
+    // Vigente. Si NINGUNA de las vigentes es una firma real, consta sólo como gestionado (sin firma del paciente).
+    const vivos = enMax.filter(f => !revocado(f));
+    if (vivos.length > 0 && vivos.every(f => f.origen === 'gestionado_sin_firma')) gestionados.push(codigo);
   }
   return {
     completo: faltan.length === 0 && desactualizados.length === 0 && revocados.length === 0,
-    faltan, desactualizados, revocados,
+    faltan, desactualizados, revocados, gestionados,
+    exigido: opciones.exigir !== false,
   };
+}
+
+/** ¿Este estado impide validar? Sólo si hay algo pendiente Y la farmacia lo exige (única fuente de esta regla). */
+export function consentimientosBloquean(e: EstadoConsentimientos): boolean {
+  return !e.completo && e.exigido !== false;
 }

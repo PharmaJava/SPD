@@ -16,6 +16,7 @@ import type { Aviso, Bloqueo, EntradaPreparacion, LineaReparto, ResultadoPrepara
 import type { Envase, MomentoToma, Pauta } from '../../dominio/tipos.ts';
 import type { Rol } from '../../dominio/caducidad-spd.ts';
 import { estadoConsentimientos as estadoConsDominio, REQUERIDOS_PARA_VALIDAR_SPD } from '../../dominio/documentos.ts';
+import type { OrigenDocumento } from '../../dominio/documentos.ts';
 import type { EstadoConsentimientos } from '../../dominio/documentos.ts';
 import { pautaVigenteEn } from '../../dominio/calendario-pauta.ts';
 import { construirMapas } from '../../dominio/disposicion-blister.ts';
@@ -25,7 +26,7 @@ import type { AlertaCalidad } from '../../dominio/alertas-calidad.ts';
 import { analizarDescripcion, resumenDescripcion } from '../../dominio/descripcion-fisica.ts';
 import { formatearUnidades } from '../../dominio/etiquetas.ts';
 import { puedeValidar } from '../../dominio/caducidad-spd.ts';
-import { aCuartos, bd, formatoFecha, hoyISO, leerAjustesPrep, marcadores, nombreCompleto, noEncontrado } from './util.ts';
+import { aCuartos, bd, exigirConsentimientos, formatoFecha, hoyISO, leerAjustesPrep, marcadores, nombreCompleto, noEncontrado } from './util.ts';
 import type { AjustesPrep, R } from './util.ts';
 
 // ───────────────────────── tipos internos ─────────────────────────
@@ -174,22 +175,26 @@ export function construirAlveolos(mapas: MapaBlister[], tomas: TomaPreparacion[]
 
 // ───────────────────────── consentimientos ─────────────────────────
 
-export interface FirmadoFila { id: number; codigo: string; version: number; firmadoEn: string; firmante: string; revocadoEn: string | null }
+export interface FirmadoFila {
+  id: number; codigo: string; version: number; firmadoEn: string; firmante: string; revocadoEn: string | null;
+  origen: OrigenDocumento; motivoGestion: string | null; registradoPor: string | null;
+}
 
 export function consentimientosDe(db: Db, pacienteId: number): { estado: EstadoConsentimientos; firmados: FirmadoFila[] } {
   const filas = db.all<R>(
-    `SELECT d.id, p.codigo, p.version, d.firmado_en, d.firmante, d.revocado_en
-       FROM documento_firmado d JOIN plantilla_documento p ON p.id = d.plantilla_id
+    `SELECT d.id, p.codigo, p.version, d.firmado_en, d.firmante, d.revocado_en, d.origen, d.motivo_gestion, u.nombre AS registrado_por
+       FROM documento_firmado d JOIN plantilla_documento p ON p.id = d.plantilla_id LEFT JOIN usuario u ON u.id = d.registrado_por
       WHERE d.paciente_id = ? ORDER BY d.id`, [pacienteId]);
   const firmados: FirmadoFila[] = filas.map((f) => ({
     id: Number(f.id), codigo: String(f.codigo), version: Number(f.version), firmadoEn: String(f.firmado_en),
     firmante: String(f.firmante), revocadoEn: f.revocado_en ?? null,
+    origen: f.origen === 'gestionado_sin_firma' ? 'gestionado_sin_firma' : 'firma', motivoGestion: f.motivo_gestion ?? null, registradoPor: f.registrado_por ?? null,
   }));
   const vigentes = db.all<R>('SELECT codigo, version FROM plantilla_documento WHERE vigente = 1')
     .map((v) => ({ codigo: String(v.codigo), version: Number(v.version) }));
   const estado = estadoConsDominio(
-    firmados.map((f) => ({ codigo: f.codigo, version: f.version, revocadoEn: f.revocadoEn })),
-    vigentes, [...REQUERIDOS_PARA_VALIDAR_SPD]);
+    firmados.map((f) => ({ codigo: f.codigo, version: f.version, revocadoEn: f.revocadoEn, origen: f.origen })),
+    vigentes, [...REQUERIDOS_PARA_VALIDAR_SPD], { exigir: exigirConsentimientos(db) });
   return { estado, firmados };
 }
 

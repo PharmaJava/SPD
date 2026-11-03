@@ -2,11 +2,12 @@
   /** Pestaña «Documentos»: consentimientos del paciente (qué falta, vista previa, imprimir, firma, revocación). */
   import { spd, datos } from '../api.ts';
   import type { ContactoDto, EstadoConsentimientosDto, PlantillaDocumentoDto, VistaDocumento } from '../../servicios/api.ts';
+  import { GESTIONABLES_SIN_FIRMA } from '../../dominio/documentos-gestion.ts';
   import { fechaHora } from '../lib/formato.ts';
   import '../estilos/u2.css';
   import Modal from './preparacion/Modal.svelte';
   import Nota from './preparacion/Nota.svelte';
-  import { escaparHtml, guardarLocal, ir, leerLocal, mdBasico, mensaje, rutas } from './preparacion/util.ts';
+  import { cargarSesion, guardarLocal, htmlDocumentoImprimible, ir, leerLocal, mdBasico, mensaje, puedeValidar, rutas } from './preparacion/util.ts';
   import { mensajeError } from '../componentes/util.ts';
 
   type Calidad = 'paciente' | 'representante_legal' | 'guardador_de_hecho';
@@ -15,7 +16,7 @@
   let plantillas = $state<PlantillaDocumentoDto[]>([]);
   let estado = $state<EstadoConsentimientosDto | null>(null);
   let contactos = $state<ContactoDto[]>([]);
-  let nombrePaciente = $state('');
+  let nombrePaciente = $state(''); let deCentro = $state(false); let puedeGestionar = $state(false);
   let cargando = $state(true); let error = $state('');
 
   let actual = $state<PlantillaDocumentoDto | null>(null); let abierto = $state(false);
@@ -69,17 +70,39 @@
       const [p, e, c, pac] = await Promise.all([datos(spd.listarPlantillasDocumento()), datos(spd.estadoConsentimientos(pacienteId)), datos(spd.listarContactos(pacienteId)), datos(spd.obtenerPaciente(pacienteId))]);
       plantillas = p; estado = e; contactos = c;
       nombrePaciente = [pac.nombre, pac.apellido1, pac.apellido2].filter(Boolean).join(' ');
+      deCentro = !!pac.centroId;
+      puedeGestionar = puedeValidar((await cargarSesion())?.rol);
     } catch (x) { error = mensaje(x); } finally { cargando = false; }
   }
   $effect(() => { pacienteId; void cargar(); });
 
-  type Fila = { p: PlantillaDocumentoDto; situacion: 'vigente' | 'falta' | 'desactualizado' | 'revocado'; firmado?: EstadoConsentimientosDto['firmados'][number] & { id?: number } };
+  type Firmado = EstadoConsentimientosDto['firmados'][number];
+  type Fila = { p: PlantillaDocumentoDto; situacion: 'vigente' | 'gestionado' | 'falta' | 'desactualizado' | 'revocado'; firmado?: Firmado };
   const filas = $derived.by<Fila[]>(() => plantillas.map(p => {
-    const f = estado?.firmados.find(x => x.codigo === p.codigo) as Fila['firmado'];
-    const situacion = estado?.revocados.includes(p.codigo) ? 'revocado' : estado?.desactualizados.includes(p.codigo) ? 'desactualizado' : f ? 'vigente' : 'falta';
+    // El documento que cuenta es el último que no esté revocado (si todos lo están, el último).
+    const propios = (estado?.firmados ?? []).filter(x => x.codigo === p.codigo);
+    const f = [...propios].reverse().find(x => !x.revocado) ?? propios[propios.length - 1];
+    const situacion = estado?.revocados.includes(p.codigo) ? 'revocado' : estado?.desactualizados.includes(p.codigo) ? 'desactualizado'
+      : f && f.origen === 'gestionado_sin_firma' && !f.revocado ? 'gestionado' : f ? 'vigente' : 'falta';
     return { p, situacion, firmado: f };
   }));
-  const ROT = { vigente: { t: 'Firmado y vigente', c: 'ok' }, falta: { t: 'Falta', c: 'bloqueo' }, desactualizado: { t: 'Hay una versión nueva', c: 'atencion' }, revocado: { t: 'Revocado', c: 'bloqueo' } } as const;
+  const textoGestionado = $derived(deCentro ? 'Gestionado por el centro, sin firma individual' : 'Gestionado por la farmacia, sin firma individual');
+  const ROT = { vigente: { t: 'Firmado y vigente', c: 'ok' }, gestionado: { t: 'Gestionado, sin firma individual', c: 'info' }, falta: { t: 'Falta', c: 'bloqueo' }, desactualizado: { t: 'Hay una versión nueva', c: 'atencion' }, revocado: { t: 'Revocado', c: 'bloqueo' } } as const;
+  // «Falta» en rojo sólo si la farmacia lo exige para validar; si no, es información.
+  const claseFalta = (f: Fila) => (estado && !estado.exigido && (f.situacion === 'falta' || f.situacion === 'revocado' || f.situacion === 'desactualizado') ? 'info' : ROT[f.situacion].c);
+
+  // «Gestionado sin firma individual» (lo recoge el centro, p. ej.): no es una firma; queda con su motivo, quién y cuándo.
+  let gestionando = $state<PlantillaDocumentoDto | null>(null); let abiertoGes = $state(false); let motivoGes = $state(''); let errorGes = $state(''); let ocupadoGes = $state(false);
+  function pedirGestionar(p: PlantillaDocumentoDto) { gestionando = p; motivoGes = ''; errorGes = ''; abiertoGes = true; }
+  async function gestionar() {
+    if (!gestionando) return;
+    if (motivoGes.trim().length < 5) { errorGes = 'Escribe el motivo (p. ej. «Consentimiento recogido por el centro»): queda en el historial.'; return; }
+    ocupadoGes = true; errorGes = '';
+    const r = await spd.gestionarDocumentosSinFirma({ pacienteIds: [pacienteId], codigos: [gestionando.codigo], motivo: motivoGes.trim() });
+    ocupadoGes = false;
+    if (!r.ok) { errorGes = mensajeError(r); return; }
+    abiertoGes = false; await cargar();
+  }
 
   function firmante() {
     const c = contactos.find(x => x.id === contactoId);
@@ -102,14 +125,10 @@
   }
   $effect(() => { calidad; contactoId; if (abierto) void refrescarVista(); });
 
-  function htmlImprimible(v: VistaDocumento, titulo: string): string {
-    const marca = v.esBorrador ? '<div class="marca">BORRADOR · pendiente de revisión jurídica</div>' : '';
-    return `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>${escaparHtml(titulo)}</title><style>@page{size:A4;margin:18mm}body{font-family:Georgia,serif;font-size:11.5pt;line-height:1.4;color:#000}.marca{border:2px solid #b42318;color:#b42318;padding:2mm 4mm;font-weight:bold;margin-bottom:6mm;text-align:center}mark{background:#fff3b0}h3{font-size:13pt}</style></head><body>${marca}<div>${mdBasico(v.texto)}</div></body></html>`;
-  }
   async function imprimir() {
     if (!vista || !actual) return;
     trabajando = true;
-    const r = await spd.imprimirHtml(htmlImprimible(vista, actual.titulo), { impresora: undefined, silenciosa: false });
+    const r = await spd.imprimirHtml(htmlDocumentoImprimible(vista.texto, actual.titulo), { impresora: undefined, silenciosa: false });
     trabajando = false;
     mensajeOk = r.ok ? 'Enviado a la impresora.' : `No se pudo imprimir: ${r.error}`;
   }
@@ -145,7 +164,8 @@
 {#if error}<Nota gravedad="atencion">{error}</Nota>{/if}
 {#if cargando}<div class="cargando-linea">Cargando…</div>
 {:else}
-  {#if estado?.completo}<Nota gravedad="ok" id="docs-completos">Están todos los consentimientos necesarios para validar un blíster.</Nota>
+  {#if estado?.completo}<Nota gravedad="ok" id="docs-completos">Están todos los consentimientos necesarios para validar un blíster.{#if estado.gestionados.length} Algunos constan sólo como <strong>gestionados sin firma individual</strong> (no hay firma del paciente).{/if}</Nota>
+  {:else if estado && !estado.exigido}<Nota gravedad="info" id="docs-no-exigidos"><strong>Hay consentimientos pendientes, pero esta farmacia no los exige para validar.</strong> La farmacia gestiona los consentimientos fuera del programa (Ajustes → Consentimientos).</Nota>
   {:else}<Nota gravedad="bloqueo" id="docs-faltan"><strong>Faltan consentimientos.</strong> Sin ellos no se puede validar ningún blíster de este paciente.</Nota>{/if}
   <div class="tarjeta scroll-x margen-s">
     <table class="tabla" data-prueba="tabla-docs">
@@ -154,11 +174,12 @@
         {#each filas as f (f.p.codigo)}
           <tr>
             <td><strong>{f.p.titulo}</strong>{#if f.p.obligatorioParaValidar} <span class="etiqueta info">necesario para validar</span>{/if}</td>
-            <td><span class="etiqueta {ROT[f.situacion].c}">{ROT[f.situacion].t}</span></td>
-            <td class="suave">{f.firmado ? `${fechaHora(f.firmado.firmadoEn)} · ${f.firmado.firmante}` : '—'}</td>
+            <td><span class="etiqueta {claseFalta(f)}">{f.situacion === 'gestionado' ? textoGestionado : ROT[f.situacion].t}</span></td>
+            <td class="suave">{#if f.firmado && f.firmado.origen === 'gestionado_sin_firma'}{fechaHora(f.firmado.firmadoEn)} · registrado por {f.firmado.registradoPor ?? '—'}{#if f.firmado.motivoGestion} · motivo: {f.firmado.motivoGestion}{/if}{:else if f.firmado}{fechaHora(f.firmado.firmadoEn)} · {f.firmado.firmante}{:else}—{/if}</td>
             <td class="derecha nowrap">
-              <button class="btn mini" class:principal={f.situacion !== 'vigente'} type="button" onclick={() => abrirDoc(f.p)} aria-label="{f.situacion === 'vigente' ? 'Ver' : 'Preparar para firmar'}: {f.p.titulo}" data-prueba="doc-{f.p.codigo}">{f.situacion === 'vigente' ? 'Ver' : 'Preparar para firmar'}</button>
-              {#if f.situacion === 'vigente'}<button class="btn mini peligro" type="button" onclick={() => pedirRevocar(f)} aria-label="Revocar: {f.p.titulo}">Revocar</button>{/if}
+              <button class="btn mini" class:principal={f.situacion !== 'vigente'} type="button" onclick={() => abrirDoc(f.p)} aria-label="{f.situacion === 'vigente' ? 'Ver' : 'Preparar para firmar'}: {f.p.titulo}" data-prueba="doc-{f.p.codigo}">{f.situacion === 'vigente' ? 'Ver' : f.situacion === 'gestionado' ? 'Ver o recoger la firma' : 'Preparar para firmar'}</button>
+              {#if puedeGestionar && GESTIONABLES_SIN_FIRMA.includes(f.p.codigo) && f.situacion !== 'vigente' && f.situacion !== 'gestionado'}<button class="btn mini" type="button" onclick={() => pedirGestionar(f.p)} aria-label="Registrar como gestionado sin firma individual: {f.p.titulo}" data-prueba="gestionar-{f.p.codigo}">Gestionado sin firma</button>{/if}
+              {#if f.situacion === 'vigente' || f.situacion === 'gestionado'}<button class="btn mini peligro" type="button" onclick={() => pedirRevocar(f)} aria-label="Revocar: {f.p.titulo}">Revocar</button>{/if}
             </td>
           </tr>
         {/each}
@@ -168,7 +189,6 @@
 {/if}
 
 <Modal titulo={actual?.titulo ?? 'Documento'} bind:abierto ancho>
-  {#if vista?.esBorrador}<Nota gravedad="atencion"><strong>BORRADOR.</strong> Este texto es un modelo pendiente de revisión por un abogado. Impreso lleva la marca de borrador.</Nota>{/if}
   <div class="dos-campos">
     <div class="campo"><label for="firma-calidad">¿Quién firma?</label>
       <select id="firma-calidad" bind:value={calidad} data-prueba="firma-calidad">{#each CALIDADES as c (c.v)}<option value={c.v}>{c.t}</option>{/each}</select></div>
@@ -225,5 +245,18 @@
   {#snippet pie()}
     <button class="btn" type="button" onclick={() => (abiertoRev = false)}>No revocar</button>
     <button class="btn peligro" type="button" onclick={revocar}>Revocar</button>
+  {/snippet}
+</Modal>
+
+<Modal titulo="Registrar como gestionado sin firma individual" bind:abierto={abiertoGes}>
+  {#if gestionando}
+    <p><strong>{gestionando.titulo}</strong> · {nombrePaciente}</p>
+    <Nota gravedad="atencion">Esto <strong>no es una firma</strong>: queda registrado que la farmacia da el documento por gestionado sin firma individual (p. ej. lo recoge el centro). Se verá siempre como «{textoGestionado}», con su fecha, usuario y motivo, y se puede revocar. La farmacia asume la responsabilidad de ese consentimiento.</Nota>
+    <div class="campo"><label for="motivo-ges">Motivo (obligatorio)</label><textarea id="motivo-ges" bind:value={motivoGes} placeholder="Ej.: Consentimiento recogido por el centro" data-prueba="motivo-gestion"></textarea></div>
+    {#if errorGes}<Nota gravedad="bloqueo">{errorGes}</Nota>{/if}
+  {/if}
+  {#snippet pie()}
+    <button class="btn" type="button" onclick={() => (abiertoGes = false)}>Cancelar</button>
+    <button class="btn principal" type="button" onclick={gestionar} disabled={ocupadoGes} data-prueba="confirmar-gestion">Registrar como gestionado</button>
   {/snippet}
 </Modal>

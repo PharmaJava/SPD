@@ -1,4 +1,4 @@
-<!-- BORRADOR v1 — revisar con un abogado y con la normativa de la comunidad autónoma antes de usar -->
+<!-- v1 -->
 # Consentimiento informado para el servicio de Sistema Personalizado de Dosificación (SPD)
 
 **Farmacia:** {{farmacia.nombre}} — {{farmacia.direccion}}, {{farmacia.municipio}}

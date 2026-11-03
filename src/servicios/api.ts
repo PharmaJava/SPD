@@ -62,6 +62,11 @@ export interface Ajustes {
   diasValidezSpd: number;
   /** ¿Se permite preparar hasta 30 días (desviación asumida, con justificación)? */
   validezExtendidaPermitida: boolean;
+  /**
+   * ¿Se exigen los consentimientos para validar un SPD? Por defecto SÍ. Sólo el titular lo cambia, con motivo (queda auditado).
+   * Si se desactiva, la farmacia asume la responsabilidad de gestionarlos fuera del programa.
+   */
+  exigirConsentimientos: boolean;
   conservacionAniosTrasBaja: number;
   /** Minutos de inactividad antes de bloquear la pantalla. */
   bloqueoMinutos: number;
@@ -173,6 +178,8 @@ export interface PacienteResumen {
   /** Individual (sin centro) o procedente de un centro; `centroTipo` y `centroId` sólo si es de centro. */
   origen: OrigenPaciente; centroId?: number | null; centroTipo?: TipoCentro | null;
   alergias: string[]; consentimientoSpd: boolean;
+  /** El consentimiento del servicio consta, pero sólo como «gestionado sin firma individual». */
+  consentimientoGestionado?: boolean;
   /** Días que cubren las cajas en uso (el mínimo de sus tratamientos emblistables); null si no tiene tratamientos. */
   coberturaDias: number | null;
   proximaPreparacion?: string | null;
@@ -277,11 +284,36 @@ export interface VistaImprimible { html: string; imprimible: boolean; problemas:
 
 export interface PlantillaDocumentoDto { codigo: string; version: number; titulo: string; obligatorioParaValidar: boolean }
 export interface VistaDocumento {
-  texto: string; faltan: string[]; imprimibleDefinitivo: boolean; esBorrador: boolean; hash: string; avisos: string[];
+  texto: string; faltan: string[]; imprimibleDefinitivo: boolean; hash: string; avisos: string[];
   /** Lo que falta, con su entidad (paciente, firmante, farmacia, autorizado, documento) y campo: la interfaz manda a completar la ficha correcta. */
   faltanDetalle?: { ruta: string; entidad: 'paciente' | 'firmante' | 'farmacia' | 'autorizado' | 'documento' | 'otro'; campo: string; etiqueta: string }[];
 }
-export interface EstadoConsentimientosDto { completo: boolean; faltan: string[]; desactualizados: string[]; revocados: string[]; firmados: { id: number; codigo: string; version: number; firmadoEn: string; firmante: string; revocado: boolean }[] }
+export type OrigenDocumentoDto = 'firma' | 'gestionado_sin_firma';
+export interface DocumentoFirmadoDto {
+  id: number; codigo: string; version: number; firmadoEn: string; firmante: string; revocado: boolean;
+  /** 'gestionado_sin_firma' = lo da por gestionado la farmacia (p. ej. el centro): NO hay firma individual. */
+  origen: OrigenDocumentoDto; motivoGestion?: string | null; registradoPor?: string | null;
+}
+export interface EstadoConsentimientosDto {
+  completo: boolean; faltan: string[]; desactualizados: string[]; revocados: string[];
+  /** Vigentes sólo como «gestionados sin firma individual». */
+  gestionados: string[];
+  /** ¿La farmacia los exige para validar? Si es false, lo pendiente es sólo información. */
+  exigido: boolean;
+  firmados: DocumentoFirmadoDto[];
+}
+/** Petición de «gestionado sin firma individual»: un paciente, varios o todos los activos de un centro. `simular` sólo cuenta, no escribe. */
+export interface PeticionGestionSinFirma { pacienteIds?: number[]; centroId?: number; codigos: string[]; motivo: string; simular?: boolean }
+export interface ResultadoGestionSinFirma {
+  simulado: boolean;
+  documentos: { codigo: string; titulo: string; version: number }[];
+  totalPacientes: number;
+  /** Documentos que se registran (o se registrarían). */
+  totalRegistrados: number;
+  /** Ya tenían ese documento vigente: se saltan. */
+  totalSaltados: number;
+  pacientes: { id: number; nombre: string; registrados: string[]; saltados: string[] }[];
+}
 
 export interface TareaHoy { tipo: string; gravedad: 'bloqueo' | 'atencion' | 'info'; texto: string; pacienteId?: number; accion?: string }
 export interface PanelHoy {
@@ -354,6 +386,12 @@ export interface ApiClinica {
   registrarDocumentoFirmado(codigo: string, pacienteId: number, firmante: { nombre: string; dniNie?: string; calidad: 'paciente' | 'representante_legal' | 'guardador_de_hecho'; contactoId?: number }, opciones?: { sustituir?: boolean; motivo?: string }): Promise<Resultado<{ id: number }>>;
   revocarDocumento(id: number, motivo: string): Promise<Resultado<null>>;
   estadoConsentimientos(pacienteId: number): Promise<Resultado<EstadoConsentimientosDto>>;
+  /**
+   * «Registrar como gestionado sin firma individual» (p. ej. el consentimiento lo recogió la residencia). Sólo titular o
+   * farmacéutico; motivo obligatorio; por paciente o masivo por centro (pacientes ACTIVOS). Deja en cada paciente un documento
+   * con origen `gestionado_sin_firma` (NO una firma), auditado y revocable. Quien ya tiene el documento vigente se salta.
+   */
+  gestionarDocumentosSinFirma(p: PeticionGestionSinFirma): Promise<Resultado<ResultadoGestionSinFirma>>;
 }
 
 // ───────────────────── Externo (sólo proceso principal) ─────────────────────

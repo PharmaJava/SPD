@@ -67,7 +67,7 @@ const RE_HORA = /^([01]\d|2[0-3]):[0-5]\d$/;
 const ULTIMO_HASH = 'auditoria_ultimo_hash';
 
 const AJUSTES_POR_DEFECTO: Ajustes = {
-  diasValidezSpd: 14, validezExtendidaPermitida: false, conservacionAniosTrasBaja: 2, bloqueoMinutos: 5,
+  diasValidezSpd: 14, validezExtendidaPermitida: false, exigirConsentimientos: true, conservacionAniosTrasBaja: 2, bloqueoMinutos: 5,
   inicioDia: 'convencional', rotar180: false, sentidoTomas: 'izquierda_derecha', posicionInicial: 'izquierda',
   lector: { modo: 'teclado', separadorGs: '' }, impresoraEtiquetas: null, impresoraDocumentos: null, carpetaCopias: null,
 };
@@ -160,7 +160,7 @@ export function crearSistema(opciones: OpcionesSistema): Sistema {
   // ───────────────────────────── Ajustes ─────────────────────────────
 
   const CLAVES_AJUSTE = {
-    diasValidezSpd: 'dias_validez_spd', validezExtendidaPermitida: 'validez_extendida_permitida',
+    diasValidezSpd: 'dias_validez_spd', validezExtendidaPermitida: 'validez_extendida_permitida', exigirConsentimientos: 'exigir_consentimientos',
     conservacionAniosTrasBaja: 'conservacion_anios_tras_baja', bloqueoMinutos: 'bloqueo_minutos',
     inicioDia: 'inicio_dia', rotar180: 'rotar_180', sentidoTomas: 'sentido_tomas', posicionInicial: 'posicion_inicial',
     lector: 'lector', impresoraEtiquetas: 'impresora_etiquetas', impresoraDocumentos: 'impresora_documentos', carpetaCopias: 'carpeta_copias',
@@ -177,6 +177,7 @@ export function crearSistema(opciones: OpcionesSistema): Sistema {
     return {
       diasValidezSpd: entero('dias_validez_spd', d.diasValidezSpd),
       validezExtendidaPermitida: bool('validez_extendida_permitida', d.validezExtendidaPermitida),
+      exigirConsentimientos: bool('exigir_consentimientos', d.exigirConsentimientos),
       conservacionAniosTrasBaja: entero('conservacion_anios_tras_baja', d.conservacionAniosTrasBaja),
       bloqueoMinutos: entero('bloqueo_minutos', d.bloqueoMinutos),
       inicioDia: enumer('inicio_dia', ['convencional', 'cronologico'], d.inicioDia),
@@ -198,7 +199,7 @@ export function crearSistema(opciones: OpcionesSistema): Sistema {
     if (a.conservacionAniosTrasBaja !== undefined) rango(a.conservacionAniosTrasBaja, 1, 50, 'La conservación tras la baja (años)');
     // 0 = no bloquear solo (lo ofrece la interfaz con ese aviso); hasta 240 min.
     if (a.bloqueoMinutos !== undefined) rango(a.bloqueoMinutos, 0, 240, 'El bloqueo por inactividad (minutos)');
-    const bools: (keyof Ajustes)[] = ['validezExtendidaPermitida', 'rotar180'];
+    const bools: (keyof Ajustes)[] = ['validezExtendidaPermitida', 'exigirConsentimientos', 'rotar180'];
     for (const k of bools) if (a[k] !== undefined && typeof a[k] !== 'boolean') throw err(`«${k}» debe ser verdadero o falso.`, 'AJUSTE_INVALIDO');
     const enums: [keyof Ajustes, string[]][] = [
       ['inicioDia', ['convencional', 'cronologico']], ['sentidoTomas', ['izquierda_derecha', 'derecha_izquierda']], ['posicionInicial', ['izquierda', 'derecha']],
@@ -630,6 +631,10 @@ export function crearSistema(opciones: OpcionesSistema): Sistema {
       if (despues.validezExtendidaPermitida !== antes.validezExtendidaPermitida) {
         if (quien.rol !== 'titular') throw err('Sólo el titular puede cambiar la validez extendida del SPD.', 'SIN_PERMISO');
         if (despues.validezExtendidaPermitida && (!motivo || motivo.length < 5)) throw err('Activar la validez extendida (hasta 30 días) exige un motivo escrito.', 'MOTIVO_OBLIGATORIO');
+      }
+      if (despues.exigirConsentimientos !== antes.exigirConsentimientos) {
+        if (quien.rol !== 'titular') throw err('Sólo el titular puede cambiar si se exigen los consentimientos para validar.', 'SIN_PERMISO');
+        if (!motivo || motivo.length < 5) throw err('Cambiar si se exigen los consentimientos exige un motivo escrito: queda en el historial.', 'MOTIVO_OBLIGATORIO');
       }
       if (despues.carpetaCopias && despues.carpetaCopias !== antes.carpetaCopias) exigirCarpetaCopiasUtil(despues.carpetaCopias);
       if (despues.diasValidezSpd > 14 && !despues.validezExtendidaPermitida) throw err('Una validez de más de 14 días exige activar antes la validez extendida (lo hace el titular, con motivo).', 'VALIDEZ_NO_PERMITIDA');

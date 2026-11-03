@@ -1,5 +1,6 @@
 /** Utilidades comunes de la interfaz de base (U1). Sin DOM salvo aplicarAspecto/copiar. */
-import { writable } from 'svelte/store';
+import { get, writable } from 'svelte/store';
+import { tiposGuardadosValidos } from '../../dominio/avisos.ts';
 
 /** Texto para la persona cuando el servicio sólo manda el código (o un mensaje que es un código en bruto). */
 const TEXTO_POR_CODIGO: Record<string, string> = {
@@ -25,22 +26,68 @@ export function mensajeError(e: unknown): string {
   return (err?.codigo ? TEXTO_POR_CODIGO[err.codigo] : undefined) ?? 'Ha ocurrido algo inesperado. Inténtalo de nuevo.';
 }
 
-export interface Tostada { id: number; texto: string; tipo: 'ok' | 'info' | 'atencion' | 'bloqueo' }
+export interface Tostada { id: number; texto: string; tipo: 'ok' | 'info' | 'atencion' | 'bloqueo'; veces: number }
 export const tostadas = writable<Tostada[]>([]);
 let contador = 0;
 const temporizadores = new Map<number, ReturnType<typeof setTimeout>>();
+/** Tostadas con el ratón (o el foco) encima: no se cierran solas mientras tanto. */
+const detenidas = new Set<number>();
+
+/** Cuánto tarda en cerrarse sola cada clase: los errores y avisos de atención 10 s (si no se tocan); los demás, 4 s. */
+export function duracionTostada(tipo: Tostada['tipo']): number { return tipo === 'bloqueo' || tipo === 'atencion' ? 10_000 : 4000; }
+
+function programar(id: number, tipo: Tostada['tipo']): void {
+  clearTimeout(temporizadores.get(id));
+  temporizadores.delete(id);
+  if (detenidas.has(id)) return;
+  temporizadores.set(id, setTimeout(() => cerrarTostada(id), duracionTostada(tipo)));
+}
 export function cerrarTostada(id: number): void {
-  clearTimeout(temporizadores.get(id)); temporizadores.delete(id);
+  clearTimeout(temporizadores.get(id)); temporizadores.delete(id); detenidas.delete(id);
   tostadas.update(l => l.filter(t => t.id !== id));
 }
+/** «Cerrar todas». */
+export function cerrarTodasTostadas(): void {
+  for (const t of temporizadores.values()) clearTimeout(t);
+  temporizadores.clear(); detenidas.clear();
+  tostadas.set([]);
+}
+/** El ratón (o el foco) está encima: no se cierra sola hasta que se aparte. */
+export function pausarTostada(id: number): void {
+  detenidas.add(id); clearTimeout(temporizadores.get(id)); temporizadores.delete(id);
+}
+export function reanudarTostada(id: number): void {
+  detenidas.delete(id);
+  const tipo = get(tostadas).find(t => t.id === id)?.tipo;
+  if (tipo) programar(id, tipo);
+}
 /**
- * Aviso breve. Los de tipo «bloqueo» (errores) NO desaparecen solos: se quedan hasta que la persona los cierra,
- * porque un error que se va a los 3 s se pierde (y con lector de pantalla puede no llegar a leerse). El resto se cierra solo.
+ * Aviso breve. Se cierra con un clic. Los de error y atención se cierran solos a los 10 s si no se les pone el ratón encima
+ * (un error que se va a los 3 s se pierde); el resto, a los 4 s. Un mensaje idéntico que ya está en pantalla no se apila:
+ * suma «×N» y reinicia su cuenta atrás.
  */
-export function avisar(texto: string, tipo: Tostada['tipo'] = 'ok', ms = 3000): void {
-  const id = ++contador;
-  tostadas.update(l => [...l, { id, texto, tipo }].slice(-4));
-  if (tipo !== 'bloqueo') temporizadores.set(id, setTimeout(() => cerrarTostada(id), Math.max(ms, 4000)));
+export function avisar(texto: string, tipo: Tostada['tipo'] = 'ok', _ms = 3000): void {
+  let existente: number | undefined;
+  tostadas.update(l => {
+    const igual = l.find(t => t.texto === texto && t.tipo === tipo);
+    if (igual) { existente = igual.id; return l.map(t => (t.id === igual.id ? { ...t, veces: t.veces + 1 } : t)); }
+    const id = ++contador;
+    existente = id;
+    return [...l, { id, texto, tipo, veces: 1 }].slice(-4);
+  });
+  if (existente !== undefined) programar(existente, tipo);
+}
+
+// ───────────── Avisos de «Hoy» que se quitan: sólo tipos de avisos generales, sin datos de pacientes ─────────────
+const CLAVE_AVISOS_QUITADOS = 'spd.avisos.quitados';
+export function leerTiposAvisosQuitados(): string[] {
+  try { return tiposGuardadosValidos(JSON.parse(localStorage.getItem(CLAVE_AVISOS_QUITADOS) ?? '[]')); } catch { return []; }
+}
+export function guardarTiposAvisosQuitados(tipos: readonly string[]): void {
+  try {
+    if (tipos.length === 0) localStorage.removeItem(CLAVE_AVISOS_QUITADOS);
+    else localStorage.setItem(CLAVE_AVISOS_QUITADOS, JSON.stringify(tiposGuardadosValidos([...tipos])));
+  } catch { /* sin almacenamiento: no pasa nada */ }
 }
 
 // ───────────── Aspecto (tema y tamaño de letra), guardado en el equipo ─────────────

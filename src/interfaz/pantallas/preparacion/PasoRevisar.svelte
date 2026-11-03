@@ -9,6 +9,7 @@
   import Nota from './Nota.svelte';
   import { ir, rutas } from './util.ts';
   import { QUE_HACER, solucionComun } from './ayuda-bloqueos.ts';
+  import { bloqueosParaMostrar } from '../../../dominio/preparacion.ts';
   import { SOLO_PARA_VALIDAR, type EntradaPreparar } from './tipos.ts';
 
 
@@ -30,10 +31,11 @@
   const estandar = $derived(ajustes?.diasValidezSpd ?? 14);
   const permiteExtendida = $derived(!!ajustes?.validezExtendidaPermitida);
 
-  const bloqueosQueImpiden = $derived((evaluacion?.bloqueos ?? []).filter(b => !SOLO_PARA_VALIDAR.includes(b.codigo)));
-  const bloqueosDeValidar = $derived((evaluacion?.bloqueos ?? []).filter(b => SOLO_PARA_VALIDAR.includes(b.codigo)));
+  // El mismo problema una sola vez: «faltan N unidades» y «las unidades no coinciden» son lo mismo si lo primero explica lo segundo.
+  const bloqueosVistos = $derived(evaluacion ? bloqueosParaMostrar(evaluacion.bloqueos, evaluacion) : []);
+  const bloqueosQueImpiden = $derived(bloqueosVistos.filter(b => !SOLO_PARA_VALIDAR.includes(b.codigo)));
+  const bloqueosDeValidar = $derived(bloqueosVistos.filter(b => SOLO_PARA_VALIDAR.includes(b.codigo)));
   const puedeSeguir = $derived(!!evaluacion && !evaluando && bloqueosQueImpiden.length === 0 && !!entrada.paciente);
-  const falta = $derived(evaluacion?.faltantes ?? []);
 
   /** Enlace de solución según el código estable del bloqueo. */
   function solucion(codigo: string, texto: string): { texto: string; ruta?: string; hacer?: () => void } | null {
@@ -111,15 +113,6 @@
               {#snippet accion()}{#if s}<button class="btn" type="button" onclick={() => (s.hacer ? s.hacer() : ir(s.ruta!))}>{s.texto}</button>{/if}{/snippet}
             </Nota>
           {/each}
-          {#if falta.length}
-            <h3 class="margen-s">Qué falta exactamente</h3>
-            <ul class="lista-plana" data-prueba="faltantes">
-              {#each falta as f (f.tratamientoId)}
-                <li><span class="espacio">Faltan <strong>{f.faltan} {f.faltan === 1 ? 'unidad' : 'unidades'}</strong> de {f.nombre}</span>
-                  <button class="btn mini" type="button" onclick={() => ir(rutas.cajas(entrada.paciente!.id))}>Ir a Cajas</button></li>
-              {/each}
-            </ul>
-          {/if}
         </section>
       {/if}
 

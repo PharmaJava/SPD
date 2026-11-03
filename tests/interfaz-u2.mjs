@@ -93,7 +93,7 @@ try {
   for (const cod of ['consentimiento_spd', 'info_rgpd']) {
     await P('doc-' + cod).click();
     await pag.waitForSelector('[data-prueba="texto-documento"]');
-    if (cod === 'consentimiento_spd') { comprobar(await pag.getByText('BORRADOR', { exact: false }).first().isVisible(), 'el borrador se ve marcado'); await foto('10-documento-vista'); }
+    if (cod === 'consentimiento_spd') { comprobar(!(await pag.getByText('BORRADOR', { exact: false }).first().isVisible().catch(() => false)), 'el documento no lleva marca de borrador'); await foto('10-documento-vista'); }
     await P('marcar-firmado').click();
     await pag.waitForTimeout(500);
   }

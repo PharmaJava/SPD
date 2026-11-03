@@ -8,6 +8,8 @@
   import Dialogo from '../componentes/Dialogo.svelte';
   import Icono from '../componentes/Icono.svelte';
   import FormPaciente from './paciente/FormPaciente.svelte';
+  import AceptarTodoCentro from './paciente/AceptarTodoCentro.svelte';
+  import { cargarSesion, puedeValidar } from './preparacion/util.ts';
   import { coberturaVista, ESTADOS_PACIENTE, mensajeError } from '../componentes/util.ts';
   import { TIPOS_CENTRO, ETIQUETA_TIPO_CENTRO } from '../../dominio/origen-paciente.ts';
   import type { ResumenOrigen } from '../../dominio/origen-paciente.ts';
@@ -34,6 +36,9 @@
   async function cargarResumen() { const r = await spd.resumenOrigen(); if (r.ok) resumen = r.datos; }
   $effect(() => { if (verResumen) cargarResumen(); });
   $effect(() => { spd.listarCentros().then(r => { if (r.ok) centros = r.datos; }); });
+  let puedeGestionar = $state(false);
+  $effect(() => { cargarSesion().then(u => { puedeGestionar = puedeValidar(u?.rol); }); });
+  const centroElegido = $derived(centros.find(c => String(c.id) === centro));
   function alEscribir() { clearTimeout(temp); temp = setTimeout(cargar, 150); }
   const hayFiltro = $derived(!!texto.trim() || estado !== 'activo' || !!centro || !!origen);
 </script>
@@ -56,6 +61,13 @@
   {#if centros.length}<div class="campo"><label for="f-pac-centro">Centro</label>
     <select id="f-pac-centro" bind:value={centro}><option value="">Todos los centros</option>{#each centros as c (c.id)}<option value={String(c.id)}>{c.nombre}</option>{/each}</select></div>{/if}
 </div>
+
+{#if centroElegido && puedeGestionar}
+  <div class="fila" style="margin-bottom:.6rem" data-prueba="acciones-centro">
+    <span class="suave">Centro «{centroElegido.nombre}»:</span>
+    <AceptarTodoCentro centroId={centroElegido.id} centroNombre={centroElegido.nombre} alhecho={cargar} />
+  </div>
+{/if}
 
 <div class="fila" style="margin-bottom:.6rem"><button class="btn enlace" onclick={() => (verResumen = !verResumen)} aria-expanded={verResumen}>{verResumen ? 'Ocultar' : 'Ver'} resumen por origen</button></div>
 {#if verResumen}
@@ -96,7 +108,7 @@
             <td class="nombre"><a class="enlace-fila" href="#/pacientes/{p.id}" onkeydown={(e) => { if (e.key === ' ') { e.preventDefault(); ir(`pacientes/${p.id}`); } }}>{p.nombreCompleto}</a>{#if p.estado !== 'activo'} <span class="etiqueta atencion">{ESTADOS_PACIENTE[p.estado]}</span>{/if}</td>
             <td>{#if p.origen === 'centro'}{p.centro}{#if p.centroTipo} <span class="etiqueta info">{ETIQUETA_TIPO_CENTRO[p.centroTipo]}</span>{/if}{:else}<span class="etiqueta">Individual</span>{/if}{#if p.habitacion} · {p.habitacion}{/if}</td>
             <td>{#if p.alergias.length}<div class="etiquetas">{#each p.alergias as a}<span class="etiqueta alergia">{a}</span>{/each}</div>{:else}<span class="suave">—</span>{/if}</td>
-            <td>{#if p.consentimientoSpd}<span class="etiqueta ok">Firmado</span>{:else}<span class="etiqueta atencion">Falta</span>{/if}</td>
+            <td>{#if p.consentimientoGestionado}<span class="etiqueta info" title="Gestionado sin firma individual">Gestionado, sin firma</span>{:else if p.consentimientoSpd}<span class="etiqueta ok">Firmado</span>{:else}<span class="etiqueta atencion">Falta</span>{/if}</td>
             <td><span class={cob.clase}>{cob.texto}</span></td>
             <td>{fecha(p.proximaPreparacion)}</td>
           </tr>

@@ -138,6 +138,10 @@ export function listarPacientes(ctx: Contexto, filtro: { texto?: string; estado?
     const conConsentimiento = new Set(db.all<R>(
       `SELECT DISTINCT d.paciente_id FROM documento_firmado d JOIN plantilla_documento pl ON pl.id = d.plantilla_id
         WHERE pl.codigo = 'consentimiento_spd' AND d.revocado_en IS NULL`).map((r) => r.paciente_id as number));
+    // Con consentimiento, pero ninguno es una firma real: consta «gestionado sin firma individual».
+    const conFirmaReal = new Set(db.all<R>(
+      `SELECT DISTINCT d.paciente_id FROM documento_firmado d JOIN plantilla_documento pl ON pl.id = d.plantilla_id
+        WHERE pl.codigo = 'consentimiento_spd' AND d.revocado_en IS NULL AND d.origen = 'firma'`).map((r) => r.paciente_id as number));
     const finPrep = new Map<number, string>();
     for (const r of db.all<R>("SELECT paciente_id, MAX(fecha_fin) AS fin FROM preparacion WHERE estado <> 'anulado' GROUP BY paciente_id")) {
       finPrep.set(r.paciente_id, r.fin);
@@ -148,7 +152,7 @@ export function listarPacientes(ctx: Contexto, filtro: { texto?: string; estado?
     return visibles.map((r): PacienteResumen => ({
       id: r.id, nombreCompleto: nombreCompleto(r), estado: r.estado, centro: r.centro_nombre ?? null, habitacion: r.habitacion ?? null,
       origen: r.centro_id == null ? 'individual' : 'centro', centroId: r.centro_id ?? null, centroTipo: r.centro_id == null ? null : (r.centro_tipo ?? 'otro'),
-      alergias: alergias.get(r.id) ?? [], consentimientoSpd: conConsentimiento.has(r.id),
+      alergias: alergias.get(r.id) ?? [], consentimientoSpd: conConsentimiento.has(r.id), consentimientoGestionado: conConsentimiento.has(r.id) && !conFirmaReal.has(r.id),
       coberturaDias: cobertura.get(r.id) ?? null,
       proximaPreparacion: finPrep.has(r.id) ? sumarDias(finPrep.get(r.id)!, 1) : null,
       proximaRevision: r.proxima_revision ?? null,

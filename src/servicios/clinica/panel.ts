@@ -11,6 +11,7 @@ import type { Envase } from '../../dominio/tipos.ts';
 import { bd, diasEntre, exigirSesion, formatoFecha, hoyISO } from './comun.ts';
 import type { R } from './comun.ts';
 import { coberturaPorPaciente } from './cobertura.ts';
+import { exigirConsentimientos } from '../preparacion/util.ts';
 
 const UMBRAL_COBERTURA_DIAS = 7;
 const DIAS_COPIA_ATRASADA = 7;
@@ -49,10 +50,15 @@ export function panelHoy(ctx: Contexto): Promise<Resultado<PanelHoy>> {
     const consentidos = new Set(db.all<R>(
       `SELECT DISTINCT d.paciente_id FROM documento_firmado d JOIN plantilla_documento pl ON pl.id = d.plantilla_id
         WHERE pl.codigo = 'consentimiento_spd' AND d.revocado_en IS NULL`).map((r) => r.paciente_id as number));
+    // Si el titular desactivó la exigencia, lo pendiente es información (no en rojo) y lo dice.
+    const exigido = exigirConsentimientos(db);
     for (const p of enServicio) {
       if (!consentidos.has(p.id)) {
-        tareas.push({ tipo: 'sin_consentimiento', gravedad: 'bloqueo', pacienteId: p.id, accion: 'abrirPaciente',
-          texto: `${nombres.get(p.id)} no tiene el consentimiento del servicio SPD firmado: no se puede validar ninguna preparación.` });
+        tareas.push(exigido
+          ? { tipo: 'sin_consentimiento', gravedad: 'bloqueo', pacienteId: p.id, accion: 'abrirPaciente',
+              texto: `${nombres.get(p.id)} no tiene el consentimiento del servicio SPD firmado: no se puede validar ninguna preparación.` }
+          : { tipo: 'sin_consentimiento', gravedad: 'info', pacienteId: p.id, accion: 'abrirPaciente',
+              texto: `${nombres.get(p.id)} no tiene registrado el consentimiento del servicio SPD (la farmacia no lo exige para validar y lo gestiona fuera del programa).` });
       }
     }
 

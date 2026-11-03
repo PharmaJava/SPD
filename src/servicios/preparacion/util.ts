@@ -94,6 +94,16 @@ export function leerAjustesPrep(db: Db): AjustesPrep {
   return { diasValidezSpd: Number.isInteger(dias) && dias >= 1 ? dias : 14, validezExtendidaPermitida: ext, disposicion: disp };
 }
 
+/**
+ * ¿La farmacia exige los consentimientos firmados para validar? Ajuste `exigir_consentimientos` (por defecto SÍ).
+ * Sólo un valor negativo explícito lo relaja: cualquier otra cosa (ausente, ilegible) exige.
+ */
+export function exigirConsentimientos(db: Db): boolean {
+  const v = db.get<{ valor: string }>("SELECT valor FROM ajuste WHERE clave = 'exigir_consentimientos'")?.valor;
+  return v === undefined ? true : !NEGATIVO.has(v.trim().toLowerCase());
+}
+const NEGATIVO = new Set(['0', 'false', 'no']);
+
 export function nombreCompleto(p: R): string {
   return [p.nombre, p.apellido1, p.apellido2].filter((x) => typeof x === 'string' && x.trim() !== '').join(' ');
 }

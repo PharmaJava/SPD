@@ -11,6 +11,7 @@
   import VistaPrevia from './VistaPrevia.svelte';
   import { corto, ir, NOMBRE_ROL, puedeValidar } from './util.ts';
   import { QUE_HACER, solucionComun } from './ayuda-bloqueos.ts';
+  import { bloqueosParaMostrar } from '../../../dominio/preparacion.ts';
   import { mensajeError } from '../../componentes/util.ts';
 
   let { evaluacion, preparacion, sesion, ajustes, onCambio, onAtras, onNueva }: {
@@ -145,7 +146,7 @@
       </aside>
     </div>
 
-    {#each ev.bloqueos.filter(b => !OCULTOS.includes(b.codigo)) as b (b.codigo + b.texto)}
+    {#each bloqueosParaMostrar(ev.bloqueos, ev).filter(b => !OCULTOS.includes(b.codigo)) as b (b.codigo + b.texto)}
       {@const s = solucionComun(b.codigo, b.texto, preparacion.pacienteId)}
       <Nota gravedad="bloqueo">{b.texto}{#if QUE_HACER[b.codigo]}<br /><span class="suave">{QUE_HACER[b.codigo]}</span>{/if}
         {#snippet accion()}{#if s}<button class="btn" type="button" onclick={() => (s.hacer ? s.hacer() : ir(s.ruta!))}>{s.texto}</button>{/if}{/snippet}

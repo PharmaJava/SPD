@@ -4,15 +4,16 @@
  *
  * Las plantillas viajan embebidas en el programa (plantillas-documentos.ts, generado desde
  * plantillas/consentimientos/*.md) y se siembran en `plantilla_documento` al primer uso.
- * Son BORRADORES para revisar con un abogado: la vista lo dice (`esBorrador`).
+ * El documento impreso NO lleva marca de borrador; la cautela jurídica está en el aviso legal de Ajustes.
  */
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { Contexto } from '../contexto.ts';
 import { ErrorSpd } from '../contexto.ts';
 import type { Db } from '../db.ts';
-import type { EstadoConsentimientosDto, PlantillaDocumentoDto, VistaDocumento } from '../api.ts';
+import type { EstadoConsentimientosDto, PeticionGestionSinFirma, PlantillaDocumentoDto, ResultadoGestionSinFirma, VistaDocumento } from '../api.ts';
 import { PLANTILLAS_DOCUMENTOS } from '../plantillas-documentos.ts';
-import { renderizarDocumento, REQUERIDOS_PARA_VALIDAR_SPD } from '../../dominio/documentos.ts';
+import { GESTIONABLES_SIN_FIRMA, renderizarDocumento, REQUERIDOS_PARA_VALIDAR_SPD, textoGestionadoSinFirma } from '../../dominio/documentos.ts';
+import { puedeValidar } from '../../dominio/caducidad-spd.ts';
 import type { ValorDocumento } from '../../dominio/documentos.ts';
 import { ahoraISO, bd, exigirSesion, formatoFecha, hoyISO, invalido, noEncontrado, nombreCompleto, textoONull } from './util.ts';
 import type { R } from './util.ts';
@@ -33,7 +34,7 @@ export function sembrarPlantillas(ctx: Contexto): void {
   db.transaccion(() => {
     for (const p of faltan) {
       const id = db.run('INSERT INTO plantilla_documento(codigo, version, titulo, cuerpo, vigente) VALUES (?,?,?,?,1)', [p.codigo, 1, p.titulo, p.cuerpo]).ultimoId;
-      ctx.auditar({ accion: 'crear', entidad: 'plantilla_documento', entidadId: id, despues: { codigo: p.codigo, version: 1, origen: 'plantilla embebida (borrador)' } });
+      ctx.auditar({ accion: 'crear', entidad: 'plantilla_documento', entidadId: id, despues: { codigo: p.codigo, version: 1, origen: 'plantilla embebida' } });
     }
   });
   ctx.persistir();
@@ -131,7 +132,7 @@ export function vistaDocumento(ctx: Contexto, codigo: string, pacienteId: number
   const { plantilla, datos } = prepararDatos(ctx, db, codigo, pacienteId, firmante);
   const r = renderizarDocumento(String(plantilla.cuerpo), datos);
   return {
-    texto: r.texto, faltan: r.faltan, faltanDetalle: r.faltanDetalle, imprimibleDefinitivo: r.imprimibleDefinitivo, esBorrador: r.esBorrador, hash: r.hash,
+    texto: r.texto, faltan: r.faltan, faltanDetalle: r.faltanDetalle, imprimibleDefinitivo: r.imprimibleDefinitivo, hash: r.hash,
     avisos: [...r.avisos, ...r.sinCompletar.map((s) => `Falta completar en la plantilla: ${s}`)],
   };
 }
@@ -157,14 +158,14 @@ export function registrarFirmado(ctx: Contexto, codigo: string, pacienteId: numb
   // La autorización a terceros es por persona autorizada; el resto, una por paciente. Una firma de una versión anterior no cuenta.
   const porAutorizado = codigo === 'autorizacion_terceros';
   const vigentes = REPETIBLES.has(codigo) ? [] : db.all<R>(
-    `SELECT d.id, d.firmante, d.firmado_en FROM documento_firmado d JOIN plantilla_documento p ON p.id = d.plantilla_id
+    `SELECT d.id, d.firmante, d.firmado_en, d.origen FROM documento_firmado d JOIN plantilla_documento p ON p.id = d.plantilla_id
       WHERE d.paciente_id = ? AND p.codigo = ? AND p.version = ? AND d.revocado_en IS NULL ${porAutorizado ? 'AND d.contacto_id IS ?' : ''} ORDER BY d.id`,
     porAutorizado ? [pacienteId, codigo, plantilla.version, firmante.contactoId ?? null] : [pacienteId, codigo, plantilla.version]);
   const motivoSustitucion = typeof opciones?.motivo === 'string' ? opciones.motivo.trim() : '';
   if (vigentes.length > 0) {
     const previa = vigentes[vigentes.length - 1];
     if (opciones?.sustituir !== true) {
-      throw new ErrorSpd(`Ya hay una firma vigente de este documento (nº ${previa.id}, ${previa.firmante}, ${formatoFecha(String(previa.firmado_en).slice(0, 10))}). No se registra otra igual: si es una firma nueva que la sustituye (otro firmante, otra versión del texto…), indícalo y explica el motivo; la anterior quedará revocada en el historial.`, 'DOCUMENTO_YA_FIRMADO');
+      throw new ErrorSpd(`${previa.origen === 'gestionado_sin_firma' ? 'Este documento ya consta como gestionado sin firma individual' : 'Ya hay una firma vigente de este documento'} (nº ${previa.id}, ${previa.firmante}, ${formatoFecha(String(previa.firmado_en).slice(0, 10))}). No se registra otra igual: si es una firma nueva que la sustituye (otro firmante, otra versión del texto…), indícalo y explica el motivo; la anterior quedará revocada en el historial.`, 'DOCUMENTO_YA_FIRMADO');
     }
     if (motivoSustitucion.length < 5) throw invalido('Para sustituir una firma vigente hay que explicar el motivo (mínimo 5 caracteres).');
   }
@@ -178,11 +179,11 @@ export function registrarFirmado(ctx: Contexto, codigo: string, pacienteId: numb
       `INSERT INTO documento_firmado(id_publico, paciente_id, plantilla_id, firmante, firmante_calidad, contacto_id, firmado_en, texto_impreso, hash_texto, registrado_por)
        VALUES (?,?,?,?,?,?,?,?,?,?)`,
       [idPublico, pacienteId, plantilla.id, firmante.nombre, firmante.calidad, firmante.contactoId ?? null, ahoraISO(ctx), r.texto, r.hash, u.id]).ultimoId;
-    // Las plantillas actuales son borradores o traen «[A COMPLETAR]»: se deja constancia en la auditoría.
-    const notas = [r.esBorrador ? 'plantilla en estado BORRADOR' : '', r.sinCompletar.length > 0 ? `con fragmentos sin completar (${r.sinCompletar.length})` : ''].filter(Boolean).join('; ');
+    // Si la plantilla trae «[A COMPLETAR]», se deja constancia en la auditoría.
+    const notas = r.sinCompletar.length > 0 ? `con fragmentos sin completar (${r.sinCompletar.length})` : '';
     ctx.auditar({
       accion: 'crear', entidad: 'documento_firmado', entidadId: nuevo,
-      despues: { pacienteId, codigo, version: Number(plantilla.version), hash: r.hash, firmante: firmante.nombre, calidad: firmante.calidad, borrador: r.esBorrador, sinCompletar: r.sinCompletar.length },
+      despues: { pacienteId, codigo, version: Number(plantilla.version), hash: r.hash, firmante: firmante.nombre, calidad: firmante.calidad, origen: 'firma', sinCompletar: r.sinCompletar.length },
       motivo: notas === '' ? null : `Registrado ${notas}`,
     });
     return nuevo;
@@ -214,6 +215,105 @@ export function estadoConsentimientosDto(ctx: Contexto, pacienteId: number): Est
   const { estado, firmados } = consentimientosDe(db, pacienteId);
   return {
     completo: estado.completo, faltan: estado.faltan, desactualizados: estado.desactualizados, revocados: estado.revocados,
-    firmados: firmados.map((f) => ({ id: f.id, codigo: f.codigo, version: f.version, firmadoEn: f.firmadoEn, firmante: f.firmante, revocado: !!f.revocadoEn })),
+    gestionados: estado.gestionados, exigido: estado.exigido,
+    firmados: firmados.map((f) => ({
+      id: f.id, codigo: f.codigo, version: f.version, firmadoEn: f.firmadoEn, firmante: f.firmante, revocado: !!f.revocadoEn,
+      origen: f.origen, motivoGestion: f.motivoGestion, registradoPor: f.registradoPor,
+    })),
   };
+}
+
+// ───────────────────────── «gestionado sin firma individual» ─────────────────────────
+
+const TOPE_PACIENTES_GESTION = 1000;
+
+/**
+ * La farmacia da por gestionados documentos de consentimiento/información SIN firma individual (p. ej. los recoge la
+ * residencia). No es una firma y no se falsifica una: cada paciente recibe un registro con origen `gestionado_sin_firma`,
+ * con su motivo, quién y cuándo; se ve como tal, es revocable y queda auditado. Todo o nada (una transacción).
+ */
+export function gestionarSinFirma(ctx: Contexto, entrada: PeticionGestionSinFirma): ResultadoGestionSinFirma {
+  const u = exigirSesion(ctx);
+  if (!puedeValidar(u.rol)) throw new ErrorSpd('Sólo el titular o un farmacéutico puede dar un documento por gestionado sin firma individual.', 'SIN_PERMISO');
+  if (!entrada || typeof entrada !== 'object') throw invalido('Petición no válida.');
+  sembrarPlantillas(ctx);
+  const db = bd(ctx);
+  const simular = entrada.simular === true;
+
+  const codigos = Array.isArray(entrada.codigos) ? [...new Set(entrada.codigos)] : [];
+  if (codigos.length === 0) throw invalido('Elige al menos un documento.');
+  for (const c of codigos) {
+    if (typeof c !== 'string' || !GESTIONABLES_SIN_FIRMA.includes(c)) throw invalido(`«${String(c)}» no se puede dar por gestionado sin firma: ese documento se firma en el acto.`);
+  }
+  const motivo = typeof entrada.motivo === 'string' ? entrada.motivo.replace(/\s+/g, ' ').trim() : '';
+  if (!simular && motivo.length < 5) throw invalido('Escribe el motivo (p. ej. «Consentimiento recogido por el centro»): queda en el historial de cada paciente.');
+  if (motivo.length > 300) throw invalido('El motivo es demasiado largo (máximo 300 caracteres).');
+
+  const tieneIds = entrada.pacienteIds !== undefined, tieneCentro = entrada.centroId !== undefined;
+  if (tieneIds === tieneCentro) throw invalido('Indica los pacientes o el centro (una de las dos cosas).');
+  let centro: string | null = null;
+  let filas: R[];
+  if (tieneCentro) {
+    if (!Number.isInteger(entrada.centroId) || (entrada.centroId as number) <= 0) throw invalido('El centro no es válido.');
+    const c = db.get<R>('SELECT nombre FROM centro WHERE id = ?', [entrada.centroId as number]);
+    if (!c) throw noEncontrado('El centro no existe.');
+    centro = String(c.nombre);
+    filas = db.all<R>("SELECT id, nombre, apellido1, apellido2 FROM paciente WHERE centro_id = ? AND estado = 'activo' ORDER BY apellido1, apellido2, nombre, id", [entrada.centroId as number]);
+    if (filas.length === 0) throw invalido('Ese centro no tiene pacientes activos.');
+  } else {
+    const ids = Array.isArray(entrada.pacienteIds) ? [...new Set(entrada.pacienteIds)] : [];
+    if (ids.length === 0 || ids.some((i) => !Number.isInteger(i) || i <= 0)) throw invalido('La lista de pacientes no es válida.');
+    filas = ids.map((id) => {
+      const f = db.get<R>('SELECT id, nombre, apellido1, apellido2 FROM paciente WHERE id = ?', [id]);
+      if (!f) throw noEncontrado(`El paciente ${id} no existe.`);
+      return f;
+    });
+  }
+  if (filas.length > TOPE_PACIENTES_GESTION) throw invalido(`Demasiados pacientes de una vez (máximo ${TOPE_PACIENTES_GESTION}).`);
+
+  const documentos = codigos.map((c) => { const pl = plantillaVigente(db, c); return { codigo: c, titulo: String(pl.titulo), version: Number(pl.version), plantillaId: Number(pl.id) }; });
+  const pacientes = filas.map((f) => {
+    const registrados: string[] = [], saltados: string[] = [];
+    for (const d of documentos) {
+      const ya = db.get('SELECT 1 AS x FROM documento_firmado WHERE paciente_id = ? AND plantilla_id = ? AND revocado_en IS NULL', [f.id, d.plantillaId]);
+      (ya ? saltados : registrados).push(d.codigo);
+    }
+    return { id: Number(f.id), nombre: nombreCompleto(f), registrados, saltados };
+  });
+  const resultado: ResultadoGestionSinFirma = {
+    simulado: simular,
+    documentos: documentos.map(({ codigo, titulo, version }) => ({ codigo, titulo, version })),
+    totalPacientes: pacientes.length,
+    totalRegistrados: pacientes.reduce((a, p) => a + p.registrados.length, 0),
+    totalSaltados: pacientes.reduce((a, p) => a + p.saltados.length, 0),
+    pacientes,
+  };
+  if (simular || resultado.totalRegistrados === 0) return resultado;
+
+  const fecha = formatoFecha(hoyISO(ctx));
+  db.transaccion(() => {
+    for (const p of pacientes) {
+      for (const codigo of p.registrados) {
+        const d = documentos.find((x) => x.codigo === codigo)!;
+        const texto = textoGestionadoSinFirma({ titulo: d.titulo, version: d.version, motivo, usuario: u.nombre, fecha, centro });
+        const hash = createHash('sha256').update(texto, 'utf8').digest('hex');
+        const id = db.run(
+          `INSERT INTO documento_firmado(id_publico, paciente_id, plantilla_id, firmante, firmante_calidad, firmado_en, texto_impreso, hash_texto, registrado_por, origen, motivo_gestion)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+          [randomUUID(), p.id, d.plantillaId, 'Sin firma individual', 'sin_firma', ahoraISO(ctx), texto, hash, u.id, 'gestionado_sin_firma', motivo]).ultimoId;
+        ctx.auditar({
+          accion: 'crear', entidad: 'documento_firmado', entidadId: id,
+          despues: { pacienteId: p.id, codigo, version: d.version, hash, origen: 'gestionado_sin_firma', ...(centro ? { centro } : {}) },
+          motivo: `Gestionado sin firma individual: ${motivo}`,
+        });
+      }
+    }
+    ctx.auditar({
+      accion: 'crear', entidad: 'consentimiento', entidadId: tieneCentro ? (entrada.centroId as number) : null,
+      despues: { origen: 'gestionado_sin_firma', ...(centro ? { centro } : {}), pacientes: resultado.totalPacientes, documentos: codigos, registrados: resultado.totalRegistrados, saltados: resultado.totalSaltados },
+      motivo: `Gestionado sin firma individual: ${motivo}`,
+    });
+  });
+  ctx.persistir();
+  return resultado;
 }

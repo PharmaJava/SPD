@@ -1,4 +1,4 @@
-<!-- BORRADOR v1 — revisar con un abogado. La base jurídica la decide la farmacia -->
+<!-- v1 — la base jurídica la decide la farmacia -->
 # Información sobre protección de datos — Servicio de SPD
 
 **Responsable del tratamiento:** {{farmacia.nombre}} ({{farmacia.titular}}),

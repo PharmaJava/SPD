@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { crearContextoPruebas } from './ayudas/contexto-pruebas.ts';
 import { crearClinicaBase } from '../src/servicios/clinica-base.ts';
-import { abrirDb } from '../src/servicios/db.ts';
+import { abrirDb, VERSION_ESQUEMA } from '../src/servicios/db.ts';
 import { ESQUEMA_V1 } from '../src/servicios/esquema-sql.ts';
 import { TIPOS_CENTRO } from '../src/dominio/origen-paciente.ts';
 import type { Resultado } from '../src/servicios/api.ts';
@@ -54,7 +54,7 @@ test('migración v1→v2: conserva centros y pacientes, calcula la clave y todo 
   raw.exec("INSERT INTO paciente(id_publico,nombre,apellido1,centro_id) VALUES ('u1','Ana','López',1), ('u2','Luis','Pérez',NULL)");
   raw.exec('PRAGMA user_version = 1;');
   const db = await abrirDb(raw.export());
-  assert.equal(db.version(), 2);
+  assert.equal(db.version(), VERSION_ESQUEMA);   // migra por todas las versiones hasta la vigente
   const cs = db.all<{ nombre: string; tipo: string; activo: number; nombre_norm: string }>('SELECT nombre, tipo, activo, nombre_norm FROM centro ORDER BY id');
   assert.equal(cs.length, 2);                            // no se fusiona ni se borra nada
   assert.deepEqual(cs.map((c) => [c.tipo, c.activo]), [['otro', 1], ['otro', 1]]);
@@ -62,7 +62,7 @@ test('migración v1→v2: conserva centros y pacientes, calcula la clave y todo 
   assert.deepEqual(db.all<{ centro_id: number | null }>('SELECT centro_id FROM paciente ORDER BY id').map((p) => p.centro_id), [1, null]);
   assert.throws(() => db.run("UPDATE centro SET tipo='casa' WHERE id=1"), /CHECK/);
   // Reabrir una base ya migrada no repite nada
-  assert.equal((await abrirDb(db.exportar())).version(), 2);
+  assert.equal((await abrirDb(db.exportar())).version(), VERSION_ESQUEMA);
 });
 
 // ─── Servicios ───

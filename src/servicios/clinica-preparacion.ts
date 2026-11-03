@@ -35,7 +35,7 @@ import type { R } from './preparacion/util.ts';
 export type MetodosPreparacion = Pick<ApiClinica,
   'evaluarPreparacion' | 'crearPreparacion' | 'marcarPreparada' | 'validarPreparacion' | 'registrarEntrega' | 'anularPreparacion'
   | 'listarPreparaciones' | 'obtenerPreparacion' | 'vistaEtiqueta' | 'vistaHojaPaciente' | 'listarPlantillasDocumento'
-  | 'vistaDocumento' | 'registrarDocumentoFirmado' | 'revocarDocumento' | 'estadoConsentimientos'>;
+  | 'vistaDocumento' | 'registrarDocumentoFirmado' | 'revocarDocumento' | 'estadoConsentimientos' | 'gestionarDocumentosSinFirma'>;
 
 /** Estos dos bloqueos se exigen al VALIDAR, no al guardar el borrador. */
 const BLOQUEOS_DE_VALIDACION = new Set(['ROL_NO_PUEDE_VALIDAR', 'CONSENTIMIENTO_NO_VIGENTE', 'ALERGIA_SIN_CONFIRMAR']);
@@ -453,5 +453,6 @@ export function crearClinicaPreparacion(ctx: Contexto): MetodosPreparacion {
     registrarDocumentoFirmado: (codigo, pacienteId, firmante, opciones) => proteger(() => docs.registrarFirmado(ctx, codigo, pacienteId, firmante, opciones)),
     revocarDocumento: (id, motivo) => proteger(() => docs.revocar(ctx, id, motivo)),
     estadoConsentimientos: (pacienteId) => proteger(() => docs.estadoConsentimientosDto(ctx, pacienteId)),
+    gestionarDocumentosSinFirma: (p) => proteger(() => docs.gestionarSinFirma(ctx, p)),
   };
 }

@@ -19,7 +19,7 @@
   } = $props();
 
   const SECCIONES = [
-    ['farmacia', 'Farmacia'], ['usuarios', 'Usuarios'], ['momentos', 'Momentos de toma'], ['validez', 'Validez del SPD'], ['blister', 'Disposición del blíster'],
+    ['farmacia', 'Farmacia'], ['usuarios', 'Usuarios'], ['momentos', 'Momentos de toma'], ['validez', 'Validez del SPD'], ['consentimientos', 'Consentimientos'], ['blister', 'Disposición del blíster'],
     ['lector', 'Lector de códigos'], ['impresoras', 'Impresoras'], ['copias', 'Copias de seguridad'], ['actualizaciones', 'Actualizaciones'], ['seguridad', 'Seguridad'], ['aspecto', 'Aspecto'], ['acerca', 'Acerca de'],
   ] as const;
   const activa = $derived(SECCIONES.some(s => s[0] === seccion) ? seccion! : 'farmacia');
@@ -29,7 +29,7 @@
   let aj = $state<Ajustes | null>(null); let cargaError = $state<string | null>(null);
   async function cargarAjustes() { const r = await spd.obtenerAjustes(); if (r.ok) aj = r.datos; else cargaError = r.error; }
   $effect(() => { cargarAjustes(); });
-  async function guardarAj(parcial: Partial<Ajustes>, msg = 'Ajustes guardados.'): Promise<boolean> {
+  async function guardarAj(parcial: Partial<Ajustes> & { motivo?: string }, msg = 'Ajustes guardados.'): Promise<boolean> {
     const r = await spd.guardarAjustes(parcial);
     if (r.ok) { aj = r.datos; avisar(msg); alcambiar(); return true; }
     avisar(r.error, 'bloqueo', 6000); return false;
@@ -86,6 +86,9 @@
     if (!Number.isInteger(n) || n < 1 || n > 14) { avisar('La validez estándar son entre 1 y 14 días.', 'atencion'); return; }
     ext = conExt; await guardarAj({ diasValidezSpd: n, validezExtendidaPermitida: conExt });
   }
+
+  // ───── Consentimientos: ¿se exigen firmados para validar? (sólo el titular; con motivo; queda auditado) ─────
+  let pedirExig = $state<boolean | null>(null);   // valor al que se quiere pasar (null = sin diálogo)
 
   // ───── Blíster ─────
   let bl = $state({ inicioDia: 'convencional', rotar180: false, sentidoTomas: 'izquierda_derecha', posicionInicial: 'izquierda' }); let blCargado = false;
@@ -276,6 +279,20 @@
           <label class="marca"><input type="checkbox" checked={ext} disabled={!esTitular} onchange={(e) => { if (e.currentTarget.checked) { e.currentTarget.checked = false; pedirExt = true; } else guardarValidez(false); }} />Permitir preparar hasta 30 días</label>
           {#if ext}<Aviso tipo="atencion" titulo="Desviación asumida por la farmacia">Preparar para más de 14 días <strong>no es lo que recomiendan los documentos de referencia</strong>. Cada preparación de más de 14 días pedirá una justificación escrita y quedará registrada. La responsabilidad es de la farmacia.</Aviso>{/if}
           {#if !esTitular}<Aviso tipo="info">Solo el titular puede cambiar la validez.</Aviso>{:else}<div class="fila fin"><button class="btn principal" onclick={() => guardarValidez()}>Guardar</button></div>{/if}
+        {/if}
+      </div>
+
+    {:else if activa === 'consentimientos'}
+      <div class="tarjeta apilado"><h2>Consentimientos</h2>
+        {#if !aj}<Cargando />{:else}
+          <p class="suave sin-margen">Por defecto, un SPD no se valida si el paciente no tiene vigentes el consentimiento del servicio y la información de protección de datos.</p>
+          <label class="marca"><input type="checkbox" checked={aj.exigirConsentimientos} disabled={!esTitular} data-prueba="exigir-consentimientos"
+            onchange={(e) => { const quiere = e.currentTarget.checked; e.currentTarget.checked = aj!.exigirConsentimientos; pedirExig = quiere; }} />Exigir consentimientos firmados para validar</label>
+          {#if !aj.exigirConsentimientos}
+            <Aviso tipo="atencion" titulo="Los consentimientos no se exigen">Si lo desactivas, <strong>la farmacia asume la responsabilidad de gestionarlos fuera del programa</strong>. Los pendientes se siguen mostrando como información, pero ya no impiden validar. Se puede volver a exigirlos cuando quieras.</Aviso>
+          {/if}
+          <p class="suave pequeno sin-margen">Para los pacientes de una residencia cuyo consentimiento recoge el centro, también puedes registrarlos como «gestionados sin firma individual» (pestaña Documentos del paciente, o «Aceptar todo» en la lista de pacientes de un centro): queda constancia con su motivo, sin falsear ninguna firma.</p>
+          {#if !esTitular}<Aviso tipo="info">Solo el titular puede cambiar este ajuste.</Aviso>{/if}
         {/if}
       </div>
 
@@ -491,3 +508,15 @@
 <Confirmar abierto={pedirExt} titulo="¿Permitir hasta 30 días?" confirmarTexto="Sí, asumo la desviación" peligro
   mensaje="Preparar para más de 14 días no es lo que recomiendan los documentos de referencia. La farmacia asume la responsabilidad y cada uso se justificará por escrito."
   onconfirmar={async () => { pedirExt = false; await guardarValidez(true); }} oncancelar={() => (pedirExt = false)} />
+
+<Confirmar abierto={pedirExig !== null} pideMotivo etiquetaMotivo="Motivo (mínimo 5 letras; queda en el historial)" peligro={pedirExig === false}
+  titulo={pedirExig === false ? '¿Dejar de exigir los consentimientos?' : '¿Volver a exigir los consentimientos?'}
+  confirmarTexto={pedirExig === false ? 'Sí, la farmacia asume la gestión' : 'Sí, exigirlos'}
+  mensaje={pedirExig === false
+    ? 'Si lo desactivas, la farmacia asume la responsabilidad de gestionarlos fuera del programa. Un SPD podrá validarse aunque falten los consentimientos.'
+    : 'A partir de ahora un SPD no se podrá validar si faltan los consentimientos del paciente.'}
+  onconfirmar={async (motivo) => {
+    if (motivo.length < 5) { avisar('Escribe un motivo de al menos 5 letras.', 'atencion'); return; }
+    const valor = pedirExig; pedirExig = null;
+    if (valor !== null) await guardarAj({ exigirConsentimientos: valor, motivo }, valor ? 'Se exigirán los consentimientos.' : 'Los consentimientos ya no se exigen para validar.');
+  }} oncancelar={() => (pedirExig = null)} />

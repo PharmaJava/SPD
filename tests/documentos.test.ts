@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import {
-  variablesDe, renderizarDocumento, estadoConsentimientos,
+  variablesDe, renderizarDocumento, estadoConsentimientos, consentimientosBloquean, GESTIONABLES_SIN_FIRMA, textoGestionadoSinFirma,
   VARIABLES_DOCUMENTO, REQUERIDOS_PARA_VALIDAR_SPD, LIMITE_VALOR,
 } from '../src/dominio/documentos.ts';
 
@@ -28,13 +28,15 @@ for (const [codigo, texto] of Object.entries(plantillas)) {
     assert.deepEqual(desconocidas, [], 'variable no prevista: añádela a VARIABLES_DOCUMENTO y rellénala al imprimir');
   });
 
-  test(`plantilla ${codigo}: con todos los datos no queda nada sin rellenar y es borrador`, () => {
+  test(`plantilla ${codigo}: con todos los datos no queda nada sin rellenar y NO lleva marca de borrador`, () => {
     const r = renderizarDocumento(texto, completos());
     assert.deepEqual(r.faltan, []);
     assert.ok(!r.texto.includes('⟦'));
     assert.ok(!r.texto.includes('{{'));
-    assert.ok(!r.texto.includes('<!--'), 'el comentario de borrador no se imprime');
-    assert.equal(r.esBorrador, true);
+    assert.ok(!r.texto.includes('<!--'), 'los comentarios de la plantilla no se imprimen');
+    assert.ok(!/borrador/i.test(r.texto), 'el documento impreso no lleva marca de borrador');
+    assert.equal('esBorrador' in r, false, 'ya no existe la marca de borrador');
+    assert.ok(!/borrador/i.test(texto), 'la plantilla ya no trae el comentario BORRADOR');
   });
 }
 
@@ -118,21 +120,20 @@ test('el valor se inserta tal cual en Markdown (no se escapa ni se transforma)',
   assert.equal(r.texto, 'Ana *María* <b>x</b> & co');
 });
 
-test('el comentario de borrador no se imprime pero se devuelve esBorrador', () => {
+test('un comentario de la plantilla no se imprime y ya no marca nada (no hay marca de borrador)', () => {
   const r = renderizarDocumento('<!-- BORRADOR v1 — revisar -->\n# Título', {});
   assert.equal(r.texto, '# Título');
-  assert.equal(r.esBorrador, true);
+  assert.equal('esBorrador' in r, false);
+  assert.equal(r.imprimibleDefinitivo, true);
 });
 
-test('comentario sin la palabra BORRADOR: se quita y esBorrador es false', () => {
+test('comentario cualquiera: se quita y el texto es el mismo', () => {
   const r = renderizarDocumento('<!-- nota interna -->\n# Título', {});
   assert.equal(r.texto, '# Título');
-  assert.equal(r.esBorrador, false);
 });
 
-test('sin comentarios: esBorrador false, definitivo si no falta nada', () => {
+test('sin comentarios: definitivo si no falta nada', () => {
   const r = renderizarDocumento('Hola {{a}}', { a: 'mundo' });
-  assert.equal(r.esBorrador, false);
   assert.equal(r.imprimibleDefinitivo, true);
 });
 
@@ -178,10 +179,10 @@ test('info_rgpd: los «[A COMPLETAR …]» de la plantilla impiden el definitivo
   assert.equal(r.imprimibleDefinitivo, false);
 });
 
-test('una plantilla sin «A COMPLETAR» y con datos completos sí es definitiva (aunque sea borrador, se marca)', () => {
+test('una plantilla sin «A COMPLETAR» y con datos completos sí es definitiva y no lleva marca de borrador', () => {
   const r = renderizarDocumento(plantillas['comunicacion_medico'], completos());
   assert.equal(r.imprimibleDefinitivo, true);
-  assert.equal(r.esBorrador, true);
+  assert.ok(!/borrador/i.test(r.texto));
 });
 
 // ── estadoConsentimientos ────────────────────────────────────────────────
@@ -195,7 +196,7 @@ test('estado: todo firmado en la versión vigente → completo', () => {
   const e = estadoConsentimientos(
     [{ codigo: 'consentimiento_spd', version: 2 }, { codigo: 'info_rgpd', version: 1, revocadoEn: null }],
     vigentes, ['consentimiento_spd', 'info_rgpd']);
-  assert.deepEqual(e, { completo: true, faltan: [], desactualizados: [], revocados: [] });
+  assert.deepEqual(e, { completo: true, faltan: [], desactualizados: [], revocados: [], gestionados: [], exigido: true });
 });
 
 test('estado: nunca firmado → falta, y sin consentimiento_spd no está completo', () => {
@@ -258,4 +259,71 @@ test('estado: requerido firmado pero sin plantilla vigente conocida → falta (n
 
 test('REQUERIDOS_PARA_VALIDAR_SPD incluye siempre consentimiento_spd', () => {
   assert.ok(REQUERIDOS_PARA_VALIDAR_SPD.includes('consentimiento_spd'));
+});
+
+// ── Consentimientos opcionales y «gestionado sin firma individual» ──────────────
+
+test('estado: por defecto se EXIGE; sólo exigir:false lo relaja, y completo sigue siendo un hecho', () => {
+  assert.equal(estadoConsentimientos([], vigentes, ['info_rgpd']).exigido, true);
+  assert.equal(estadoConsentimientos([], vigentes, ['info_rgpd'], {}).exigido, true);
+  assert.equal(estadoConsentimientos([], vigentes, ['info_rgpd'], { exigir: true }).exigido, true);
+  const e = estadoConsentimientos([], vigentes, ['info_rgpd'], { exigir: false });
+  assert.equal(e.exigido, false);
+  assert.equal(e.completo, false, 'lo pendiente se sigue viendo como pendiente (informativo)');
+  assert.deepEqual(e.faltan, ['info_rgpd']);
+});
+
+test('consentimientosBloquean: sólo si hay algo pendiente Y se exige', () => {
+  assert.equal(consentimientosBloquean(estadoConsentimientos([], vigentes, ['info_rgpd'])), true);
+  assert.equal(consentimientosBloquean(estadoConsentimientos([], vigentes, ['info_rgpd'], { exigir: false })), false);
+  assert.equal(consentimientosBloquean(estadoConsentimientos([{ codigo: 'info_rgpd', version: 1 }], vigentes, ['info_rgpd'])), false);
+  // un estado antiguo sin el campo `exigido` se trata como exigido
+  assert.equal(consentimientosBloquean({ completo: false, faltan: ['x'], desactualizados: [], revocados: [], gestionados: [] } as never), true);
+});
+
+test('estado: «gestionado sin firma» cuenta como vigente (completo) y se distingue de una firma real', () => {
+  const g = { codigo: 'consentimiento_spd', version: 2, origen: 'gestionado_sin_firma' as const };
+  const e = estadoConsentimientos([g, { codigo: 'info_rgpd', version: 1, origen: 'firma' }], vigentes, ['consentimiento_spd', 'info_rgpd']);
+  assert.equal(e.completo, true);
+  assert.deepEqual(e.gestionados, ['consentimiento_spd']);
+});
+
+test('estado: gestionado + firma real vigente → es firma (no figura como gestionado)', () => {
+  const e = estadoConsentimientos(
+    [{ codigo: 'info_rgpd', version: 1, origen: 'gestionado_sin_firma' }, { codigo: 'info_rgpd', version: 1, origen: 'firma' }], vigentes, ['info_rgpd']);
+  assert.deepEqual(e.gestionados, []);
+});
+
+test('estado: un gestionado REVOCADO deja de valer, como una firma', () => {
+  const e = estadoConsentimientos([{ codigo: 'info_rgpd', version: 1, origen: 'gestionado_sin_firma', revocadoEn: '2026-11-01' }], vigentes, ['info_rgpd']);
+  assert.equal(e.completo, false);
+  assert.deepEqual(e.revocados, ['info_rgpd']);
+  assert.deepEqual(e.gestionados, []);
+});
+
+test('estado: un gestionado de una versión vieja está desactualizado (no se da por bueno)', () => {
+  const e = estadoConsentimientos([{ codigo: 'consentimiento_spd', version: 1, origen: 'gestionado_sin_firma' }], vigentes, ['consentimiento_spd']);
+  assert.deepEqual(e.desactualizados, ['consentimiento_spd']);
+  assert.deepEqual(e.gestionados, []);
+});
+
+test('GESTIONABLES_SIN_FIRMA: sólo consentimiento/información; lo que se firma en el acto no se puede dar por gestionado', () => {
+  assert.deepEqual([...GESTIONABLES_SIN_FIRMA].sort(), ['comunicacion_medico', 'consentimiento_spd', 'info_rgpd']);
+  for (const c of ['recibi_devolucion', 'revocacion', 'autorizacion_terceros']) assert.ok(!GESTIONABLES_SIN_FIRMA.includes(c), c);
+  for (const c of REQUERIDOS_PARA_VALIDAR_SPD) assert.ok(GESTIONABLES_SIN_FIRMA.includes(c), 'los obligatorios para validar son gestionables');
+});
+
+test('textoGestionadoSinFirma: dice que NO hay firma, con motivo, quién y cuándo; no imita el documento ni una firma', () => {
+  const t = textoGestionadoSinFirma({ titulo: 'Consentimiento informado SPD', version: 2, motivo: 'Consentimiento recogido por el centro', usuario: 'Ana Titular', fecha: '03/11/2026', centro: 'Residencia Sol' });
+  assert.match(t, /^GESTIONADO SIN FIRMA INDIVIDUAL/);
+  assert.match(t, /Consentimiento informado SPD \(versión 2\)/);
+  assert.match(t, /Residencia Sol/);
+  assert.match(t, /Consentimiento recogido por el centro/);
+  assert.match(t, /Ana Titular el 03\/11\/2026/);
+  assert.match(t, /No consta firma del paciente/);
+  assert.doesNotMatch(t, /\bfirmado por\b|\bfdo\b/i);
+  assert.ok(!t.includes('Residencia Sol.\nResidencia'), 'el centro sólo sale una vez');
+  // sin centro no deja una línea vacía ni «null»
+  const s = textoGestionadoSinFirma({ titulo: 'X', version: 1, motivo: 'motivo largo', usuario: 'U', fecha: '01/01/2026' });
+  assert.doesNotMatch(s, /null|undefined|\n\n/);
 });

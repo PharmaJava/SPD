@@ -7,6 +7,8 @@
   import Icono from '../componentes/Icono.svelte';
   import Aviso from '../componentes/Aviso.svelte';
   import { mensajeError } from '../componentes/util.ts';
+  import { aplicarEstado } from '../../dominio/avisos.ts';
+  import { estadoAvisos, mostrarQuitados, sacarAviso, sacarVistos, verAviso } from '../lib/avisos.ts';
 
   let panel = $state<PanelHoy | null>(null); let error = $state<string | null>(null);
   async function cargar() { const r = await spd.panelHoy(); if (r.ok) panel = r.datos; else error = mensajeError(r); }
@@ -28,6 +30,9 @@
     if (/consent|document|paciente|revis/.test(a) && t.pacienteId) return { texto: 'Abrir paciente', ruta: `pacientes/${t.pacienteId}` };
     return t.pacienteId ? { texto: 'Abrir paciente', ruta: `pacientes/${t.pacienteId}` } : { texto: 'Ver', ruta: 'pacientes' };
   }
+  // Avisos que se pueden marcar como vistos o quitar. Los de seguridad (bloqueos, caducidad, alerta de calidad…) NUNCA: siempre salen.
+  const estado = $derived(panel ? aplicarEstado(panel.tareas, $estadoAvisos) : { visibles: [], ocultos: 0 });
+  const hayVistos = $derived(estado.visibles.some(t => t.visto));
   const cifras = $derived(panel ? [
     { v: panel.cifras.pacientesActivos, t: 'Pacientes activos', ruta: 'pacientes', alerta: false },
     { v: panel.cifras.preparacionesPendientes, t: 'Preparaciones pendientes', ruta: 'preparar', alerta: panel.cifras.preparacionesPendientes > 0 },
@@ -50,32 +55,40 @@
     {/each}
   </div>
 
-  {#if !panel.tareas.length && !panel.copias.atrasada}
+  {#if !estado.visibles.length}
     <div class="tarjeta todo-al-dia">
       <div class="gran"><Icono n="check" tam={36} /></div>
       <h2>Todo al día</h2>
-      <p class="suave">No hay nada pendiente. Buen momento para revisar los pacientes o preparar con adelanto.</p>
+      <p class="suave">{estado.ocultos ? 'No queda nada por ver (hay avisos que has quitado).' : 'No hay nada pendiente. Buen momento para revisar los pacientes o preparar con adelanto.'}</p>
       <button class="btn principal" onclick={() => ir('pacientes')}>Ver pacientes</button>
     </div>
   {:else}
-    {#if panel.copias.atrasada}
-      <div class="tarea atencion"><div class="txt"><span class="rot"><Icono n="alerta" tam={16} />Atención</span><div>La copia de seguridad está atrasada.</div></div>
-        <button class="btn principal" onclick={() => ir('ajustes/copias')} aria-label="Hacer copia de seguridad: la última está atrasada">Hacer copia</button></div>
-    {/if}
     {#each GRUPOS as gr (gr.g)}
-      {@const ts = panel.tareas.filter(t => t.gravedad === gr.g)}
+      {@const ts = estado.visibles.filter(t => t.gravedad === gr.g)}
       {#if ts.length}
         <section class="seccion" aria-label={gr.titulo}>
           <h2>{gr.titulo} <span class="etiqueta {gr.g}">{ts.length}</span></h2>
           {#each ts as t, i (gr.g + i + t.texto)}
             {@const d = destino(t)}
-            <div class="tarea {t.gravedad}">
-              <div class="txt"><span class="rot"><Icono n={gr.icono} tam={16} />{gr.rot}</span><div>{t.texto}</div></div>
-              <button class="btn" onclick={() => ir(d.ruta)} aria-label="{d.texto}: {t.texto}">{d.texto}<Icono n="flecha" tam={16} /></button>
+            <div class="tarea {t.gravedad}" class:visto={t.visto} data-prueba="aviso-hoy">
+              <div class="txt"><span class="rot"><Icono n={gr.icono} tam={16} />{gr.rot}{#if t.visto} · visto{/if}</span><div>{t.texto}</div></div>
+              <div class="acciones-aviso">
+                <button class="btn" onclick={() => ir(d.ruta)} aria-label="{d.texto}: {t.texto}">{d.texto}<Icono n="flecha" tam={16} /></button>
+                {#if !t.protegido}
+                  {#if !t.visto}<button class="btn mini" type="button" onclick={() => verAviso(t)} data-prueba="aviso-visto" aria-label="Marcar como visto: {t.texto}">Marcar como visto</button>{/if}
+                  <button class="btn mini" type="button" onclick={() => sacarAviso(t)} data-prueba="aviso-quitar" aria-label="Quitar este aviso: {t.texto}">Quitar</button>
+                {/if}
+              </div>
             </div>
           {/each}
         </section>
       {/if}
     {/each}
+  {/if}
+  {#if hayVistos || estado.ocultos}
+    <div class="fila margen-s suave" data-prueba="avisos-quitados">
+      {#if hayVistos}<button class="btn mini" type="button" onclick={() => sacarVistos(estado.visibles)} data-prueba="quitar-vistos">Quitar todos los vistos</button>{/if}
+      {#if estado.ocultos}<span>{estado.ocultos} {estado.ocultos === 1 ? 'aviso quitado' : 'avisos quitados'}.</span> <button class="btn mini" type="button" onclick={mostrarQuitados} data-prueba="mostrar-quitados">Mostrar de nuevo</button>{/if}
+    </div>
   {/if}
 {/if}

@@ -7,6 +7,8 @@
   import { aplicarAspecto, leerAspecto, nombreRol, mensajeError, type Aspecto } from './componentes/util.ts';
   import { limpiarEfimero } from './lib/efimero.ts';
   import { pausasBloqueo } from './lib/inactividad.ts';
+  import { aplicarEstado, type AvisoBasico } from '../dominio/avisos.ts';
+  import { estadoAvisos, sacarAviso } from './lib/avisos.ts';
   import { get } from 'svelte/store';
   import Icono from './componentes/Icono.svelte';
   import Aviso from './componentes/Aviso.svelte';
@@ -30,6 +32,8 @@
   let primerUsoEnCurso = $state(false);
   let aspecto = $state<Aspecto>(leerAspecto());
   let copias = $state<EstadoCopias | null>(null);
+  /** Distintivo informativo: se puede quitar (y se recuerda sólo su tipo, nunca datos de pacientes). */
+  const AVISO_COPIA: AvisoBasico = { tipo: 'copia_atrasada', gravedad: 'atencion' };
   let version = $state(0); // sube cuando algo cambia fuera de la pantalla (p. ej. Ajustes)
 
   // Tema realmente aplicado (el «auto» sigue al sistema): el botón de la barra lo refleja al instante.
@@ -269,8 +273,11 @@
             </div>
           {/if}
         </div>
-        {#if copias?.atrasada}
-          <a class="etiqueta atencion" href="#/ajustes/copias" style="text-decoration:none"><Icono n="alerta" tam={14} /> Copia de seguridad atrasada</a>
+        {#if copias?.atrasada && aplicarEstado([AVISO_COPIA], $estadoAvisos).visibles.length}
+          <span class="fila" style="gap:.2rem">
+            <a class="etiqueta atencion" href="#/ajustes/copias" style="text-decoration:none"><Icono n="alerta" tam={14} /> Copia de seguridad atrasada</a>
+            <button class="btn enlace" type="button" onclick={() => sacarAviso(AVISO_COPIA)} aria-label="Quitar el aviso de copia de seguridad atrasada" title="Quitar este aviso"><Icono n="x" tam={14} /></button>
+          </span>
         {/if}
         <span class="espacio"></span>
         <button class="btn enlace" onclick={alternarTema} aria-label={oscuro ? 'Tema oscuro activado. Cambiar a tema claro' : 'Tema claro activado. Cambiar a tema oscuro'} title={oscuro ? 'Cambiar a tema claro' : 'Cambiar a tema oscuro'}><Icono n={oscuro ? 'sol' : 'luna'} /></button>

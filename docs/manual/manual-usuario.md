@@ -85,10 +85,29 @@ Una vez validado el blíster aparecen **Etiqueta** y **Hoja del paciente** (plan
 
 En la ficha del paciente, pestaña **Documentos**, aparecen los documentos del servicio. Pulsa **«Preparar para firmar»**, imprímelo, que lo firme el paciente (o su representante) y marca el documento como firmado.
 
-- Son **obligatorios para validar** el consentimiento informado del servicio y la información de protección de datos. Sin ellos no se puede validar ningún blíster.
-- Los textos son **genéricos y son borradores: revísalos con un profesional del derecho antes de usarlos** en tu farmacia. No llevan la marca del programa.
+- Son **obligatorios para validar** el consentimiento informado del servicio y la información de protección de datos. Sin ellos no se puede validar ningún blíster (salvo que el titular lo desactive, ver más abajo).
+- Los textos son **genéricos y son borradores: revísalos con un profesional del derecho antes de usarlos** en tu farmacia. El documento impreso no lleva ninguna marca ni aviso del programa: es solo el texto del documento.
+
+### Si la farmacia no quiere exigir los consentimientos
+
+En **Ajustes → Consentimientos** el titular puede desactivar **«Exigir consentimientos firmados para validar»** (por defecto está activado). Pide un motivo escrito y queda en la auditoría. **Si lo desactivas, la farmacia asume la responsabilidad de gestionar los consentimientos fuera del programa.** Los pendientes se siguen mostrando, pero como información (no en rojo) y ya no impiden validar. Puede volver a activarse cuando se quiera.
+
+### Consentimientos que recoge el centro (residencias): «gestionado sin firma individual»
+
+Cuando el consentimiento lo recoge la residencia y no lo firma cada paciente, puedes dejarlo registrado **sin falsear ninguna firma**:
+
+- **Un paciente**: en su pestaña **Documentos**, botón **«Gestionado sin firma»** (junto al documento que falta). Escribe el motivo.
+- **Todos los de un centro**: en **Pacientes**, elige el centro en el filtro y pulsa **«Aceptar todo»**. El diálogo te dice cuántos pacientes activos y qué documentos se registrarán, cuántos se saltan (porque ya lo tienen vigente), y pide un **motivo obligatorio** (por ejemplo, «Consentimiento recogido por el centro»).
+
+Solo pueden hacerlo el titular y los farmacéuticos. En cada paciente el documento se ve como **«Gestionado por el centro, sin firma individual»**, con fecha, quién lo registró y el motivo; nunca se muestra ni se imprime como firmado. Se puede **revocar** (queda en el historial), y si más adelante el paciente firma, se registra la firma sustituyendo al registro gestionado. Todo queda en la auditoría. Es una decisión de la farmacia, que asume esa responsabilidad.
 
 ![Documentos del paciente: los obligatorios están marcados](img/documentos.png)
+
+### Avisos y notificaciones
+
+- Los mensajes breves que salen abajo a la derecha se cierran **con un clic**. Los de error y atención se cierran solos a los **10 segundos** si no tienes el ratón encima; si el mismo mensaje se repite, no se apila: sale una vez con «×3», por ejemplo. Cuando hay varios, aparece **«Cerrar todas»**.
+- En la pantalla **Hoy**, cada aviso que no afecta a la seguridad tiene **«Marcar como visto»** (queda atenuado) y **«Quitar»** (se oculta). **«Quitar todos los vistos»** oculta los ya vistos y **«Mostrar de nuevo»** los recupera. Lo mismo vale para el distintivo «Copia de seguridad atrasada». En este equipo solo se recuerda el *tipo* de aviso general que quitaste, nunca nombres de pacientes.
+- Los avisos de **seguridad** (consentimiento exigido que falta, caja caducada, alerta de calidad, alergia sin confirmar) **no se pueden ocultar**.
 
 ## 9. Copias de seguridad y restauración
 
