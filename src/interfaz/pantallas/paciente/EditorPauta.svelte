@@ -37,8 +37,8 @@
     const p: PautaDto = { vigenteDesde, patron, origen, origenDetalle: origenDetalle.trim() || null, instrucciones: instrucciones.trim() || null,
       dosis: activos.filter(m => (dosis[m.id] ?? 0) > 0).map(m => ({ momentoId: m.id, unidades: dosis[m.id]! })) };
     if (patron === 'dias_semana') p.diasSemana = [...diasSemana].sort((a, b) => a - b);
-    if (patron === 'cada_n_dias') { p.cadaNDias = Number(cadaNDias); p.fechaAncla = fechaAncla || vigenteDesde; }
-    if (patron === 'ciclo') { p.cicloOn = Number(cicloOn); p.cicloOff = Number(cicloOff); p.fechaAncla = fechaAncla || vigenteDesde; }
+    if (patron === 'cada_n_dias') { p.cadaNDias = Number(cadaNDias); if (fechaAncla) p.fechaAncla = fechaAncla; }
+    if (patron === 'ciclo') { p.cicloOn = Number(cicloOn); p.cicloOff = Number(cicloOff); if (fechaAncla) p.fechaAncla = fechaAncla; }
     return p;
   }
   /** Comprobaciones en lenguaje de persona (las reglas de fondo las vuelve a aplicar el servicio). */
@@ -96,7 +96,7 @@
             </div></div>
         {:else if patron === 'cada_n_dias'}
           <div class="cols-2"><Campo etiqueta="Se toma cada… días" tipo="numero" bind:valor={cadaNDias} min={2} step={1} />
-            <Campo etiqueta="Primer día de toma" tipo="fecha" bind:valor={fechaAncla} ayuda="Si lo dejas vacío, es el día de inicio." /></div>
+            <Campo etiqueta="Primer día de toma" tipo="fecha" bind:valor={fechaAncla} ayuda="Si lo dejas vacío se mantiene la fase de la versión anterior; en la primera pauta es obligatorio." /></div>
         {:else if patron === 'ciclo'}
           <div class="cols-3"><Campo etiqueta="Días seguidos de toma" tipo="numero" bind:valor={cicloOn} min={1} step={1} />
             <Campo etiqueta="Días de descanso" tipo="numero" bind:valor={cicloOff} min={0} step={1} />

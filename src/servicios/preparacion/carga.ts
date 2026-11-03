@@ -222,6 +222,7 @@ function pautaDeFila(db: Db, v: R): Pauta {
   if (v.ciclo_on != null) p.cicloOn = Number(v.ciclo_on);
   if (v.ciclo_off != null) p.cicloOff = Number(v.ciclo_off);
   if (v.fecha_ancla != null) p.fechaAncla = v.fecha_ancla;
+  else if (v.patron === 'cada_n_dias' || v.patron === 'ciclo') p.fechaAncla = v.vigente_desde; // legado: su fase efectiva siempre fue vigente_desde
   return p;
 }
 

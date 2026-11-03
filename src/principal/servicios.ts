@@ -13,7 +13,8 @@ export interface OpcionesServicios {
   rutaDatos: string;
   wasmPath?: string;
   version?: string;
-  externo: ApiExterna;
+  carpetaCopiasPorDefecto?: string;
+  externo: Partial<ApiExterna>;
 }
 
 export interface ServiciosApp {
@@ -22,11 +23,12 @@ export interface ServiciosApp {
   faltan: NombreMetodo[];
   bloquearPorInactividad(): Promise<Resultado<EstadoSistema>>;
   crearCopiaAutomatica(): Promise<Resultado<{ ruta: string }>>;
+  crearCopiaPreActualizacion(version: string): Promise<Resultado<{ ruta: string | null }>>;
   cerrar(): Promise<void>;
 }
 
 export function crearServiciosApp(op: OpcionesServicios): ServiciosApp {
-  const sistema = crearSistema({ rutaDatos: op.rutaDatos, wasmPath: op.wasmPath, version: op.version });
+  const sistema = crearSistema({ rutaDatos: op.rutaDatos, wasmPath: op.wasmPath, version: op.version, carpetaCopiasPorDefecto: op.carpetaCopiasPorDefecto });
   const base = crearClinicaBase(sistema.ctx);
   const preparacion = crearClinicaPreparacion(sistema.ctx);
   const { api, faltan } = ensamblarApi({
@@ -36,6 +38,7 @@ export function crearServiciosApp(op: OpcionesServicios): ServiciosApp {
     api, faltan,
     bloquearPorInactividad: () => sistema.bloquearPorInactividad(),
     crearCopiaAutomatica: () => sistema.crearCopiaAutomatica(),
+    crearCopiaPreActualizacion: (v) => sistema.crearCopiaPreActualizacion(v),
     cerrar: () => sistema.cerrar(),
   };
 }

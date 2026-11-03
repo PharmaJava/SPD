@@ -16,7 +16,7 @@ import { abrirDb } from './db.ts';
 import type { Db } from './db.ts';
 import { ErrorSpd } from './contexto.ts';
 import {
-  abrirConClaveDeDatos, abrirConContrasena, COD_CONTRASENA, COD_FICHERO, crearAlmacenNuevo, guardarCarga, reenvolver,
+  abrirConClaveDeDatos, abrirConContrasena, COD_CONTRASENA, COD_FICHERO, crearAlmacenNuevo, guardarCarga, pareceFicheroSpd, reenvolver,
 } from './seguridad.ts';
 import type { AbiertoFichero, ParametrosKdf } from './seguridad.ts';
 
@@ -42,6 +42,15 @@ export interface OpcionesAlmacen {
   kdf?: ParametrosKdf;
 }
 
+/** Una copia ya descifrada, comprobada y migrada, lista para sustituir al estado actual (o para descartarse). */
+export interface Restauracion {
+  /** Base de la copia (ya migrada al esquema vigente), sólo para leer (p. ej. la auditoría). */
+  readonly db: Db;
+  /** Sustituye el estado actual por la copia: el estado actual pasa a `spd.datos.bak`. */
+  aplicar(): Promise<void>;
+  descartar(): void;
+}
+
 export type Credencial = { contrasena: string } | { claveDatos: Uint8Array };
 
 export interface Almacen {
@@ -57,6 +66,11 @@ export interface Almacen {
   desbloquear(contrasena: string, opc?: { usarCopia?: boolean }): Promise<{ aviso?: string }>;
   /** Abre con la clave de datos y fija una contraseña nueva (recuperación). */
   recuperar(claveDatos: Uint8Array, nuevaContrasena: string, opc?: { usarCopia?: boolean }): Promise<{ aviso?: string }>;
+  /**
+   * Fase 1 de restaurar una copia: descifra y verifica la cabecera, comprueba que es de ESTA instalación (misma clave de
+   * datos) y la abre (migrándola si es de un esquema anterior; si es posterior → VERSION_BASE). No cambia nada.
+   */
+  prepararRestauracion(bytesCopia: Uint8Array, contrasenaCopia: string): Promise<Restauracion>;
   /** ¿Es esta la contraseña actual? (no cambia nada) */
   verificarContrasena(contrasena: string): boolean;
   cambiarContrasena(actual: string, nueva: string): Promise<void>;
@@ -221,6 +235,36 @@ export function crearAlmacen(op: OpcionesAlmacen): Almacen {
         instalar(r.db, r.abierto.claveDatos, nuevo);
       } catch (e) { r.db.cerrar(); r.abierto.claveDatos.fill(0); throw e; }
       return r.aviso ? { aviso: r.aviso } : {};
+    },
+
+    async prepararRestauracion(bytesCopia, contrasenaCopia) {
+      if (!db || !claveDatos || !ficheroActual) throw new Error('bloqueado');
+      if (!pareceFicheroSpd(bytesCopia)) throw new ErrorSpd('Ese fichero no es una copia de SPD (cabecera no válida).', 'COPIA_INVALIDA');
+      const abierto = abrirConContrasena(bytesCopia, contrasenaCopia);   // contraseña errónea o fichero manipulado: lanza
+      let nueva: Db;
+      try {
+        if (!Buffer.from(abierto.claveDatos).equals(Buffer.from(claveDatos))) {
+          throw new ErrorSpd('La copia pertenece a otra instalación de SPD (otra clave de datos): no se restaura aquí para no invalidar la clave de recuperación.', 'COPIA_OTRA_INSTALACION');
+        }
+        nueva = await abrirBase(abierto.bytesDb);
+      } finally { abierto.claveDatos.fill(0); }
+      let cerrada = false;
+      return {
+        db: nueva,
+        descartar() { if (!cerrada) { cerrada = true; nueva.cerrar(); } },
+        async aplicar() {
+          if (cerrada) throw new Error('restauración ya usada');
+          if (!db || !claveDatos || !ficheroActual) throw new Error('bloqueado');
+          await flush(true);
+          const previo = ficheroActual;
+          // Misma envoltura (contraseña actual) y misma clave: sólo cambia el contenido.
+          const nuevo = guardarCarga(ficheroActual, claveDatos, nueva.exportar());
+          await encolarEscritura(nuevo, previo);   // el estado actual → .bak; si falla, no se toca nada en memoria
+          const vieja = db;
+          db = nueva; ficheroActual = nuevo; sucio = false; errorGuardado = null; cerrada = true;
+          try { vieja.cerrar(); } catch { /* nada */ }
+        },
+      };
     },
 
     verificarContrasena(contrasena) {

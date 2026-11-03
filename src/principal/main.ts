@@ -10,7 +10,8 @@ import { app, BrowserWindow, Menu, dialog, ipcMain, session, shell } from 'elect
 import * as electron from 'electron';
 import * as os from 'node:os';
 import * as fs from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { existsSync, createWriteStream } from 'node:fs';
+import { spawn } from 'node:child_process';
 import * as path from 'node:path';
 import { crearServiciosApp } from './servicios.ts';
 import type { ServiciosApp } from './servicios.ts';
@@ -22,6 +23,8 @@ import type { Vigilante } from './inactividad.ts';
 import { planificarCopias } from './planificador-copias.ts';
 import { plantillaMenu, textoAcercaDe } from './menu.ts';
 import { leerModoPruebas } from './modo-pruebas.ts';
+import { crearActualizador } from './actualizaciones.ts';
+import { notasParaDialogo } from './texto-actualizacion.ts';
 
 const modoPruebas = leerModoPruebas(process.env, app.isPackaged);
 const carpetaInterfaz = path.join(__dirname, '..', 'interfaz');
@@ -105,7 +108,58 @@ async function arrancar(): Promise<void> {
   const externo = crearExterno(depsElectron(electron, node, () => ventana));
   const rutaDatos = modoPruebas ? path.join(modoPruebas.rutaDatos, 'datos') : path.join(app.getPath('userData'), 'datos');
   const wasmPath = app.isPackaged ? path.join(process.resourcesPath, 'recursos', 'sql-wasm.wasm') : path.join(__dirname, '..', 'recursos', 'sql-wasm.wasm');
-  servicios = crearServiciosApp({ rutaDatos, wasmPath, version: app.getVersion(), externo });
+  // Actualizaciones: nada se descarga ni instala sin aceptar el diálogo; ver actualizaciones.ts.
+  const rutaPrefs = path.join(app.getPath('userData'), 'actualizaciones.json');
+  const padre = () => (ventana && !ventana.isDestroyed() ? ventana : undefined);
+  const caja = (o: Electron.MessageBoxOptions) => (padre() ? dialog.showMessageBox(padre()!, o) : dialog.showMessageBox(o));
+  const actualizador = crearActualizador({
+    fetch: ((url: string, init: unknown) => electron.net.fetch(url, init as RequestInit)) as never,
+    plataforma: process.platform, versionActual: app.getVersion(), registrar,
+    prefs: {
+      leer: async () => { try { return JSON.parse(await fs.readFile(rutaPrefs, 'utf8')); } catch { return null; } },
+      guardar: (p) => fs.writeFile(rutaPrefs, JSON.stringify(p)),
+    },
+    preguntar: async (i) => {
+      const r = await caja({
+        type: 'question', title: 'Actualización de SPD', message: `Hay una versión nueva de SPD: ${i.versionNueva} (tienes la ${i.versionActual}).`,
+        detail: `${notasParaDialogo(i.notas)}\n\nSi aceptas: se hará una copia de seguridad de tus datos, se descargará el instalador desde github.com/PharmaJava/SPD, se comprobará su suma SHA-256 y sólo entonces se te pedirá cerrar SPD para instalarlo.`,
+        buttons: ['Instalar ahora', 'Más tarde', 'No volver a avisar de esta versión'], defaultId: 1, cancelId: 1, noLink: true,
+      });
+      return r.response === 0 ? 'instalar' : r.response === 2 ? 'ignorar' : 'luego';
+    },
+    confirmarCierre: async (v) => (await caja({
+      type: 'question', title: 'Actualización de SPD', message: `Descarga de la versión ${v} verificada.`,
+      detail: 'Para instalarla hay que cerrar SPD ahora. Guarda lo que estés haciendo. Antes de instalar se hará una copia de seguridad («antes de actualizar a v' + v + '»).',
+      buttons: ['Cerrar SPD e instalar', 'Cancelar'], defaultId: 1, cancelId: 1, noLink: true,
+    })).response === 0,
+    copiaAntes: (v) => (servicios ? servicios.crearCopiaPreActualizacion(v) : Promise.resolve({ ok: false as const, error: 'El programa aún no ha arrancado.' })),
+    fs: {
+      crearCarpetaTemporal: async () => { const c = await fs.mkdtemp(path.join(os.tmpdir(), 'spd-actualizacion-')); await fs.chmod(c, 0o700).catch(() => {}); return c; },
+      unir: (...p) => path.join(...p),
+      abrirEscritura: async (ruta) => {
+        const ws = createWriteStream(ruta, { mode: 0o600 });
+        return {
+          escribir: (b) => new Promise<void>((res, rej) => ws.write(b, (e) => (e ? rej(e) : res()))),
+          cerrar: () => new Promise<void>((res) => ws.end(() => res())),
+        };
+      },
+      borrarCarpeta: (r) => fs.rm(r, { recursive: true, force: true }),
+    },
+    cerrarYLanzar: async (ruta) => {
+      cerrando = true; vigilante?.parar();
+      await Promise.race([servicios ? servicios.cerrar() : Promise.resolve(), new Promise<void>(r => setTimeout(r, 8000))]);
+      spawn(ruta, [], { detached: true, stdio: 'ignore' }).unref();
+      app.exit(0);
+    },
+  });
+  const externoCompleto = {
+    ...externo,
+    estadoActualizaciones: () => actualizador.estado(),
+    guardarPreferenciasActualizaciones: (p: { comprobarAlArrancar?: boolean; versionIgnorada?: string | null }) => actualizador.guardarPreferencias(p),
+    buscarActualizaciones: () => actualizador.buscar({ manual: true }),
+    listarVersiones: () => actualizador.listarVersiones(),
+  };
+  servicios = crearServiciosApp({ rutaDatos, wasmPath, version: app.getVersion(), externo: externoCompleto, carpetaCopiasPorDefecto: path.join(app.getPath('userData'), 'copias') });
   const sv = servicios;
   if (sv.faltan.length) registrar(`métodos sin implementar: ${sv.faltan.join(', ')}`);
 
@@ -141,6 +195,8 @@ async function arrancar(): Promise<void> {
   Menu.setApplicationMenu(Menu.buildFromTemplate(plantillaMenu(acciones, { desarrollo: !app.isPackaged })));
 
   ventana = crearVentana();
+  // Comprobación al arrancar (si está activada): sólo instalada, con unos segundos de margen y sin molestar si falla.
+  if (!modoPruebas && app.isPackaged) setTimeout(() => { void actualizador.comprobarAlArrancar(); }, 20_000);
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) ventana = crearVentana(); });
 }
 
@@ -151,7 +207,9 @@ async function copiaManual(sv: ServiciosApp): Promise<void> {
   if (!r.ok && r.codigo === 'SIN_CARPETA_COPIAS') {
     const c = await sv.api.elegirCarpeta('Carpeta para las copias de seguridad');
     if (!c.ok || !c.datos) return;
-    r = await sv.api.crearCopia(c.datos);
+    const g = await sv.api.guardarAjustes({ carpetaCopias: c.datos });   // la carpeta se guarda en los ajustes; crearCopia no acepta otra
+    if (!g.ok) { await mostrar({ type: 'warning', title: 'Copia de seguridad', message: 'No se pudo guardar la carpeta.', detail: g.error }); return; }
+    r = await sv.api.crearCopia();
   }
   if (r.ok) await mostrar({ type: 'info', title: 'Copia de seguridad', message: 'Copia de seguridad creada.', detail: r.datos.ruta });
   else await mostrar({ type: 'warning', title: 'Copia de seguridad', message: 'No se pudo crear la copia.', detail: r.error });

@@ -6,7 +6,7 @@ import type { Contexto } from '../contexto.ts';
 import { proteger } from '../contexto.ts';
 import type { Resultado, TratamientoDto, PautaDto } from '../api.ts';
 import type { Db } from '../db.ts';
-import { avisosPauta, pautaVigenteEn, validarPauta } from '../../dominio/calendario-pauta.ts';
+import { avisosPauta, comprobarContinuidadPauta, pautaVigenteEn, validarPauta } from '../../dominio/calendario-pauta.ts';
 import { normalizarCN } from '../../dominio/gs1.ts';
 import { ahoraISO, bd, boolDb, esFechaIso, exigirSesion, formatoFecha, hoyISO, invalido, noEncontrado, sumarDias, texto, textoObligatorio } from './comun.ts';
 import type { R } from './comun.ts';
@@ -15,7 +15,20 @@ import { coberturaDeTratamientos } from './cobertura.ts';
 import { leerMedicamento } from './medicamentos.ts';
 
 /** TratamientoDto + los avisos de seguridad de la pauta vigente (el contrato aún no los declara). */
-export type TratamientoConAvisos = TratamientoDto & { avisos: string[] };
+export type TratamientoConAvisos = TratamientoDto & { avisos: string[]; blisteresAfectados?: BlisterAfectado[] };
+
+export interface BlisterAfectado { idPublico: string; estado: string; fechaInicio: string; fechaFin: string }
+
+/** Blísteres preparados/validados/entregados que llevan el tratamiento (en blíster o «aparte») y llegan a `desde` o después. */
+function blisteresAfectados(db: Db, pacienteId: number, tratamientoId: number, desde: string): { lista: BlisterAfectado[] } {
+  const filas = db.all<R>(
+    `SELECT id_publico, estado, fecha_inicio, fecha_fin FROM preparacion p
+      WHERE p.paciente_id = ? AND p.estado IN ('preparado','validado','entregado') AND p.fecha_fin >= ?
+        AND (EXISTS (SELECT 1 FROM preparacion_linea l WHERE l.preparacion_id = p.id AND l.tratamiento_id = ?)
+          OR EXISTS (SELECT 1 FROM preparacion_aparte a WHERE a.preparacion_id = p.id AND a.tratamiento_id = ?))
+      ORDER BY p.id`, [pacienteId, desde, tratamientoId, tratamientoId]);
+  return { lista: filas.map((a) => ({ idPublico: String(a.id_publico), estado: String(a.estado), fechaInicio: String(a.fecha_inicio), fechaFin: String(a.fecha_fin) })) };
+}
 
 const ORIGENES = ['receta', 'informe_medico', 'comunicacion_medico', 'paciente', 'revision_farmaceutica', 'correccion'];
 const PATRONES = ['diario', 'dias_semana', 'cada_n_dias', 'ciclo', 'si_precisa'];
@@ -147,9 +160,18 @@ export function guardarPauta(ctx: Contexto, tratamientoId: number, pauta: PautaD
       if (!PATRONES.includes(pauta.patron)) throw invalido('Patrón de pauta no válido.');
       if (!ORIGENES.includes(pauta.origen)) throw invalido('Indica el origen de la pauta (receta, informe médico, comunicación con el médico…).');
       if (!esFechaIso(pauta.vigenteDesde)) throw invalido('La fecha de inicio de la pauta no es válida (AAAA-MM-DD).');
-      const dominio = pautaADominio(pauta);
+      const previasDto = cargarPautas(db, [tratamientoId]).get(tratamientoId) ?? [];
+      const previasDominio = previasDto.map(pautaADominio);
+      let dominio = pautaADominio(pauta);
+      // cada_n_dias y ciclo: la fase NO se adivina. Sin ancla se hereda de la versión anterior del mismo patrón.
+      if ((pauta.patron === 'cada_n_dias' || pauta.patron === 'ciclo') && !pauta.fechaAncla) {
+        const anterior = [...previasDominio].reverse().find((v) => v.patron === pauta.patron && v.vigenteDesde < pauta.vigenteDesde && v.fechaAncla);
+        if (anterior) { pauta = { ...pauta, fechaAncla: anterior.fechaAncla }; dominio = pautaADominio(pauta); }
+      }
       const errores = validarPauta(dominio);
       if (errores.length > 0) throw invalido(`Pauta no válida: ${errores.join('; ')}.`);
+      const rotura = comprobarContinuidadPauta(previasDominio, dominio);
+      if (rotura.length > 0) throw invalido(`La secuencia de tomas se rompe respecto a la versión anterior (¡riesgo de dosis repetida o fuera de ciclo!): ${rotura.join(' ')}`);
       const momentos = new Map(cargarMomentos(db).map((m) => [m.id, m]));
       const activos = new Set(db.all<R>('SELECT id FROM momento_toma WHERE activo = 1').map((r) => r.id as number));
       for (const d of pauta.dosis) {
@@ -184,13 +206,17 @@ export function guardarPauta(ctx: Contexto, tratamientoId: number, pauta: PautaD
 
       const resultado = leerTratamiento(ctx, db, tratamientoId);
       // docs/04 §4.6: los blísteres ya preparados que cubren fechas afectadas se dicen, no se tocan en silencio.
-      const afectados = db.all<R>(
-        `SELECT id_publico, estado, fecha_inicio, fecha_fin FROM preparacion p
-          WHERE p.paciente_id = ? AND p.estado IN ('preparado','validado','entregado') AND p.fecha_fin >= ?
-            AND EXISTS (SELECT 1 FROM preparacion_linea l WHERE l.preparacion_id = p.id AND l.tratamiento_id = ?)`,
-        [trat.paciente_id, pauta.vigenteDesde, tratamientoId]);
-      for (const a of afectados) {
-        resultado.avisos.push(`El blíster ${String(a.id_publico).slice(0, 8)} (${a.estado}), del ${formatoFecha(a.fecha_inicio)} al ${formatoFecha(a.fecha_fin)}, contiene la pauta anterior en las fechas afectadas: rehazlo o da instrucciones al paciente.`);
+      const afectados = blisteresAfectados(db, Number(trat.paciente_id), tratamientoId, pauta.vigenteDesde);
+      resultado.blisteresAfectados = afectados.lista;
+      for (const a of afectados.lista) {
+        resultado.avisos.push(`El blíster ${a.idPublico.slice(0, 8)} (${a.estado}), del ${formatoFecha(a.fechaInicio)} al ${formatoFecha(a.fechaFin)}, contiene la pauta anterior en las fechas afectadas: rehazlo o da instrucciones al paciente.`);
+      }
+      // Una pauta temporal que corta una indefinida deja el tratamiento SIN pauta al terminar: se dice.
+      if (pauta.vigenteHasta) {
+        const cerradas = previas.filter((v) => v.vigente_hasta === null || v.vigente_hasta > diaAnterior);
+        if (cerradas.some((v) => v.vigente_hasta === null)) {
+          resultado.avisos.push(`Esta pauta es temporal (hasta el ${formatoFecha(pauta.vigenteHasta)}) y ha CERRADO la pauta anterior, que era indefinida: después de esa fecha el tratamiento queda SIN pauta y no se preparará. Si debe retomarse, añade una pauta nueva que continúe.`);
+        }
       }
       return resultado;
     });
@@ -210,6 +236,12 @@ export function finalizarTratamiento(ctx: Contexto, id: number, motivo: string):
       db.run('UPDATE tratamiento SET finalizado_en = ?, motivo_fin = ? WHERE id = ?', [ahoraISO(ctx), m, id]);
       const despues = leerTratamiento(ctx, db, id);
       ctx.auditar({ accion: 'finalizar', entidad: 'tratamiento', entidadId: id, antes: tratamientoParaAuditoria(antes), despues: tratamientoParaAuditoria(despues), motivo: m });
+      // Como guardarPauta: los blísteres ya hechos que aún cubren fechas futuras siguen llevando este medicamento.
+      const afectados = blisteresAfectados(db, antes.pacienteId, id, hoyISO(ctx));
+      despues.blisteresAfectados = afectados.lista;
+      for (const a of afectados.lista) {
+        despues.avisos.push(`El blíster ${a.idPublico.slice(0, 8)} (${a.estado}), del ${formatoFecha(a.fechaInicio)} al ${formatoFecha(a.fechaFin)}, todavía contiene este medicamento: rehazlo o indica al paciente que no lo tome.`);
+      }
       return despues;
     });
     ctx.persistir();

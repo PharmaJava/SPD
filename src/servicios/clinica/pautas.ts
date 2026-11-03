@@ -36,7 +36,8 @@ export function cargarPautas(db: Db, tratamientoIds: number[]): Map<number, Paut
       ...(v.cada_n_dias != null ? { cadaNDias: v.cada_n_dias } : {}),
       ...(v.ciclo_on != null ? { cicloOn: v.ciclo_on } : {}),
       ...(v.ciclo_off != null ? { cicloOff: v.ciclo_off } : {}),
-      ...(v.fecha_ancla ? { fechaAncla: v.fecha_ancla } : {}),
+      // Filas anteriores a que la ancla fuera obligatoria: su fase efectiva SIEMPRE fue vigente_desde.
+      ...(v.fecha_ancla ? { fechaAncla: v.fecha_ancla } : (v.patron === 'cada_n_dias' || v.patron === 'ciclo') ? { fechaAncla: v.vigente_desde } : {}),
       instrucciones: v.instrucciones ?? null,
       origen: v.origen, origenDetalle: v.origen_detalle ?? null,
       dosis: dosisPorVersion.get(v.id) ?? [],

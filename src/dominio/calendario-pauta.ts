@@ -7,7 +7,7 @@
  * Decisiones:
  *   - cada_n_dias y ciclo se extienden también HACIA ATRÁS desde la ancla
  *     (la pauta es periódica); lo que limita es vigenteDesde/vigenteHasta.
- *   - Sin fechaAncla se usa vigenteDesde.
+ *   - cada_n_dias y ciclo EXIGEN fechaAncla (validarPauta): nunca se deduce.
  *   - si_precisa NUNCA toca: no va al blíster.
  *   - Una pauta mal configurada LANZA error en diaToca/tomasDelPeriodo:
  *     nunca se adivina (regla 1 del proyecto).
@@ -57,7 +57,9 @@ function modulo(a: number, b: number): number {
 const esEnteroPositivo = (x: unknown): x is number => typeof x === 'number' && Number.isInteger(x) && x >= 1;
 
 function anclaDe(pauta: Pauta): number {
-  return exigirDia(pauta.fechaAncla ?? pauta.vigenteDesde, 'La fecha ancla');
+  // Sin ancla NO se adivina (antes se usaba vigenteDesde y una versión nueva desplazaba la fase).
+  if (pauta.fechaAncla == null) throw new Error('Pauta cada_n_dias/ciclo sin fechaAncla: la fase de la pauta no está fijada');
+  return exigirDia(pauta.fechaAncla, 'La fecha ancla');
 }
 
 /** ¿Toca toma ese día? Lanza error si el patrón está mal configurado. */
@@ -137,10 +139,12 @@ export function validarPauta(pauta: Pauta): string[] {
       break;
     case 'cada_n_dias':
       if (!esEnteroPositivo(pauta.cadaNDias)) e.push('cada_n_dias requiere cadaNDias entero >= 1');
+      if (pauta.fechaAncla == null) e.push('cada_n_dias requiere fechaAncla (fija la fase: sin ella una versión nueva desplazaría los días de toma)');
       break;
     case 'ciclo':
       if (!esEnteroPositivo(pauta.cicloOn)) e.push('ciclo requiere cicloOn entero >= 1');
       if (typeof pauta.cicloOff !== 'number' || !Number.isInteger(pauta.cicloOff) || pauta.cicloOff < 0) e.push('ciclo requiere cicloOff entero >= 0');
+      if (pauta.fechaAncla == null) e.push('ciclo requiere fechaAncla (fija la fase: sin ella una versión nueva desplazaría los días de toma)');
       break;
     default:
       e.push(`patrón desconocido: ${String((pauta as { patron: unknown }).patron)}`);
@@ -226,4 +230,59 @@ export function tomasDelPeriodoVersiones(versiones: Pauta[], desde: string, hast
     if (pauta) tomas.push(...tomasDelPeriodo(pauta, iso, iso));
   }
   return tomas;
+}
+
+/** Intervalo mínimo (días) entre dos tomas que la pauta garantiza; 1 si no hay garantía. */
+function intervaloMinimo(p: Pauta): number {
+  if (p.patron === 'cada_n_dias' && esEnteroPositivo(p.cadaNDias)) return p.cadaNDias;
+  if (p.patron === 'dias_semana' && Array.isArray(p.diasSemana) && p.diasSemana.length === 1) return 7;
+  return 1;
+}
+
+const VENTANA_CONTINUIDAD = 400;
+
+/**
+ * Continuidad al sustituir pautas: errores si la secuencia de tomas se rompe en el
+ * cambio de versión (p. ej. metotrexato semanal con dos dosis en 3 días, o un ciclo
+ * sin respetar su descanso). Compara la última toma de las versiones anteriores
+ * (hasta el día antes de `nueva.vigenteDesde`) con la primera de la nueva.
+ * Vacía = sin problema (o sin tomas que comparar).
+ */
+export function comprobarContinuidadPauta(anteriores: Pauta[], nueva: Pauta): string[] {
+  const desde = exigirDia(nueva.vigenteDesde, 'vigenteDesde');
+  let ultima: number | null = null;
+  for (let n = desde - 1; n >= desde - VENTANA_CONTINUIDAD; n--) {
+    const p = pautaVigenteEn(anteriores, diaISO(n));
+    if (p && validarPauta(p).length === 0 && diaToca(p, diaISO(n))) { ultima = n; break; }
+  }
+  if (ultima === null) return [];
+  const hasta = nueva.vigenteHasta != null ? exigirDia(nueva.vigenteHasta, 'vigenteHasta') : desde + VENTANA_CONTINUIDAD;
+  let primera: number | null = null;
+  for (let n = desde; n <= Math.min(hasta, desde + VENTANA_CONTINUIDAD); n++) {
+    if (diaToca(nueva, diaISO(n))) { primera = n; break; }
+  }
+  if (primera === null) return [];
+  const e: string[] = [];
+  const hueco = primera - ultima;
+  const minimo = intervaloMinimo(nueva);
+  if (minimo > 1 && hueco < minimo) {
+    e.push(`La secuencia se rompe: la última toma de la versión anterior es el ${diaISO(ultima)} y la primera de la nueva el ${diaISO(primera)} (${hueco} día(s)), pero la pauta exige al menos ${minimo} días entre tomas. Ajusta la fecha de inicio o la fecha ancla.`);
+  }
+  if (nueva.patron === 'ciclo' && esEnteroPositivo(nueva.cicloOn) && typeof nueva.cicloOff === 'number') {
+    const libres = hueco - 1;
+    if (libres > 0 && libres < nueva.cicloOff) {
+      e.push(`El ciclo no respeta su descanso: entre la última toma anterior (${diaISO(ultima)}) y la primera de la nueva (${diaISO(primera)}) hay ${libres} día(s) libres y el descanso es de ${nueva.cicloOff}.`);
+    }
+    if (libres === 0) {
+      let corrida = 1;
+      for (let n = ultima - 1; ; n--) {
+        const p = pautaVigenteEn(anteriores, diaISO(n));
+        if (p && validarPauta(p).length === 0 && diaToca(p, diaISO(n))) corrida++; else break;
+        if (corrida > VENTANA_CONTINUIDAD) break;
+      }
+      for (let n = primera + 1; n <= hasta && diaToca(nueva, diaISO(n)); n++) corrida++;
+      if (corrida > nueva.cicloOn) e.push(`El ciclo no respeta sus días de toma: con el cambio habría ${corrida} días seguidos de toma y el ciclo permite ${nueva.cicloOn}.`);
+    }
+  }
+  return e;
 }

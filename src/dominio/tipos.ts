@@ -31,6 +31,10 @@ export interface Envase {
   numeroSerie?: string;
   unidadesRestantes: number;
   estado: 'en_uso' | 'agotado' | 'devuelto' | 'retirado' | 'desechado';
+  /** Paciente al que pertenece la caja (la trazabilidad inversa lo necesita para las cajas «aparte»). */
+  pacienteId?: number;
+  /** true = caja de un tratamiento no emblistable («aparte»: insulina, jarabes…): no pasa por preparacion_linea. */
+  aparte?: boolean;
 }
 
 /** Unidades de un día y momento. */

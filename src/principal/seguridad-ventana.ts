@@ -52,6 +52,18 @@ export type DecisionApertura = { accion: 'denegar' } | { accion: 'abrirEnNavegad
 
 /** Qué hacer cuando la página intenta abrir una ventana nueva (window.open, target=_blank). */
 export function decidirApertura(url: string): DecisionApertura {
-  const u = urlAemps(url);
+  const u = urlAemps(url) ?? urlProyecto(url);
   return u ? { accion: 'abrirEnNavegador', url: u } : { accion: 'denegar' };
+}
+
+/** Enlaces del propio proyecto: la web del autor y las releases de PharmaJava/SPD (https, sin credenciales). */
+export function urlProyecto(v: unknown): string | null {
+  if (typeof v !== 'string' || v.length > 600) return null;
+  let u: URL;
+  try { u = new URL(v.trim()); } catch { return null; }
+  if (u.protocol !== 'https:' || u.username || u.password || (u.port && u.port !== '443')) return null;
+  const h = u.hostname.toLowerCase();
+  if (h === 'conveniodefarmacia.com' || h === 'www.conveniodefarmacia.com') return u.toString();
+  if (h === 'github.com' && /^\/pharmajava\/spd\/releases(\/|$)/i.test(u.pathname)) return u.toString();
+  return null;
 }

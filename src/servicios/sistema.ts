@@ -9,7 +9,7 @@
  * contraseña y editar los datos de la farmacia es sólo del titular.
  */
 import type {
-  Ajustes, ApiSistema, DatosFarmacia, EntradaAuditoriaDto, EstadoCopias, EstadoSistema, MomentoTomaDto, PrimerUso,
+  Ajustes, ApiSistema, CopiaDto, ResultadoRestauracion, DatosFarmacia, EntradaAuditoriaDto, EstadoCopias, EstadoSistema, MomentoTomaDto, PrimerUso,
   Resultado, ResultadoPrimerUso, RolUsuario, UsuarioPublico,
 } from './api.ts';
 import { crearAlmacen, COD_COPIA_DISPONIBLE } from './almacen.ts';
@@ -17,7 +17,11 @@ import type { Temporizador } from './almacen.ts';
 import { ErrorSpd, proteger } from './contexto.ts';
 import type { Contexto, DatosAuditoria } from './contexto.ts';
 import type { Db } from './db.ts';
-import { crearCopiaFichero, estadoDeCopias } from './copias.ts';
+import { crearCopiaFichero, estadoDeCopias, leerFicheroCopia, listarCopias as listarCopiasCarpeta, rutaDeCopia } from './copias.ts';
+import type { MetaCopia } from './copias.ts';
+import { VERSION_ESQUEMA } from './db.ts';
+import { statSync } from 'node:fs';
+import { join } from 'node:path';
 import { COD_CONTRASENA, hashPin, limitadorContrasena, limitadorPin, verificarPin } from './seguridad.ts';
 import type { LimitadorFallos } from './seguridad.ts';
 import { claveDesdeTexto, textoRecuperacion, uriAutenticador } from '../dominio/clave-recuperacion.ts';
@@ -29,6 +33,8 @@ export interface OpcionesSistema {
   wasmPath?: string;
   ahora?: () => Date;
   version?: string;
+  /** Carpeta de copias de seguridad cuando no hay ninguna configurada (sólo para las de «antes de actualizar/restaurar»). */
+  carpetaCopiasPorDefecto?: string;
   /** Pruebas: espera del guardado diferido y temporizador inyectable. */
   debounceMs?: number;
   temporizador?: Temporizador;
@@ -47,6 +53,8 @@ export interface Sistema {
   recuperarConCopia(claveRecuperacion: string, nuevaContrasena: string): Promise<Resultado<{ estado: EstadoSistema; aviso: string }>>;
   /** Copia diaria automática: no pide sesión (sólo copia el fichero cifrado). */
   crearCopiaAutomatica(): Promise<Resultado<{ ruta: string }>>;
+  /** Copia obligatoria antes de instalar una versión nueva. Funciona bloqueado (copia el fichero cifrado). `ruta` null = aún no hay datos. */
+  crearCopiaPreActualizacion(version: string): Promise<Resultado<{ ruta: string | null }>>;
   /** Vacía lo pendiente a disco (para pruebas y para el cierre). */
   guardarAhora(): Promise<void>;
 }
@@ -294,14 +302,76 @@ export function crearSistema(opciones: OpcionesSistema): Sistema {
 
   // ───────────────────────────── Copias ─────────────────────────────
 
-  async function hacerCopia(carpeta: string | undefined, usuarioId: number | null): Promise<{ ruta: string }> {
+  const metaCopia = (origen: MetaCopia['origen'], motivo: string, esquema: number | null): MetaCopia => ({ origen, motivo, versionApp: version, esquema });
+
+  /** Carpetas de copias propias: la de los ajustes y, si no hay, la del programa. */
+  function carpetaDeCopias(): string | null {
+    return (almacen.estaDesbloqueado() ? leerAjustes(almacen.db()).carpetaCopias : null) ?? opciones.carpetaCopiasPorDefecto ?? null;
+  }
+  const carpetasDeCopias = (): string[] => {
+    const c = [almacen.estaDesbloqueado() ? leerAjustes(almacen.db()).carpetaCopias : null, opciones.carpetaCopiasPorDefecto ?? null].filter((x): x is string => !!x);
+    return [...new Set(c)];
+  };
+
+  /** La carpeta SIEMPRE sale de los ajustes (nunca de lo que mande la interfaz). `seguridad`: puede usar la del programa. */
+  async function hacerCopia(usuarioId: number | null, meta: Omit<MetaCopia, 'versionApp' | 'esquema'>, seguridad = false): Promise<{ ruta: string }> {
     const base = db();
-    const destino = carpeta ?? leerAjustes(base).carpetaCopias;
+    const destino = seguridad ? carpetaDeCopias() : leerAjustes(base).carpetaCopias;
     if (!destino) throw err('No hay carpeta de copias configurada: elige una en Ajustes.', 'SIN_CARPETA_COPIAS');
-    escribirAuditoria({ accion: 'exportar', entidad: 'copia', entidadId: null, motivo: 'Copia de seguridad cifrada' }, usuarioId);
+    escribirAuditoria({ accion: 'exportar', entidad: 'copia', entidadId: null, motivo: meta.motivo }, usuarioId);
     await almacen.flush(true);
-    const ruta = crearCopiaFichero(almacen.rutaFichero, destino, ahora());
+    const ruta = crearCopiaFichero(almacen.rutaFichero, destino, ahora(), metaCopia(meta.origen, meta.motivo, base.version()));
     return { ruta };
+  }
+
+  function describirCopia(c: { nombre: string; fecha: Date; meta?: MetaCopia | null }, carpeta: string): CopiaDto {
+    let tamano = 0;
+    try { tamano = statSync(join(carpeta, c.nombre)).size; } catch { /* se verá como vacía */ }
+    let aviso: string | null = null;
+    if (tamano === 0) aviso = 'La copia está vacía: no se puede restaurar.';
+    else if (c.meta?.esquema != null && c.meta.esquema > VERSION_ESQUEMA) aviso = `Es de una versión más nueva del programa (esquema ${c.meta.esquema}; este programa llega al ${VERSION_ESQUEMA}). Actualiza SPD para restaurarla.`;
+    return {
+      nombre: c.nombre, fecha: c.fecha.toISOString(), tamano, origen: c.meta?.origen ?? 'desconocido', motivo: c.meta?.motivo || null,
+      versionApp: c.meta?.versionApp || null, esquema: c.meta?.esquema ?? null, restaurable: aviso === null, avisoRestauracion: aviso,
+    };
+  }
+
+  async function restaurar(nombre: string, contrasena: string, contrasenaCopia: string | undefined): Promise<ResultadoRestauracion> {
+    db();
+    const quien = exigirSesion('titular');
+    exigirSinEspera();
+    if (!almacen.verificarContrasena(String(contrasena ?? ''))) fallarContrasena();
+    limContrasena.reiniciar();
+    // La copia sale de NUESTRAS carpetas por su nombre (patrón exacto): nunca una ruta recibida de la interfaz.
+    let ruta: string | null = null, carpeta = '';
+    for (const c of carpetasDeCopias()) { try { ruta = rutaDeCopia(c, nombre); carpeta = c; break; } catch { /* siguiente carpeta */ } }
+    if (!ruta) throw err('Esa copia no existe en la carpeta de copias.', 'COPIA_NO_ENCONTRADA');
+    const info = describirCopia({ nombre, fecha: new Date(0), meta: listarCopiasCarpeta(carpeta).find(x => x.nombre === nombre)?.meta }, carpeta);
+    if (!info.restaurable) throw err(info.avisoRestauracion!, info.tamano === 0 ? 'COPIA_VACIA' : 'COPIA_MAS_NUEVA');
+    const bytes = leerFicheroCopia(ruta);
+    // Fase 1: descifrar, verificar y abrir (migrando si es anterior). Si algo falla, no se ha tocado nada.
+    let r;
+    try { r = await almacen.prepararRestauracion(bytes, String(contrasenaCopia ?? contrasena)); }
+    catch (e) {
+      if (e instanceof ErrorSpd && e.codigo === COD_CONTRASENA) throw err(contrasenaCopia ? 'La contraseña indicada no abre esa copia.' : 'La copia está protegida con otra contraseña (¿es de antes de cambiarla?). Indica la contraseña que tenía entonces.', 'CONTRASENA_COPIA');
+      if (e instanceof ErrorSpd && e.codigo === 'VERSION_BASE') throw err(e.message, 'COPIA_MAS_NUEVA');
+      throw e;
+    }
+    try {
+      const actual = almacen.db().get<{ n: number; m: number | null }>('SELECT count(*) AS n, max(id) AS m FROM auditoria');
+      const restaurada = r.db.get<{ n: number; m: number | null }>('SELECT count(*) AS n, max(id) AS m FROM auditoria');
+      const perdidas = Math.max(0, Number(actual?.n ?? 0) - Number(restaurada?.n ?? 0));
+      // Fase 2: copia de seguridad del estado actual (para poder deshacer) y sustitución.
+      const previa = await hacerCopia(quien.id, { origen: 'antes_restaurar', motivo: `Antes de restaurar la copia ${nombre}` }, true);
+      await r.aplicar();
+      reiniciarSesion(); limPines.clear();
+      auditarYGuardar({ accion: 'restaurar', entidad: 'copia', entidadId: null, motivo: `Restaurada la copia ${nombre}; estado anterior guardado en ${previa.ruta.split(/[\\/]/).pop()}; ${perdidas} entradas de auditoría posteriores a la copia quedan sólo en la copia previa` }, null);
+      await almacen.flush(true);
+      return {
+        copiaPrevia: previa.ruta.split(/[\\/]/).pop()!, entradasAuditoriaPerdidas: perdidas,
+        aviso: `Copia restaurada. Se ha perdido lo hecho después de ella${perdidas ? ` (${perdidas} entradas de auditoría)` : ''}. Para deshacerlo, restaura «${previa.ruta.split(/[\\/]/).pop()}». Vuelve a iniciar sesión con tu PIN.`,
+      };
+    } finally { r.descartar(); }
   }
 
   // ───────────────────────────── Desbloqueo ─────────────────────────────
@@ -610,10 +680,21 @@ export function crearSistema(opciones: OpcionesSistema): Sistema {
 
     estadoCopias: () => proteger<EstadoCopias>(() => estadoDeCopias(leerAjustes(db()).carpetaCopias ?? null, ahora())),
 
+    listarCopias: () => proteger<CopiaDto[]>(() => {
+      db();
+      exigirSesion('titular', 'farmaceutico');
+      const todas: CopiaDto[] = [];
+      for (const c of carpetasDeCopias()) for (const x of listarCopiasCarpeta(c)) todas.push(describirCopia(x, c));
+      return todas.sort((a, b) => b.fecha.localeCompare(a.fecha));
+    }),
+
+    restaurarCopia: (nombre, contrasena, contrasenaCopia) => proteger(() => restaurar(nombre, contrasena, contrasenaCopia)),
+
     crearCopia: (carpeta) => proteger(async () => {
       db();
       const quien = exigirSesion('titular', 'farmaceutico');
-      return hacerCopia(carpeta, quien.id);
+      void carpeta;   // la carpeta sale SOLO de los ajustes
+      return hacerCopia(quien.id, { origen: 'manual', motivo: 'Copia de seguridad manual' });
     }),
   };
 
@@ -627,7 +708,17 @@ export function crearSistema(opciones: OpcionesSistema): Sistema {
       const r = await recuperacion(clave, nueva, true);
       return { estado: r.estado, aviso: r.aviso ?? '' };
     }),
-    crearCopiaAutomatica: () => proteger(async () => hacerCopia(undefined, null)),
+    crearCopiaAutomatica: () => proteger(async () => hacerCopia(null, { origen: 'automatica', motivo: 'Copia automática diaria' })),
+    crearCopiaPreActualizacion: (v) => proteger(async () => {
+      const ver = String(v ?? '');
+      if (!/^\d+\.\d+\.\d+[0-9A-Za-z.-]*$/.test(ver)) throw err('Versión no válida.', 'VERSION_INVALIDA');
+      const motivo = `Antes de actualizar a v${ver}`;
+      if (!almacen.existe()) return { ruta: null };
+      if (almacen.estaDesbloqueado()) return hacerCopia(sesion?.id ?? null, { origen: 'antes_actualizar', motivo }, true);
+      const destino = opciones.carpetaCopiasPorDefecto;
+      if (!destino) throw err('No hay carpeta donde guardar la copia previa.', 'SIN_CARPETA_COPIAS');
+      return { ruta: crearCopiaFichero(almacen.rutaFichero, destino, ahora(), metaCopia('antes_actualizar', motivo, null)) };
+    }),
     async guardarAhora() { await almacen.flush(); },
   };
 }

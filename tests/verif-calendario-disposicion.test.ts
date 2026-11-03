@@ -66,8 +66,8 @@ function pautaAleatoria(): Pauta {
   if (R() < 0.4) p.vigenteHasta = sumar(desde, ri(0, 200));
   const t = ri(0, 3);
   if (t === 1) { p.patron = 'dias_semana'; const s = new Set<number>(); const k = ri(1, 7); while (s.size < k) s.add(ri(1, 7)); p.diasSemana = [...s].sort(() => R() - 0.5); }
-  if (t === 2) { p.patron = 'cada_n_dias'; p.cadaNDias = ri(1, 40); if (R() < 0.7) p.fechaAncla = sumar(desde, ri(-120, 120)); }
-  if (t === 3) { p.patron = 'ciclo'; p.cicloOn = ri(1, 21); p.cicloOff = ri(0, 14); if (R() < 0.7) p.fechaAncla = sumar(desde, ri(-120, 120)); }
+  if (t === 2) { p.patron = 'cada_n_dias'; p.cadaNDias = ri(1, 40); p.fechaAncla = sumar(desde, ri(-120, 120)); }
+  if (t === 3) { p.patron = 'ciclo'; p.cicloOn = ri(1, 21); p.cicloOff = ri(0, 14); p.fechaAncla = sumar(desde, ri(-120, 120)); }
   return p;
 }
 
@@ -109,7 +109,7 @@ test('aditividad: tomas(a,b) = tomas(a,m) + tomas(m+1,b); unidadesTotales = suma
 test('cruce de años y bisiestos explícitos', () => {
   for (const [a, b] of [['2024-02-27', '2024-03-02'], ['2028-02-27', '2028-03-02'], ['2100-02-27', '2100-03-02'], ['2023-12-30', '2024-01-02'], ['2024-12-31', '2025-12-31'], ['2099-12-31', '2100-12-31']]) {
     for (const patron of ['diario', 'cada_n_dias', 'ciclo', 'dias_semana'] as const) {
-      const p: Pauta = { vigenteDesde: sumar(a, -9), patron, diasSemana: [1, 7], cadaNDias: 3, cicloOn: 2, cicloOff: 3, dosis: [{ momentoId: 1, unidades: 1 }] };
+      const p: Pauta = { vigenteDesde: sumar(a, -9), patron, diasSemana: [1, 7], cadaNDias: 3, cicloOn: 2, cicloOff: 3, fechaAncla: sumar(a, -9), dosis: [{ momentoId: 1, unidades: 1 }] };
       assert.deepEqual(tomasDelPeriodo(p, a, b), refTomas(p, a, b));
     }
   }

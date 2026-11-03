@@ -18,6 +18,7 @@ import type { Aviso } from '../dominio/entrada-envase.ts';
 import type { PropuestaDescripcion } from '../dominio/descripcion-fisica.ts';
 import type { Clasificacion } from '../dominio/aptitud-spd.ts';
 import type { TrazabilidadAlerta } from '../dominio/alertas-calidad.ts';
+import type { VersionPublicada } from '../dominio/actualizaciones.ts';
 import type { TipoCentro, OrigenPaciente, ResumenOrigen } from '../dominio/origen-paciente.ts';
 
 export type { TipoCentro, OrigenPaciente, ResumenOrigen };
@@ -93,6 +94,19 @@ export interface EntradaAuditoriaDto {
   motivo: string | null; resumen: string;
 }
 export interface EstadoCopias { ultima: string | null; atrasada: boolean; carpeta: string | null; total: number }
+export interface CopiaDto {
+  nombre: string; fecha: string; tamano: number;
+  origen: 'automatica' | 'manual' | 'antes_actualizar' | 'antes_restaurar' | 'desconocido';
+  motivo: string | null; versionApp: string | null; esquema: number | null;
+  /** false si la copia es de un esquema posterior al de este programa, está vacía… */
+  restaurable: boolean; avisoRestauracion: string | null;
+}
+export interface ResultadoRestauracion { copiaPrevia: string; entradasAuditoriaPerdidas: number; aviso: string }
+export interface PreferenciasActualizaciones { comprobarAlArrancar: boolean; versionIgnorada: string | null; ultimaComprobacion: string | null; versionActual: string }
+export interface ResultadoBusquedaActualizacion {
+  estado: 'al_dia' | 'sin_instalador' | 'ignorada' | 'pospuesta' | 'cancelada' | 'instalando';
+  versionNueva: string | null; mensaje: string;
+}
 
 export interface ApiSistema {
   estado(): Promise<Resultado<EstadoSistema>>;
@@ -124,6 +138,10 @@ export interface ApiSistema {
   estadoCopias(): Promise<Resultado<EstadoCopias>>;
   /** Copia cifrada en la carpeta de copias (o la indicada). */
   crearCopia(carpeta?: string): Promise<Resultado<{ ruta: string }>>;
+  /** Copias de la carpeta de copias propias, con fecha, versión del programa y motivo. */
+  listarCopias(): Promise<Resultado<CopiaDto[]>>;
+  /** Sólo el titular. Pide la contraseña de la farmacia; `contrasenaCopia` sólo si la copia es de antes de cambiarla. Hace antes una copia del estado actual. */
+  restaurarCopia(nombre: string, contrasena: string, contrasenaCopia?: string): Promise<Resultado<ResultadoRestauracion>>;
 }
 
 // ───────────────────────────── Clínica ─────────────────────────────
@@ -329,6 +347,12 @@ export interface ApiExterna {
   elegirCarpeta(titulo: string): Promise<Resultado<string | null>>;
   /** Genera un QR/DataMatrix como SVG (sin red). */
   codigoSvg(texto: string, simbologia: 'qrcode' | 'datamatrix'): Promise<Resultado<string>>;
+  estadoActualizaciones(): Promise<Resultado<PreferenciasActualizaciones>>;
+  guardarPreferenciasActualizaciones(p: { comprobarAlArrancar?: boolean; versionIgnorada?: string | null }): Promise<Resultado<PreferenciasActualizaciones>>;
+  /** Busca una versión nueva; si la hay, pregunta (diálogo del sistema) y sólo instala si la persona acepta. */
+  buscarActualizaciones(): Promise<Resultado<ResultadoBusquedaActualizacion>>;
+  /** Versiones publicadas con enlace al instalador y su SHA-256 (para volver a una anterior). */
+  listarVersiones(): Promise<Resultado<VersionPublicada[]>>;
 }
 
 export type ApiSpd = ApiSistema & ApiClinica & ApiExterna;

@@ -20,6 +20,7 @@ export const GRUPO_DE_METODO: Record<NombreMetodo, GrupoMetodo> = {
   crearUsuario: 'sistema', obtenerFarmacia: 'sistema', guardarFarmacia: 'sistema', obtenerAjustes: 'sistema',
   guardarAjustes: 'sistema', listarMomentos: 'sistema', guardarMomentos: 'sistema', listarAuditoria: 'sistema',
   verificarAuditoria: 'sistema', estadoCopias: 'sistema', crearCopia: 'sistema', desbloquearConCopia: 'sistema',
+  listarCopias: 'sistema', restaurarCopia: 'sistema',
   // ApiClinica
   panelHoy: 'clinica', listarPacientes: 'clinica', obtenerPaciente: 'clinica', guardarPaciente: 'clinica',
   darDeBajaPaciente: 'clinica', listarCentros: 'clinica', guardarCentro: 'clinica', obtenerOCrearCentro: 'clinica', resumenOrigen: 'clinica', listarContactos: 'clinica',
@@ -35,6 +36,7 @@ export const GRUPO_DE_METODO: Record<NombreMetodo, GrupoMetodo> = {
   // ApiExterna (sólo proceso principal)
   consultarCima: 'externa', listarImpresoras: 'externa', imprimirHtml: 'externa', exportarPdf: 'externa',
   elegirCarpeta: 'externa', codigoSvg: 'externa',
+  estadoActualizaciones: 'externa', guardarPreferenciasActualizaciones: 'externa', buscarActualizaciones: 'externa', listarVersiones: 'externa',
 };
 
 /** Nombres de todos los métodos del contrato. */

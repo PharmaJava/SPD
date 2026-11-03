@@ -141,8 +141,8 @@ test('pauta: textos de varios días, cada N días, ciclo y fracciones', async ()
     return r.pautaVigenteTexto;
   };
   assert.equal(await txt({ patron: 'dias_semana', diasSemana: [1, 3, 5] }, '2026-11-02'), 'lunes, miércoles y viernes: 1 cena');
-  assert.equal(await txt({ patron: 'cada_n_dias', cadaNDias: 3 }, '2026-11-03'), '1 cena, cada 3 días');
-  assert.equal(await txt({ patron: 'ciclo', cicloOn: 21, cicloOff: 7 }, '2026-11-04'), '1 cena, 21 días con toma y 7 de descanso');
+  assert.equal(await txt({ patron: 'cada_n_dias', cadaNDias: 3, fechaAncla: '2026-11-03' }, '2026-11-03'), '1 cena, cada 3 días');
+  assert.equal(await txt({ patron: 'ciclo', cicloOn: 21, cicloOff: 7, fechaAncla: '2026-11-04' }, '2026-11-04'), '1 cena, 21 días con toma y 7 de descanso');
   assert.equal(await txt({ dosis: [{ momentoId: 1, unidades: 0.5 }] }, '2026-11-05'), '0,5 desayuno, a diario');
 });
 
@@ -232,7 +232,7 @@ test('la simulación día a día coincide con diasDeCobertura en una pauta diari
   ];
   const diaria = [{ vigenteDesde: '2026-11-01', patron: 'diario' as const, dosis: [{ momentoId: 1, unidades: 1 }, { momentoId: 3, unidades: 0.5 }] }];
   // «ciclo» con 0 días de descanso fuerza la simulación con el mismo resultado que una pauta diaria.
-  const ciclo = [{ ...diaria[0], patron: 'ciclo' as const, cicloOn: 5, cicloOff: 0 }];
+  const ciclo = [{ ...diaria[0], patron: 'ciclo' as const, cicloOn: 5, cicloOff: 0, fechaAncla: '2026-11-01' }];
   assert.equal(diasCobertura(ciclo, envases, '2026-11-02'), diasCobertura(diaria, envases, '2026-11-02'));
   assert.ok(diasCobertura(diaria, envases, '2026-11-02')! > 10);
 });

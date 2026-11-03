@@ -20,6 +20,9 @@ import {
 } from './impresion.ts';
 import { CSP_IMPRESION } from './seguridad-ventana.ts';
 
+/** Lo que implementa este módulo; las actualizaciones las añade actualizaciones.ts. */
+export type ApiExternaBase = Omit<ApiExterna, 'estadoActualizaciones' | 'guardarPreferenciasActualizaciones' | 'buscarActualizaciones' | 'listarVersiones'>;
+
 export const TIEMPO_IMPRESION_MS = 60_000;
 
 /** Ventana oculta de impresión (envuelve un BrowserWindow). */
@@ -49,7 +52,7 @@ export interface DepsExterno {
 
 const mensaje = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
-export function crearExterno(deps: DepsExterno): ApiExterna {
+export function crearExterno(deps: DepsExterno): ApiExternaBase {
   const conTiempo = <T>(p: Promise<T>, ms: number, texto: string): Promise<T> =>
     new Promise<T>((res, rej) => {
       const t = setTimeout(() => rej(new Error(texto)), ms);

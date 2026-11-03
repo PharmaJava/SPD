@@ -24,7 +24,7 @@
     necesitaBraille: ini?.necesitaBraille ?? false, letraGrande: ini?.letraGrande ?? false, notas: s(ini?.notas),
   });
   // Origen: individual (sin centro) o procedente de un centro. El nombre se autocompleta con los centros ya creados.
-  const centroIni = ini?.centroId != null ? centros.find(c => c.id === ini.centroId) : undefined;
+  const centroIni = untrack(() => ini?.centroId != null ? centros.find(c => c.id === ini.centroId) : undefined);
   let origen = $state<'individual' | 'centro'>(ini?.centroId != null ? 'centro' : 'individual');
   let centroNombre = $state(centroIni?.nombre ?? ''); let centroTipo = $state<TipoCentro>(centroIni?.tipo ?? 'residencia_mayores');
   const elegibles = $derived(centros.filter(c => c.activo || c.id === ini?.centroId));

@@ -7,7 +7,7 @@
  *
  * Reglas:
  *  - Coincidencia: cn+lote, sólo lote (cualquier medicamento) o sólo cn (todos
- *    los lotes). Lote sin distinguir mayúsculas y con trim. Una alerta sin cn
+ *    los lotes). Lote y CN normalizados (claveLote/claveCn): sin separadores, espacios, ceros iniciales ni mayúsculas. Una alerta sin cn
  *    ni lote NO identifica nada: se ignora y se AVISA (nunca se adivina).
  *  - Un CN de la alerta que no se entiende no casa con nada, y se avisa.
  *  - Sólo clasificación LOGÍSTICA: retirar la caja, rehacer un blíster aún no
@@ -63,6 +63,14 @@ export interface TrazabilidadAlerta {
   preparaciones: PreparacionAfectada[];
   /** Pacientes con un blíster ya entregado que usó un envase afectado. */
   pacientesAAvisar: number[];
+  /**
+   * Cajas «aparte» (no emblistables: insulina, jarabes…) afectadas. No pasan por
+   * preparacion_linea; su paciente consta en la propia caja y se AVISA siempre
+   * (puede habérsele entregado ya aparte).
+   */
+  envasesAparte: { envaseId: number; pacienteId: number; estado: string }[];
+  /** true si la alerta es por CN y no hay ninguna caja con ese CN en el sistema (informativo, no es un visto bueno). */
+  sinCajasEnSistema: boolean;
   avisos: string[];
 }
 
@@ -73,13 +81,31 @@ export interface ContextoTrazabilidad {
   entregas: EntregaRef[];
 }
 
+/**
+ * Clave de cruce de un LOTE: mayúsculas, sin espacios ni separadores y sin ceros
+ * iniciales de cada grupo de dígitos («L-01» = «l 1»). NO equipara «L1» con «L10»
+ * ni confunde la O con el 0: un cruce demasiado laxo da alertas falsas.
+ */
 export const claveLote = (l: string | undefined | null): string =>
-  typeof l === 'string' ? l.trim().toUpperCase() : '';
+  typeof l === 'string'
+    ? l.toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/\d+/g, (d) => d.replace(/^0+(?=\d)/, ''))
+    : '';
+
+/**
+ * Clave de cruce de un CN: sólo dígitos (EAN/GTIN → CN, 7 dígitos con control → 6) y sin
+ * ceros iniciales, para que «012345» y «12345» casen. El dígito de control no se valida.
+ */
+export function claveCn(entrada: string | undefined | null): string {
+  if (typeof entrada !== 'string') return '';
+  const n = normalizarCN(entrada);
+  const d = n ?? entrada.replace(/c\.?\s*n\.?/i, '').replace(/\D/g, '');
+  return d.replace(/^0+/, '');
+}
 
 function cnDeAlerta(a: AlertaCalidad): { cn: string | null; malformado: boolean } {
   if (typeof a.cn !== 'string' || a.cn.trim() === '') return { cn: null, malformado: false };
-  const n = normalizarCN(a.cn);
-  return n ? { cn: n, malformado: false } : { cn: null, malformado: true };
+  const k = claveCn(a.cn);
+  return k.length >= 3 && k.length <= 6 ? { cn: k, malformado: false } : { cn: null, malformado: true };
 }
 
 interface IndiceEnvases {
@@ -87,7 +113,7 @@ interface IndiceEnvases {
   porCn: Map<string, Envase[]>;
 }
 
-const cnDeEnvase = (e: Envase): string => normalizarCN(e.cn) ?? e.cn;
+const cnDeEnvase = (e: Envase): string => claveCn(e.cn) || e.cn;
 
 function indexarEnvases(envases: Envase[]): IndiceEnvases {
   const porLote = new Map<string, Envase[]>();
@@ -151,6 +177,9 @@ export function trazabilidadInversa(alertas: AlertaCalidad[], ctx: ContextoTraza
     const r = casar(alerta, idx);
     if (r.aviso) avisos.push(r.aviso);
     const envases = r.envases;
+    const { cn: cnAlerta } = cnDeAlerta(alerta);
+    const sinCajasEnSistema = cnAlerta !== null && !claveLote(alerta.lote) && envases.length === 0;
+    if (sinCajasEnSistema) avisos.push(`Informativo: la alerta ${alerta.referencia} es por CN (${alerta.cn}) y no hay ninguna caja con ese CN en el sistema. Revisa las existencias físicas por si hubiera cajas sin registrar.`);
     const envasesARetirar = envases.filter((e) => e.estado === 'en_uso').map((e) => e.id);
 
     const porPrep = new Map<number, Set<number>>();
@@ -191,7 +220,19 @@ export function trazabilidadInversa(alertas: AlertaCalidad[], ctx: ContextoTraza
       });
     }
     preparaciones.sort((a, b) => a.preparacionId - b.preparacionId);
-    const pacientesAAvisar = [...new Set(preparaciones.filter((x) => x.actuacion === 'avisar_paciente_entregado').map((x) => x.pacienteId))].sort((a, b) => a - b);
-    return { alerta, envases, envasesARetirar, preparaciones, pacientesAAvisar, avisos };
+    const envasesAparte: TrazabilidadAlerta['envasesAparte'] = [];
+    for (const e of envases) {
+      if (!e.aparte) continue;
+      if (typeof e.pacienteId !== 'number') {
+        avisos.push(`La caja ${e.id} (lote ${e.lote}) es de medicación «aparte» y no consta de qué paciente es: revisar a mano.`);
+        continue;
+      }
+      envasesAparte.push({ envaseId: e.id, pacienteId: e.pacienteId, estado: e.estado });
+    }
+    const pacientesAAvisar = [...new Set([
+      ...preparaciones.filter((x) => x.actuacion === 'avisar_paciente_entregado').map((x) => x.pacienteId),
+      ...envasesAparte.map((x) => x.pacienteId),
+    ])].sort((a, b) => a - b);
+    return { alerta, envases, envasesARetirar, preparaciones, pacientesAAvisar, envasesAparte, sinCajasEnSistema, avisos };
   });
 }

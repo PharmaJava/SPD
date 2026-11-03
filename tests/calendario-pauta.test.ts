@@ -66,9 +66,15 @@ test('cada 3 días con ancla en el futuro se extiende hacia atrás', () => {
   const p = base({ patron: 'cada_n_dias', cadaNDias: 3, fechaAncla: '2026-01-10' });
   assert.deepEqual(dias(p, '2026-01-01', '2026-01-10'), ['2026-01-01', '2026-01-04', '2026-01-07', '2026-01-10']);
 });
-test('cada_n_dias sin ancla usa vigenteDesde', () => {
-  const p = base({ patron: 'cada_n_dias', cadaNDias: 2, vigenteDesde: '2026-02-01' });
-  assert.deepEqual(dias(p, '2026-02-01', '2026-02-06'), ['2026-02-01', '2026-02-03', '2026-02-05']);
+test('cada_n_dias y ciclo SIN ancla no son válidos (la fase no se adivina)', () => {
+  const c = base({ patron: 'cada_n_dias', cadaNDias: 2, vigenteDesde: '2026-02-01' });
+  assert.ok(validarPauta(c).some((x) => /fechaAncla/.test(x)));
+  assert.throws(() => dias(c, '2026-02-01', '2026-02-06'), /fechaAncla|no válida/);
+  assert.throws(() => diaToca(c, '2026-02-01'), /fechaAncla/);
+  const y = base({ patron: 'ciclo', cicloOn: 2, cicloOff: 1 });
+  assert.ok(validarPauta(y).some((x) => /fechaAncla/.test(x)));
+  assert.throws(() => diaToca(y, '2026-01-01'), /fechaAncla/);
+  assert.deepEqual(validarPauta({ ...c, fechaAncla: '2026-02-01' }), []);
 });
 test('cada_n_dias 0 o sin valor es inválido', () => {
   assert.ok(validarPauta(base({ patron: 'cada_n_dias', cadaNDias: 0 })).length > 0);
@@ -76,12 +82,12 @@ test('cada_n_dias 0 o sin valor es inválido', () => {
   assert.throws(() => diaToca(base({ patron: 'cada_n_dias' }), '2026-01-01'));
 });
 test('cada 1 día equivale a diario', () => {
-  assert.equal(dias(base({ patron: 'cada_n_dias', cadaNDias: 1 }), '2026-01-01', '2026-01-05').length, 5);
+  assert.equal(dias(base({ patron: 'cada_n_dias', cadaNDias: 1, fechaAncla: '2026-01-01' }), '2026-01-01', '2026-01-05').length, 5);
 });
 
 // ---- ciclo
 test('ciclo 21/7 durante 60 días', () => {
-  const p = base({ patron: 'ciclo', cicloOn: 21, cicloOff: 7 });
+  const p = base({ patron: 'ciclo', cicloOn: 21, cicloOff: 7, fechaAncla: '2026-01-01' });
   const t = dias(p, '2026-01-01', '2026-03-01'); // 60 días
   assert.equal(t.length, 21 + 21 + 4); // 1-21 on, 22-28 off, 29-49 on, 50-56 off, 57-60 on
   assert.equal(diaToca(p, '2026-01-21'), true);
@@ -96,7 +102,7 @@ test('ciclo con ancla distinta de vigenteDesde', () => {
   assert.deepEqual(dias(p, '2026-01-01', '2026-01-08'), ['2026-01-01', '2026-01-03', '2026-01-04', '2026-01-06', '2026-01-07']);
 });
 test('ciclo con cicloOff 0 es diario; cicloOn 0 inválido', () => {
-  assert.equal(dias(base({ patron: 'ciclo', cicloOn: 3, cicloOff: 0 }), '2026-01-01', '2026-01-09').length, 9);
+  assert.equal(dias(base({ patron: 'ciclo', cicloOn: 3, cicloOff: 0, fechaAncla: '2026-01-01' }), '2026-01-01', '2026-01-09').length, 9);
   assert.ok(validarPauta(base({ patron: 'ciclo', cicloOn: 0, cicloOff: 7 })).length > 0);
   assert.ok(validarPauta(base({ patron: 'ciclo', cicloOn: 3 })).length > 0);
 });
@@ -118,14 +124,14 @@ test('bisiesto: 29-feb-2028 existe, 29-feb-2027 no', () => {
   assert.throws(() => diaToca(base(), '2027-02-29'));
 });
 test('cada 7 días a través del 29-feb-2028', () => {
-  const p = base({ vigenteDesde: '2028-02-01', patron: 'cada_n_dias', cadaNDias: 7 });
+  const p = base({ vigenteDesde: '2028-02-01', patron: 'cada_n_dias', cadaNDias: 7, fechaAncla: '2028-02-01' });
   assert.deepEqual(dias(p, '2028-02-01', '2028-03-14'), ['2028-02-01', '2028-02-08', '2028-02-15', '2028-02-22', '2028-02-29', '2028-03-07', '2028-03-14']);
 });
 test('cambio de hora (29-mar-2026 y 25-oct-2026) no altera el conteo', () => {
   const p = base();
   assert.equal(dias(p, '2026-03-28', '2026-03-30').length, 3);
   assert.equal(dias(p, '2026-10-24', '2026-10-26').length, 3);
-  const c = base({ patron: 'cada_n_dias', cadaNDias: 2, vigenteDesde: '2026-03-27' });
+  const c = base({ patron: 'cada_n_dias', cadaNDias: 2, vigenteDesde: '2026-03-27', fechaAncla: '2026-03-27' });
   assert.deepEqual(dias(c, '2026-03-27', '2026-04-02'), ['2026-03-27', '2026-03-29', '2026-03-31', '2026-04-02']);
 });
 test('semana de un año a otro conserva lunes=1', () => {
@@ -212,7 +218,7 @@ test('fracciones 0,5 y 0,25 sin error de coma flotante', () => {
   assert.equal(unidadesTotales(base({ dosis: [{ momentoId: 1, unidades: 0.25 }] }), '2026-01-01', '2026-01-03'), 0.75);
 });
 test('unidades totales con cada 3 días y si_precisa', () => {
-  assert.equal(unidadesTotales(base({ patron: 'cada_n_dias', cadaNDias: 3 }), '2026-01-01', '2026-01-10'), 4);
+  assert.equal(unidadesTotales(base({ patron: 'cada_n_dias', cadaNDias: 3, fechaAncla: '2026-01-01' }), '2026-01-01', '2026-01-10'), 4);
   assert.equal(unidadesTotales(base({ patron: 'si_precisa' }), '2026-01-01', '2026-01-10'), 0);
 });
 
