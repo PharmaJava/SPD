@@ -29,6 +29,8 @@ gestiona su servicio de SPD de principio a fin:
 
 ## Documentación
 
+**¿Eres personal de farmacia?** Empieza por el [Manual de usuario](docs/manual/manual-usuario.md) ([PDF](docs/manual/manual-usuario.pdf), 7 páginas).
+
 | Fichero | Qué contiene |
 |---|---|
 | [docs/01-vision-y-alcance.md](docs/01-vision-y-alcance.md) | Qué es, para quién, qué entra y qué no |
