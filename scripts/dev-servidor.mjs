@@ -71,6 +71,7 @@ function crearExternoDev({ cima, codigos, carpetaImpresos }) {
       if (typeof html !== 'string') return fallo('El HTML a exportar no es texto.');
       return ok({ ruta: guardar(html, nombreSugerido) });
     },
+    async copiarAlPortapapeles() { return fallo('En el servidor de desarrollo no hay portapapeles del sistema.', 'NO_DISPONIBLE'); },
     async elegirCarpeta() { return ok(mkdtempSync(join(baseDatos(), 'spd-carpeta-'))); },
     async codigoSvg(texto, simbologia) {
       if (!codigos) return fallo('Módulo codigos pendiente');

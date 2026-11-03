@@ -84,7 +84,7 @@ function validarPin(p: unknown): string {
 
 export function crearSistema(opciones: OpcionesSistema): Sistema {
   const ahora = opciones.ahora ?? (() => new Date());
-  const version = opciones.version ?? '1.0.0';
+  const version = opciones.version ?? '1.0.1';
   const almacen = crearAlmacen({
     rutaDatos: opciones.rutaDatos, wasmPath: opciones.wasmPath, ahora, debounceMs: opciones.debounceMs,
     temporizador: opciones.temporizador, alError: opciones.alError, kdf: opciones.kdf,

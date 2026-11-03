@@ -35,7 +35,7 @@ export const GRUPO_DE_METODO: Record<NombreMetodo, GrupoMetodo> = {
   registrarDocumentoFirmado: 'clinica', revocarDocumento: 'clinica', estadoConsentimientos: 'clinica',
   // ApiExterna (sólo proceso principal)
   consultarCima: 'externa', listarImpresoras: 'externa', imprimirHtml: 'externa', exportarPdf: 'externa',
-  elegirCarpeta: 'externa', codigoSvg: 'externa',
+  elegirCarpeta: 'externa', codigoSvg: 'externa', copiarAlPortapapeles: 'externa',
   estadoActualizaciones: 'externa', guardarPreferenciasActualizaciones: 'externa', buscarActualizaciones: 'externa', listarVersiones: 'externa',
 };
 

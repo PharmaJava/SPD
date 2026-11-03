@@ -16,7 +16,7 @@ import * as path from 'node:path';
 import { crearServiciosApp } from './servicios.ts';
 import type { ServiciosApp } from './servicios.ts';
 import { registrarIpc } from './ipc.ts';
-import { depsElectron, crearExterno, purgarTemporalesImpresion } from './externo.ts';
+import { depsElectron, crearExterno, fetchExterno, purgarTemporalesImpresion } from './externo.ts';
 import { CSP_INTERFAZ, decidirApertura, esRecursoDeInterfaz, esUrlInterfaz } from './seguridad-ventana.ts';
 import { crearVigilanteInactividad } from './inactividad.ts';
 import type { Vigilante } from './inactividad.ts';
@@ -115,7 +115,7 @@ async function arrancar(): Promise<void> {
   const padre = () => (ventana && !ventana.isDestroyed() ? ventana : undefined);
   const caja = (o: Electron.MessageBoxOptions) => (padre() ? dialog.showMessageBox(padre()!, o) : dialog.showMessageBox(o));
   const actualizador = crearActualizador({
-    fetch: ((url: string, init: unknown) => electron.net.fetch(url, init as RequestInit)) as never,
+    fetch: fetchExterno(electron) as never,
     plataforma: process.platform, versionActual: app.getVersion(), registrar,
     prefs: {
       leer: async () => { try { return JSON.parse(await fs.readFile(rutaPrefs, 'utf8')); } catch { return null; } },

@@ -44,6 +44,8 @@ export interface DepsExterno {
   mostrarGuardar(o: { titulo: string; rutaSugerida: string; filtros: { name: string; extensions: string[] }[] }): Promise<{ cancelado: boolean; ruta?: string }>;
   mostrarCarpeta(titulo: string): Promise<{ cancelado: boolean; ruta?: string }>;
   carpetaDocumentos(): string;
+  /** Escribe en el portapapeles del sistema. */
+  copiar?(texto: string): void;
   fetch?: FetchLike;
   fs: {
     crearCarpetaTemporal(): Promise<string>;
@@ -81,6 +83,12 @@ export function crearExterno(deps: DepsExterno): ApiExternaBase {
   }
 
   return {
+    async copiarAlPortapapeles(texto) {
+      if (typeof texto !== 'string' || texto.length === 0 || texto.length > 5000) return fallo('Texto no válido para copiar.', 'TEXTO_NO_VALIDO');
+      if (!deps.copiar) return fallo('Este equipo no permite copiar desde el programa.', 'NO_DISPONIBLE');
+      try { deps.copiar(texto); return ok(null); } catch (e) { return fallo('No se pudo copiar: ' + mensaje(e), 'COPIAR'); }
+    },
+
     async consultarCima(cn) {
       try { return await consultarCima(cn, deps.fetch ? { fetch: deps.fetch } : {}); }
       catch (e) { return ok({ disponible: false, aviso: 'No se pudo consultar CIMA: ' + mensaje(e) }); }
@@ -152,6 +160,12 @@ type ModuloElectron = typeof import('electron');
  * Conecta `DepsExterno` con Electron. `electron` se pasa desde main.ts (no se importa aquí: así este fichero se
  * puede cargar en pruebas sin Electron). `ventanaPrincipal` sirve de padre de los diálogos.
  */
+/** `fetch` para CIMA y actualizaciones: sesión propia, sin los filtros de la ventana, con el proxy del sistema. */
+export function fetchExterno(electron: ModuloElectron): FetchLike {
+  const ses = electron.session.fromPartition('spd-red-externa');
+  return ((url: string, init: unknown) => ses.fetch(url, init as RequestInit)) as unknown as FetchLike;
+}
+
 export function depsElectron(
   electron: ModuloElectron,
   node: { os: typeof import('node:os'); fs: typeof import('node:fs/promises'); path: typeof import('node:path') },
@@ -159,7 +173,7 @@ export function depsElectron(
   /** Carpeta de documentos temporales de impresión (dentro de userData) y estado del bloqueo. */
   impresion: { carpeta: string; estaDesbloqueado: () => boolean },
 ): DepsExterno {
-  const { BrowserWindow: BW, dialog, app, net, session } = electron;
+  const { BrowserWindow: BW, dialog, app, session, clipboard } = electron;
   const sesionImpresion = () => {
     const s = session.fromPartition('spd-impresion');
     s.webRequest.onHeadersReceived((d, cb) => cb({ responseHeaders: { ...d.responseHeaders, 'Content-Security-Policy': [CSP_IMPRESION] } }));
@@ -208,8 +222,10 @@ export function depsElectron(
       return { cancelado: r.canceled, ruta: r.filePaths[0] };
     },
     carpetaDocumentos: () => app.getPath('documents'),
-    // net.fetch respeta el proxy del sistema (habitual en redes de farmacia); es el mismo contrato que fetch.
-    fetch: ((url, init) => net.fetch(url, init as RequestInit)) as FetchLike,
+    copiar: (t) => clipboard.writeText(t),
+    // Sesión APARTE para la red del programa: la sesión por defecto cancela toda petición que no sea la interfaz
+    // (seguridad-ventana), y con ella CIMA y las actualizaciones fallaban siempre. Respeta el proxy del sistema.
+    fetch: fetchExterno(electron),
     fs: {
       crearCarpetaTemporal: async () => {
         await node.fs.mkdir(impresion.carpeta, { recursive: true, mode: 0o700 });

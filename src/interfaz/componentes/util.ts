@@ -86,6 +86,8 @@ export function fortaleza(p: string): { nivel: number; texto: string } {
   return { nivel: n, texto: ['Muy débil', 'Débil', 'Aceptable', 'Buena', 'Muy buena'][n]! };
 }
 export async function copiarTexto(t: string): Promise<boolean> {
+  // Primero el portapapeles del sistema (el programa no da permiso de portapapeles a la página).
+  try { const r = await window.spd.copiarAlPortapapeles(t); if (r.ok) return true; } catch { /* sigue con el respaldo */ }
   try { await navigator.clipboard.writeText(t); return true; } catch {
     const ta = document.createElement('textarea'); ta.value = t; ta.style.position = 'fixed'; ta.style.opacity = '0';
     document.body.appendChild(ta); ta.select();

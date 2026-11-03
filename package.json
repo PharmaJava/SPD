@@ -1,6 +1,6 @@
 {
   "name": "spd",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "Gestión de Sistemas Personalizados de Dosificación para oficinas de farmacia (Windows)",
   "type": "module",

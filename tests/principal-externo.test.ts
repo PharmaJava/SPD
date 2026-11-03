@@ -143,3 +143,26 @@ test('consultarCima: usa el fetch inyectado y devuelve disponible:false si no ha
   assert.ok(r.ok && !r.datos.disponible);
   assert.equal(url, 'https://cima.aemps.es/cima/rest/medicamento?cn=654321');
 });
+
+test('copiarAlPortapapeles: escribe el texto, rechaza vacío o enorme y avisa si no hay portapapeles', async () => {
+  const copiados: string[] = [];
+  const { api } = doble({ copiar: (t: string) => { copiados.push(t); } } as never);
+  // `doble` no reenvía `copiar`: se prueba con una API propia para no tocar el doble común.
+  assert.equal((await api.copiarAlPortapapeles('x')).ok, false);
+  const deps = { estaDesbloqueado: () => true, crearVentanaImpresion: () => { throw new Error('no'); }, impresoras: async () => [], mostrarGuardar: async () => ({ cancelado: true }), mostrarCarpeta: async () => ({ cancelado: true }), carpetaDocumentos: () => '/d', fs: { crearCarpetaTemporal: async () => '/t', escribir: async () => {}, borrarCarpeta: async () => {} }, unir: (...p: string[]) => p.join('/'), copiar: (t: string) => { copiados.push(t); } } as unknown as DepsExterno;
+  const a = crearExterno(deps);
+  assert.deepEqual(await a.copiarAlPortapapeles('boarding87@gmail.com'), { ok: true, datos: null });
+  assert.deepEqual(copiados, ['boarding87@gmail.com']);
+  assert.equal((await a.copiarAlPortapapeles('')).ok, false);
+  assert.equal((await a.copiarAlPortapapeles('x'.repeat(5001))).ok, false);
+  assert.equal(copiados.length, 1);
+});
+
+test('la red de CIMA y de las actualizaciones usa una sesión propia, no la que cancela peticiones', async () => {
+  const { readFileSync } = await import('node:fs');
+  const ext = readFileSync(new URL('../src/principal/externo.ts', import.meta.url), 'utf8');
+  const main = readFileSync(new URL('../src/principal/main.ts', import.meta.url), 'utf8');
+  assert.match(ext, /fromPartition\('spd-red-externa'\)/);
+  assert.ok(!/net\.fetch/.test(ext.replace(/\/\/.*$/gm, '')), 'externo.ts no debe usar net.fetch (sesión por defecto)');
+  assert.ok(!/net\.fetch/.test(main.replace(/\/\/.*$/gm, '')), 'main.ts no debe usar net.fetch (sesión por defecto)');
+});

@@ -217,8 +217,8 @@
   const TEXTO_DONACION = 'Apoya el software gratuito con una donación por PayPal a boarding87@gmail.com';
   let copiadoDon = $state(false);
   async function copiarDonacion() {
-    try { await navigator.clipboard.writeText('boarding87@gmail.com'); copiadoDon = true; setTimeout(() => (copiadoDon = false), 3000); }
-    catch { avisar('No se pudo copiar: selecciona el texto y cópialo con Ctrl+C.', 'atencion', 5000); }
+    if (await copiarTexto('boarding87@gmail.com')) { copiadoDon = true; setTimeout(() => (copiadoDon = false), 3000); }
+    else avisar('No se pudo copiar: selecciona el texto y cópialo con Ctrl+C.', 'atencion', 5000);
   }
   let sistema = $state<EstadoSistema | null>(null);
   $effect(() => { if (activa === 'acerca' && !sistema) spd.estado().then(r => { if (r.ok) sistema = r.datos; }); });

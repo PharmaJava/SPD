@@ -369,6 +369,8 @@ export interface ApiExterna {
   /** Guarda el HTML como PDF en la ruta elegida por el usuario (diálogo). */
   exportarPdf(html: string, nombreSugerido: string, opciones?: { anchoMm?: number; altoMm?: number }): Promise<Resultado<{ ruta: string } | null>>;
   elegirCarpeta(titulo: string): Promise<Resultado<string | null>>;
+  /** Copia un texto corto al portapapeles del sistema (la interfaz no tiene permiso de portapapeles propio). */
+  copiarAlPortapapeles(texto: string): Promise<Resultado<null>>;
   /** Genera un QR/DataMatrix como SVG (sin red). */
   codigoSvg(texto: string, simbologia: 'qrcode' | 'datamatrix'): Promise<Resultado<string>>;
   estadoActualizaciones(): Promise<Resultado<PreferenciasActualizaciones>>;
