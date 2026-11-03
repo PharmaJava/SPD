@@ -76,7 +76,7 @@
               <td class="mono nowrap">{fecha(e.caducidad)} {#if cad}<span class="etiqueta {cad.clase}">{cad.texto}</span>{/if}</td>
               <td class="derecha mono nowrap">{e.unidadesRestantes} de {e.unidadesInicio}</td>
               <td class="suave nowrap">{fecha(e.recibidoEn)}</td>
-              <td class="derecha"><button class="btn mini" type="button" onclick={() => pedirCierre(e)}>Cerrar caja</button></td>
+              <td class="derecha"><button class="btn mini" type="button" onclick={() => pedirCierre(e)} aria-label="Cerrar la caja de {e.medicamentoNombre}, lote {e.lote}">Cerrar caja</button></td>
             </tr>
           {/each}
         </tbody>

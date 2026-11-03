@@ -4,6 +4,7 @@
   import Campo from '../componentes/Campo.svelte';
   import Aviso from '../componentes/Aviso.svelte';
   import Icono from '../componentes/Icono.svelte';
+  import ClaveGrupos from '../componentes/ClaveGrupos.svelte';
   import EditorMomentos, { type FilaMomento } from '../componentes/EditorMomentos.svelte';
   import { COMUNIDADES, copiarTexto, fortaleza, inicialesDe, avisar } from '../componentes/util.ts';
 
@@ -161,7 +162,7 @@
         <div class="zona-impresion">
           <h1>Clave de recuperación</h1>
           <Aviso tipo="atencion" titulo="Se muestra una sola vez">Esta clave es la <strong>única forma de recuperar los datos</strong> si olvidas la contraseña. Imprímela y guárdala fuera de este ordenador (caja fuerte, sobre cerrado). No la guardes en el mismo equipo.</Aviso>
-          <div class="clave" aria-label="Clave de recuperación">{#each grupos as g, i}<span><small class="suave" style="font-size:.6rem;display:block">{i + 1}</small>{g}</span>{/each}</div>
+          <ClaveGrupos {grupos} />
           <div class="fila" style="margin-top:1rem; align-items:flex-start">
             {#if qr}<div class="qr" aria-label="Código QR de la clave">{@html qr}</div>{/if}
             <p class="suave pequeno" style="flex:1">El código QR contiene la misma clave por si prefieres guardarla en una aplicación de autenticación de confianza. <strong>Farmacia:</strong> {f.nombre} · {new Date().toLocaleDateString('es-ES')}</p>

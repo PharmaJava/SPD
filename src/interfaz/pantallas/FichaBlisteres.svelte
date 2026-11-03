@@ -55,8 +55,8 @@
             <td class="nowrap">{fecha(p.caducidadSpd)}{#if p.fueraDeEstandar} <span class="etiqueta atencion">ampliada</span>{/if}</td>
             <td><span class="etiqueta {e.c}">{e.t}</span></td>
             <td class="derecha nowrap">
-              {#if p.estado !== 'anulado'}<button class="btn mini" type="button" onclick={() => abrir(p)}>{p.estado === 'validado' || p.estado === 'entregado' ? 'Abrir y reimprimir' : 'Abrir'}</button>{/if}
-              {#if p.estado !== 'anulado' && p.estado !== 'entregado'}<button class="btn mini peligro" type="button" onclick={() => pedirAnular(p)}>Anular</button>{/if}
+              {#if p.estado !== 'anulado'}<button class="btn mini" type="button" onclick={() => abrir(p)} aria-label="{p.estado === 'validado' || p.estado === 'entregado' ? 'Abrir y reimprimir' : 'Abrir'} el blíster {corto(p.idPublico)}">{p.estado === 'validado' || p.estado === 'entregado' ? 'Abrir y reimprimir' : 'Abrir'}</button>{/if}
+              {#if p.estado !== 'anulado' && p.estado !== 'entregado'}<button class="btn mini peligro" type="button" onclick={() => pedirAnular(p)} aria-label="Anular el blíster {corto(p.idPublico)}">Anular</button>{/if}
             </td>
           </tr>
         {/each}

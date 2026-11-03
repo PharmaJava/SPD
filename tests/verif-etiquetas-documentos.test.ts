@@ -14,7 +14,7 @@ import {
   type Plantilla, type Plancha, type Bloque,
 } from '../src/dominio/etiquetas.ts';
 import {
-  renderizarDocumento, estadoConsentimientos, variablesDe, VARIABLES_DOCUMENTO,
+  renderizarDocumento, estadoConsentimientos, variablesDe, VARIABLES_DOCUMENTO, VARIABLES_OPCIONALES,
   type ValorDocumento,
 } from '../src/dominio/documentos.ts';
 
@@ -541,7 +541,7 @@ describe('documentos: plantillas reales', () => {
     });
     test(`${f}: con una variable menos => faltan, marcador, no definitivo`, () => {
       for (const v of variablesDe(txt)) {
-        if (v === 'motivo') continue;
+        if (VARIABLES_OPCIONALES.includes(v)) continue;     // motivo y DPD: opcionales a propósito (tests/correcciones-funcionales)
         const d = datosCompletos();
         delete d[v];
         const r = renderizarDocumento(txt, d);

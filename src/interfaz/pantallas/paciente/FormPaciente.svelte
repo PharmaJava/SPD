@@ -9,8 +9,8 @@
   import type { TipoCentro } from '../../../dominio/origen-paciente.ts';
 
   // Formulario por secciones: alta y edición de un paciente.
-  let { inicial, centros, onguardado, oncancelar }: {
-    inicial?: PacienteDto; centros: CentroDto[]; onguardado: (p: PacienteDto) => void; oncancelar?: () => void;
+  let { inicial, centros, onguardado, oncancelar, sucio = $bindable(false) }: {
+    inicial?: PacienteDto; centros: CentroDto[]; onguardado: (p: PacienteDto) => void; oncancelar?: () => void; sucio?: boolean;
   } = $props();
 
   const ini = untrack(() => inicial);
@@ -30,6 +30,10 @@
   const elegibles = $derived(centros.filter(c => c.activo || c.id === ini?.centroId));
   const igual = $derived(origen === 'centro' ? buscarCentroIgual(elegibles, centroNombre) : undefined);
   const sugeridos = $derived(sugerirCentros(elegibles, centroNombre));
+  // ¿Hay cambios sin guardar? (quien lo aloja pregunta antes de descartarlos)
+  const huella = () => JSON.stringify([$state.snapshot(p), origen, centroNombre.trim(), centroTipo]);
+  const huellaInicial = huella();
+  $effect(() => { sucio = huella() !== huellaInicial; });
   let err = $state<Record<string, string>>({}); let ocupado = $state(false); let general = $state<string | null>(null);
 
   async function guardar() {
@@ -111,6 +115,11 @@
           {#if err.centroNombre}<div class="error-texto" role="alert">{err.centroNombre}</div>
           {:else if igual}<div class="ayuda">Se usará el centro ya registrado «{igual.nombre}» ({ETIQUETA_TIPO_CENTRO[igual.tipo]}).</div>
           {:else if centroNombre.trim()}<div class="ayuda">Centro nuevo: se creará al guardar.</div>{/if}
+          <div class="solo-lectores" role="status" aria-live="polite">{igual ? `Se usará el centro ya registrado ${igual.nombre}.` : centroNombre.trim() ? (sugeridos.length ? `Hay ${sugeridos.length} ${sugeridos.length === 1 ? 'centro parecido' : 'centros parecidos'}.` : 'Centro nuevo: se creará al guardar.') : ''}</div>
+          {#if !igual && centroNombre.trim() && sugeridos.length}
+            <div class="ayuda">¿Es uno de estos centros ya registrados?
+              {#each sugeridos.slice(0, 4) as c (c.id)}<button type="button" class="btn enlace" onclick={() => { centroNombre = c.nombre; centroTipo = c.tipo; }}>{c.nombre}</button>{/each}</div>
+          {/if}
         </div>
         <Campo etiqueta="Habitación o planta" bind:valor={p.habitacion} />
       {/if}

@@ -57,11 +57,23 @@
   const puedeGuardar = $derived(!faltanCampos && !!resultado && !hayBloqueos && !comprobando && !guardando && !ambiguas);
   const tratamientoActual = $derived(tratamientos.find(t => t.id === tratamientoId));
 
+  /**
+   * El lote se guarda en MAYÚSCULAS y sin espacios sobrantes (lo que se ve en el campo es lo que se guarda).
+   * Si lo leyó el lector del DataMatrix se respeta tal cual (sólo se recortan los extremos): ahí el lote es el del código y cambiarlo
+   * rompería la coincidencia con la caja.
+   */
+  const normalizarLote = (v: string) => (lectura ? v.trim() : v.trim().replace(/\s+/g, ' ').toUpperCase());
+  function alLote(e: Event) {
+    if (lectura) return;
+    const el = e.currentTarget as HTMLInputElement; const pos = el.selectionStart;
+    const mayus = el.value.toUpperCase();
+    if (mayus !== el.value) { el.value = mayus; lote = mayus; try { el.setSelectionRange(pos, pos); } catch { /* sin selección */ } }
+  }
   function parametros(): EntradaEnvaseParams | null {
     if (!paciente || !cn6) return null;
     return {
       pacienteId: paciente.id, tratamientoId: tratamientoId === '' ? null : tratamientoId,
-      cn: cn.trim(), lote: lote.trim() || undefined, caducidad: caducidad.trim() || undefined,
+      cn: cn.trim(), lote: normalizarLote(lote) || undefined, caducidad: caducidad.trim() || undefined,
       numeroSerie: serie.trim() || undefined, lecturaDatamatrix: lectura || undefined,
       unidades: unidadesOk ? unidades : 0,
     };
@@ -291,7 +303,7 @@
           <input id="unidades" bind:this={campoUnidades} value={unidadesTexto} oninput={(e) => { unidadesTxt = e.currentTarget.value; unidadesEditadas = true; }} onkeydown={enterUnidades} inputmode="numeric" autocomplete="off" class="mono" data-prueba="unidades" />
           {#if medicamento?.unidadesEnvase}<span class="ayuda">Del medicamento: {medicamento.unidadesEnvase}</span>{/if}</div>
         <div class="campo campo-grande"><label for="lote">Lote <span class="suave">(obligatorio)</span></label>
-          <input id="lote" bind:this={campoLote} bind:value={lote} onkeydown={pasarA(() => campoCaducidad)} autocomplete="off" spellcheck="false" style="text-transform:uppercase" data-prueba="lote" /></div>
+          <input id="lote" bind:this={campoLote} bind:value={lote} oninput={alLote} onblur={() => { lote = normalizarLote(lote); }} onkeydown={pasarA(() => campoCaducidad)} autocomplete="off" spellcheck="false" data-prueba="lote" /></div>
         <div class="campo campo-grande"><label for="caducidad">Caducidad <span class="suave">(obligatoria)</span></label>
           <input id="caducidad" bind:this={campoCaducidad} value={caducidad} oninput={alCaducidad} onkeydown={pasarA(() => campoUnidades)} inputmode="numeric" placeholder="MM/AAAA" autocomplete="off" class="mono" data-prueba="caducidad" />
           <span class="ayuda">Escribe mes y año (12/2028) o la fecha completa (2028-12-31).</span></div>

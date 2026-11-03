@@ -74,8 +74,15 @@
       activo = otro?.tratamientoId ?? id;
     }
   }
-  function marcarSiguiente() {
+  // Un doble clic (o una tecla que se repite) no puede marcar dos alvéolos: cada puesto se pone con las manos, no cabe otro marcado en medio segundo.
+  let ultimoMarcado = 0;
+  function marcarSiguiente(e?: Event) {
+    if (e instanceof KeyboardEvent && e.repeat) return;
+    if (e instanceof MouseEvent && e.detail > 1) return;
+    const ahora = performance.now();
+    if (ahora - ultimoMarcado < 500) return;
     const s = siguiente; if (!s) return;
+    ultimoMarcado = ahora;
     hechosLista = [...hechosLista, s.clave];
     avanzarSiCompleto(s.tratamientoId);
   }
@@ -120,7 +127,7 @@
     const t = e.target as HTMLElement | null;
     if (t && t.closest('input,textarea,select,button,a,dialog')) return;
     if (/^[1-9]$/.test(e.key)) { const m = evaluacion.leyenda[+e.key - 1]; if (m) { e.preventDefault(); elegir(m.tratamientoId); } }
-    else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); marcarSiguiente(); }
+    else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); marcarSiguiente(e); }
     else if (e.key === 'Backspace') { e.preventDefault(); deshacer(); }
   }
 
@@ -164,7 +171,7 @@
           <div class="grande">Pon {unidades(siguiente.unidades)} de {medActivo.nombre}</div>
           <div>en <strong>{textoSig}</strong>{#if siguiente.lote}&nbsp;· de la caja con lote <strong>{siguiente.lote}</strong>{/if}</div>
         </div>
-        <button class="btn principal grande" type="button" onclick={marcarSiguiente} data-prueba="marcar-siguiente">Ya está puesto <span class="atajo">Intro</span></button>
+        <button class="btn principal grande" type="button" onclick={(e) => marcarSiguiente(e)} data-prueba="marcar-siguiente">Ya está puesto <span class="atajo">Intro</span></button>
       </div>
     {:else if medActivo && progreso[medActivo.tratamientoId]?.total}
       {#if !aviso}<Nota gravedad="ok">{medActivo.nombre} está completo.</Nota>{/if}

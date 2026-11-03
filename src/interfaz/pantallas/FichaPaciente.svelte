@@ -8,6 +8,7 @@
   import Aviso from '../componentes/Aviso.svelte';
   import Pestanas from '../componentes/Pestanas.svelte';
   import Icono from '../componentes/Icono.svelte';
+  import NoEncontrado from './NoEncontrado.svelte';
   import Resumen from './paciente/Resumen.svelte';
   import Datos from './paciente/Datos.svelte';
   import Tratamientos from './paciente/Tratamientos.svelte';
@@ -20,13 +21,13 @@
 
   let { id, pestana }: { id: number; pestana?: string; rol?: RolUsuario } = $props();
 
-  let paciente = $state<PacienteDto | null>(null); let error = $state<string | null>(null);
+  let paciente = $state<PacienteDto | null>(null); let error = $state<string | null>(null); let sinConexion = $state(false);
   let salud = $state<SaludDatoDto[]>([]); let contactos = $state<ContactoDto[]>([]); let centros = $state<CentroDto[]>([]);
   let tratamientos = $state<TratamientoDto[] | null>(null); let consent = $state<EstadoConsentimientosDto | null>(null); let momentos = $state<MomentoTomaDto[]>([]);
 
   async function cargar() {
     const [p, s, c, t, co, ce, m] = await Promise.all([spd.obtenerPaciente(id), spd.listarSalud(id), spd.listarContactos(id), spd.listarTratamientos(id), spd.estadoConsentimientos(id), spd.listarCentros(), spd.listarMomentos()]);
-    if (!p.ok) { error = mensajeError(p); return; }
+    if (!p.ok) { error = mensajeError(p); sinConexion = p.codigo === 'SIN_CONEXION'; return; }
     paciente = p.datos; error = null;
     if (s.ok) salud = s.datos; if (c.ok) contactos = c.datos; if (t.ok) tratamientos = t.datos; if (co.ok) consent = co.datos; if (ce.ok) centros = ce.datos; if (m.ok) momentos = m.datos;
   }
@@ -50,7 +51,9 @@
   const contador = $derived((tratamientos ?? []).filter(t => !t.finalizadoEn).length);
 </script>
 
-{#if error}
+{#if error && !sinConexion}
+  <NoEncontrado mensaje={error} />
+{:else if error}
   <Aviso tipo="bloqueo" titulo="No se ha podido abrir el paciente">{error}</Aviso><button class="btn" onclick={() => ir('pacientes')}>Volver a pacientes</button>
 {:else if !paciente}<Cargando />
 {:else}

@@ -17,6 +17,8 @@
   // Origen: '' = todos · 'individual' · 'tipo:<tipo>' (cualquier centro de ese tipo)
   let origen = $state(''); let resumen = $state<ResumenOrigen | null>(null); let verResumen = $state(false);
   let seq = 0; let temp: ReturnType<typeof setTimeout> | undefined;
+  let dlgNuevo: { pedirCerrar: () => void } | undefined = $state(); let sucioNuevo = $state(false);
+  $effect(() => { if (!nuevo) sucioNuevo = false; });
 
   async function cargar() {
     const mi = ++seq;
@@ -41,14 +43,18 @@
   <button class="btn principal" onclick={() => (nuevo = true)}><Icono n="mas" />Nuevo paciente</button>
 </div>
 
-<div class="herramientas">
-  <input class="grande" type="search" bind:value={texto} oninput={alEscribir} placeholder="Buscar por nombre o DNI" aria-label="Buscar paciente" />
-  <select bind:value={estado} aria-label="Estado"><option value="activo">Activos</option><option value="pausado">Pausados</option><option value="baja">De baja</option><option value="todos">Todos</option></select>
-  <select bind:value={origen} aria-label="Origen del paciente">
-    <option value="">Todos los orígenes</option><option value="individual">Individuales</option><option value="centros">Procedentes de centro</option>
-    {#each TIPOS_CENTRO as t (t)}<option value={'tipo:' + t}>{ETIQUETA_TIPO_CENTRO[t]}</option>{/each}
-  </select>
-  {#if centros.length}<select bind:value={centro} aria-label="Centro"><option value="">Todos los centros</option>{#each centros as c (c.id)}<option value={String(c.id)}>{c.nombre}</option>{/each}</select>{/if}
+<div class="filtros" role="search" aria-label="Filtros de pacientes">
+  <div class="campo" style="flex:1 1 280px;max-width:420px"><label for="f-pac-texto">Buscar</label>
+    <input id="f-pac-texto" class="grande" type="search" bind:value={texto} oninput={alEscribir} placeholder="Nombre o DNI" autocomplete="off" /></div>
+  <div class="campo"><label for="f-pac-estado">Estado</label>
+    <select id="f-pac-estado" bind:value={estado}><option value="activo">Activos</option><option value="pausado">Pausados</option><option value="baja">De baja</option><option value="todos">Todos</option></select></div>
+  <div class="campo"><label for="f-pac-origen">Origen</label>
+    <select id="f-pac-origen" bind:value={origen}>
+      <option value="">Todos los orígenes</option><option value="individual">Individuales</option><option value="centros">Procedentes de centro</option>
+      {#each TIPOS_CENTRO as t (t)}<option value={'tipo:' + t}>{ETIQUETA_TIPO_CENTRO[t]}</option>{/each}
+    </select></div>
+  {#if centros.length}<div class="campo"><label for="f-pac-centro">Centro</label>
+    <select id="f-pac-centro" bind:value={centro}><option value="">Todos los centros</option>{#each centros as c (c.id)}<option value={String(c.id)}>{c.nombre}</option>{/each}</select></div>{/if}
 </div>
 
 <div class="fila" style="margin-bottom:.6rem"><button class="btn enlace" onclick={() => (verResumen = !verResumen)} aria-expanded={verResumen}>{verResumen ? 'Ocultar' : 'Ver'} resumen por origen</button></div>
@@ -81,12 +87,13 @@
 {:else}
   <div class="tarjeta" style="padding:0; overflow:auto">
     <table class="tabla">
+      <caption class="solo-lectores">Lista de pacientes. Pulsa el nombre para abrir la ficha.</caption>
       <thead><tr><th>Paciente</th><th>Origen / habitación</th><th>Alergias</th><th>Consentimiento</th><th>Cobertura</th><th>Próxima preparación</th></tr></thead>
       <tbody>
         {#each lista as p (p.id)}
           {@const cob = coberturaVista(p.coberturaDias)}
-          <tr class="clicable" tabindex="0" onclick={() => ir(`pacientes/${p.id}`)} onkeydown={(e) => { if (e.key === 'Enter') ir(`pacientes/${p.id}`); }}>
-            <td class="nombre">{p.nombreCompleto}{#if p.estado !== 'activo'} <span class="etiqueta atencion">{ESTADOS_PACIENTE[p.estado]}</span>{/if}</td>
+          <tr class="clicable" onclick={(e) => { if (!(e.target as HTMLElement).closest('a,button')) ir(`pacientes/${p.id}`); }}>
+            <td class="nombre"><a class="enlace-fila" href="#/pacientes/{p.id}" onkeydown={(e) => { if (e.key === ' ') { e.preventDefault(); ir(`pacientes/${p.id}`); } }}>{p.nombreCompleto}</a>{#if p.estado !== 'activo'} <span class="etiqueta atencion">{ESTADOS_PACIENTE[p.estado]}</span>{/if}</td>
             <td>{#if p.origen === 'centro'}{p.centro}{#if p.centroTipo} <span class="etiqueta info">{ETIQUETA_TIPO_CENTRO[p.centroTipo]}</span>{/if}{:else}<span class="etiqueta">Individual</span>{/if}{#if p.habitacion} · {p.habitacion}{/if}</td>
             <td>{#if p.alergias.length}<div class="etiquetas">{#each p.alergias as a}<span class="etiqueta alergia">{a}</span>{/each}</div>{:else}<span class="suave">—</span>{/if}</td>
             <td>{#if p.consentimientoSpd}<span class="etiqueta ok">Firmado</span>{:else}<span class="etiqueta atencion">Falta</span>{/if}</td>
@@ -100,6 +107,6 @@
   <p class="suave pequeno">{lista.length} {lista.length === 1 ? 'paciente' : 'pacientes'}</p>
 {/if}
 
-<Dialogo abierto={nuevo} titulo="Nuevo paciente" ancho={860} onclose={() => (nuevo = false)}>
-  {#if nuevo}<FormPaciente {centros} oncancelar={() => (nuevo = false)} onguardado={(p) => { nuevo = false; ir(`pacientes/${p.id}`); }} />{/if}
+<Dialogo bind:this={dlgNuevo} abierto={nuevo} titulo="Nuevo paciente" ancho={860} sucio={sucioNuevo} onclose={() => (nuevo = false)}>
+  {#if nuevo}<FormPaciente {centros} bind:sucio={sucioNuevo} oncancelar={() => dlgNuevo?.pedirCerrar()} onguardado={(p) => { sucioNuevo = false; nuevo = false; ir(`pacientes/${p.id}`); }} />{/if}
 </Dialogo>

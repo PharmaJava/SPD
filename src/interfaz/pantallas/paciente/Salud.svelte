@@ -32,11 +32,11 @@
     <table class="tabla"><thead><tr><th>Tipo</th><th>Descripción</th><th>Valor</th><th>Fecha</th><th>Fuente</th><th></th></tr></thead><tbody>
       {#each vigentes as s (s.id)}
         <tr><td><span class="etiqueta" class:alergia={s.tipo === 'alergia'}>{SALUD_TIPOS[s.tipo] ?? s.tipo}</span></td><td class="negrita">{s.descripcion}</td><td>{s.valor ?? ''}</td><td>{fecha(s.fecha)}</td><td>{s.fuente ?? ''}</td>
-          <td class="derecha"><button class="btn enlace" onclick={() => { editando = { ...s }; error = errDesc = null; }}>Editar</button></td></tr>
+          <td class="derecha"><button class="btn enlace" onclick={() => { editando = { ...s }; error = errDesc = null; }} aria-label="Editar: {s.descripcion}">Editar</button></td></tr>
       {/each}
       {#each antiguos as s (s.id)}
         <tr class="suave"><td>{SALUD_TIPOS[s.tipo] ?? s.tipo} <span class="etiqueta">Ya no vigente</span></td><td>{s.descripcion}</td><td>{s.valor ?? ''}</td><td>{fecha(s.fecha)}</td><td>{s.fuente ?? ''}</td>
-          <td class="derecha"><button class="btn enlace" onclick={() => { editando = { ...s }; error = errDesc = null; }}>Editar</button></td></tr>
+          <td class="derecha"><button class="btn enlace" onclick={() => { editando = { ...s }; error = errDesc = null; }} aria-label="Editar: {s.descripcion} (ya no vigente)">Editar</button></td></tr>
       {/each}
     </tbody></table>
   {/if}

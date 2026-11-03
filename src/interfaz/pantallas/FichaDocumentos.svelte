@@ -25,6 +25,23 @@
 
   let revocando = $state<{ id: number; titulo: string } | null>(null); let abiertoRev = $state(false); let motivo = $state(''); let errorRev = $state('');
 
+  // Qué datos faltan y de QUIÉN son (la ruta de cada variable empieza por farmacia., paciente., firmante., autorizado…): cada uno se arregla en un sitio distinto.
+  const NOMBRE_DATO: Record<string, string> = {
+    'farmacia.nombre': 'nombre de la farmacia', 'farmacia.titular': 'titular', 'farmacia.nif': 'NIF', 'farmacia.direccion': 'dirección', 'farmacia.municipio': 'municipio',
+    'farmacia.rgpd_contacto': 'contacto de protección de datos', 'farmacia.rgpd_dpd': 'delegado de protección de datos', 'farmacia.rgpd_responsable': 'responsable del tratamiento',
+    'paciente.nombre_completo': 'nombre del paciente', 'paciente.dni_nie': 'DNI/NIE del paciente',
+    'autorizado.nombre': 'nombre de la persona autorizada', 'autorizado.dni_nie': 'DNI/NIE de la persona autorizada', 'autorizado.parentesco': 'relación de la persona autorizada', 'autorizado.telefono': 'teléfono de la persona autorizada',
+    'firmante.nombre': 'nombre de quien firma', 'firmante.dni_nie': 'DNI/NIE de quien firma', 'firmante.calidad': 'calidad de quien firma',
+  };
+  const dato = (r: string) => NOMBRE_DATO[r] ?? r.replace(/\./g, ': ').replace(/dni_nie/g, 'DNI/NIE').replace(/_/g, ' ');
+  const faltasVista = $derived.by(() => {
+    const f = vista?.faltan ?? [];
+    return {
+      farmacia: f.filter(r => r.startsWith('farmacia.')).map(dato),
+      persona: f.filter(r => /^(paciente|firmante)\./.test(r)).map(dato),
+      otros: f.filter(r => !/^(farmacia|paciente|firmante)\./.test(r)).map(dato),
+    };
+  });
   const claveIds = $derived(`spd.docs.firmados.${pacienteId}`);
   const CALIDADES: { v: Calidad; t: string }[] = [{ v: 'paciente', t: 'El propio paciente' }, { v: 'representante_legal', t: 'Su representante legal' }, { v: 'guardador_de_hecho', t: 'Un guardador de hecho' }];
 
@@ -117,8 +134,8 @@
             <td><span class="etiqueta {ROT[f.situacion].c}">{ROT[f.situacion].t}</span></td>
             <td class="suave">{f.firmado ? `${fechaHora(f.firmado.firmadoEn)} · ${f.firmado.firmante}` : '—'}</td>
             <td class="derecha nowrap">
-              <button class="btn mini" class:principal={f.situacion !== 'vigente'} type="button" onclick={() => abrirDoc(f.p)} data-prueba="doc-{f.p.codigo}">{f.situacion === 'vigente' ? 'Ver' : 'Preparar para firmar'}</button>
-              {#if f.situacion === 'vigente'}<button class="btn mini peligro" type="button" onclick={() => pedirRevocar(f)}>Revocar</button>{/if}
+              <button class="btn mini" class:principal={f.situacion !== 'vigente'} type="button" onclick={() => abrirDoc(f.p)} aria-label="{f.situacion === 'vigente' ? 'Ver' : 'Preparar para firmar'}: {f.p.titulo}" data-prueba="doc-{f.p.codigo}">{f.situacion === 'vigente' ? 'Ver' : 'Preparar para firmar'}</button>
+              {#if f.situacion === 'vigente'}<button class="btn mini peligro" type="button" onclick={() => pedirRevocar(f)} aria-label="Revocar: {f.p.titulo}">Revocar</button>{/if}
             </td>
           </tr>
         {/each}
@@ -148,7 +165,9 @@
   {#if cargandoVista && !vista}<div class="cargando-linea">Preparando el documento…</div>{/if}
   {#if vista}
     {#each vista.avisos as a (a)}<Nota gravedad="atencion">{a}</Nota>{/each}
-    {#if vista.faltan.length}<Nota gravedad="bloqueo">Faltan datos de la farmacia para completar el documento (NIF, contacto de protección de datos…). Complétalos en Ajustes → Farmacia; mientras tanto no se puede registrar la firma.</Nota>{/if}
+    {#if faltasVista.farmacia.length}<Nota gravedad="bloqueo"><strong>Faltan datos de la farmacia:</strong> {faltasVista.farmacia.join(', ')}. Complétalos en Ajustes → Farmacia; mientras tanto no se puede registrar la firma.</Nota>{/if}
+    {#if faltasVista.persona.length}<Nota gravedad="bloqueo"><strong>Faltan datos {calidad === 'paciente' ? 'del paciente' : 'del paciente o de quien firma'}:</strong> {faltasVista.persona.join(', ')}. {calidad === 'paciente' ? 'Complétalos en la pestaña «Datos» de la ficha.' : 'Los del paciente, en la pestaña «Datos»; los de quien firma, escríbelos arriba o elige a la persona entre sus contactos.'}</Nota>{/if}
+    {#if faltasVista.otros.length}<Nota gravedad="bloqueo"><strong>Faltan otros datos del documento:</strong> {faltasVista.otros.join(', ')}. Este documento necesita información que el programa no tiene todavía; no se puede registrar la firma hasta tenerla.</Nota>{/if}
     <div class="tarjeta" style="max-height:46vh;overflow:auto;line-height:1.5" data-prueba="texto-documento">{@html mdBasico(vista.texto)}</div>
   {/if}
   {#snippet pie()}

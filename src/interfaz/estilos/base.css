@@ -28,7 +28,7 @@ a { color: var(--acento); }
 input, select, textarea { font: inherit; min-height: var(--alto-control); padding: .45rem .7rem; color: var(--texto); background: var(--superficie);
   border: 1px solid var(--borde); border-radius: var(--radio-s); width: 100%; }
 textarea { min-height: 84px; }
-input.error, select.error { border-color: var(--bloqueo); }
+input.error, select.error, textarea.error { border-color: var(--bloqueo); box-shadow: 0 0 0 1px var(--bloqueo); }
 .error-texto { color: var(--bloqueo); font-size: .85rem; }
 
 /* Avisos: color + icono + texto, nunca sólo color */

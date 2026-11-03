@@ -179,14 +179,32 @@ export function guardarPauta(ctx: Contexto, tratamientoId: number, pauta: PautaD
         if (!activos.has(d.momentoId)) throw invalido(`El momento «${momentos.get(d.momentoId)!.nombre}» está desactivado.`);
       }
       const previas = db.all<R>('SELECT id, version, vigente_desde, vigente_hasta FROM pauta_version WHERE tratamiento_id = ? ORDER BY version', [tratamientoId]);
-      const posterior = previas.find((v) => v.vigente_desde >= pauta.vigenteDesde);
+      const posterior = previas.find((v) => v.vigente_desde > pauta.vigenteDesde);
       if (posterior) {
         throw invalido(`Ya existe una versión de la pauta que empieza el ${formatoFecha(posterior.vigente_desde)}: la nueva debe empezar después de esa fecha.`);
+      }
+      // Una versión errónea del MISMO día sólo se sustituye con origen «corrección» y su motivo (queda en el historial y en la auditoría).
+      const delMismoDia = previas.filter((v) => v.vigente_desde === pauta.vigenteDesde);
+      const motivoCorreccion = texto(pauta.origenDetalle, 'detalle del origen', 500);
+      if (delMismoDia.length > 0) {
+        if (pauta.origen !== 'correccion') {
+          throw invalido(`Ya existe una versión de la pauta que empieza el ${formatoFecha(pauta.vigenteDesde)}: la nueva debe empezar después de esa fecha, o guárdala como corrección (origen «corrección», con el motivo) si la anterior era un error.`);
+        }
+        if (!motivoCorreccion || motivoCorreccion.length < 5) {
+          throw invalido('Corregir una pauta del mismo día exige explicar el motivo (mínimo 5 caracteres): queda en el historial y en la auditoría.');
+        }
       }
       const version = previas.length === 0 ? 1 : Math.max(...previas.map((v) => v.version as number)) + 1;
       const diaAnterior = sumarDias(pauta.vigenteDesde, -1);
       // Se cierran las versiones anteriores que se solapan: sólo cambia su «vigente_hasta»; patrón y dosis no se tocan.
+      for (const v of delMismoDia) {
+        // La versión errónea NO se borra: queda en el historial pero deja de aplicarse (su último día es el de la corrección, que la tapa).
+        if (v.vigente_hasta !== null && v.vigente_hasta <= v.vigente_desde) continue;
+        db.run('UPDATE pauta_version SET vigente_hasta = ? WHERE id = ?', [v.vigente_desde, v.id]);
+        ctx.auditar({ accion: 'modificar', entidad: 'pauta_version', entidadId: v.id, antes: { vigenteHasta: v.vigente_hasta }, despues: { vigenteHasta: v.vigente_desde }, motivo: `Corregida por la versión ${version}: ${motivoCorreccion}` });
+      }
       for (const v of previas) {
+        if (delMismoDia.includes(v)) continue;
         if (v.vigente_hasta === null || v.vigente_hasta > diaAnterior) {
           db.run('UPDATE pauta_version SET vigente_hasta = ? WHERE id = ?', [diaAnterior, v.id]);
           ctx.auditar({ accion: 'modificar', entidad: 'pauta_version', entidadId: v.id, antes: { vigenteHasta: v.vigente_hasta }, despues: { vigenteHasta: diaAnterior }, motivo: `Sustituida por la versión ${version}` });

@@ -9,6 +9,8 @@
   import Campo from '../componentes/Campo.svelte';
   import Dialogo from '../componentes/Dialogo.svelte';
   import Confirmar from '../componentes/Confirmar.svelte';
+  import ClaveGrupos from '../componentes/ClaveGrupos.svelte';
+  import { pausarBloqueo } from '../lib/inactividad.ts';
   import EditorMomentos, { type FilaMomento } from '../componentes/EditorMomentos.svelte';
   import { avisar, copiarTexto, fortaleza, inicialesDe, nombreRol, type Aspecto, type Tema } from '../componentes/util.ts';
 
@@ -47,7 +49,9 @@
 
   // ───── Usuarios ─────
   let usuarios = $state<UsuarioPublico[] | null>(null); let nuevoU = $state(false);
-  let nu = $state({ nombre: '', iniciales: '', rol: 'farmaceutico' as RolUsuario, numColegiado: '', pin: '', pin2: '' }); let errU = $state<Record<string, string>>({}); let ocupadoU = $state(false);
+  let nu = $state({ nombre: '', iniciales: '', rol: 'farmaceutico' as RolUsuario, numColegiado: '', pin: '', pin2: '' });
+  const sucioU = $derived(!!(nu.nombre.trim() || nu.iniciales.trim() || nu.numColegiado.trim() || nu.pin || nu.pin2));
+  let dlgU: { pedirCerrar: () => void } | undefined = $state(); let errU = $state<Record<string, string>>({}); let ocupadoU = $state(false);
   $effect(() => { if (activa === 'usuarios' && !usuarios) spd.listarUsuarios().then(r => { if (r.ok) usuarios = r.datos; }); });
   async function crearUsuario() {
     errU = {};
@@ -125,6 +129,7 @@
   const kb = (n: number) => (n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB');
   let resC = $state<CopiaDto | null>(null); let rc = $state({ pass: '', passCopia: '', frase: '' }); let pedirPassCopia = $state(false); let errRc = $state<string | null>(null); let restaurando = $state(false);
   function abrirRestaurar(c: CopiaDto) { resC = c; rc = { pass: '', passCopia: '', frase: '' }; pedirPassCopia = false; errRc = null; }
+  const restaurarListo = $derived(rc.frase.trim().toUpperCase() === 'RESTAURAR' && !!rc.pass);
   async function restaurar() {
     if (!resC) return;
     if (rc.frase.trim().toUpperCase() !== 'RESTAURAR') { errRc = 'Escribe RESTAURAR para confirmar.'; return; }
@@ -143,6 +148,13 @@
   let cs = $state({ actual: '', nueva: '', nueva2: '' }); let errCs = $state<Record<string, string>>({}); let bloqueoMin = $state<string | number>(10); let bmCargado = false;
   $effect(() => { if (aj && !bmCargado) { bloqueoMin = aj.bloqueoMinutos; bmCargado = true; } });
   const fz = $derived(fortaleza(cs.nueva));
+  let errBloqueo = $state<string | null>(null);
+  async function guardarBloqueo() {
+    errBloqueo = null;
+    const n = Number(bloqueoMin);
+    if (bloqueoMin === '' || !Number.isInteger(n) || n < 0 || n > 240) { errBloqueo = 'Escribe un número entero de minutos entre 0 y 240.'; return; }
+    await guardarAj({ bloqueoMinutos: n }, 'Bloqueo automático guardado: se aplica ya, sin reiniciar el programa.');
+  }
   async function cambiarContrasena() {
     errCs = {};
     if (!cs.actual) errCs.actual = 'Escribe la contraseña actual.';
@@ -153,20 +165,35 @@
     if (r.ok) { cs = { actual: '', nueva: '', nueva2: '' }; avisar('Contraseña cambiada.'); abrirClaveNueva(r.datos); } else errCs.actual = r.error;
   }
   // La clave de datos ha rotado: la clave de recuperación de antes ya no vale. Se muestra la nueva y no se deja seguir sin confirmarla.
+  // Mientras está abierta NO se cuenta inactividad (si el programa se bloqueara, la clave —que sólo se enseña una vez— se perdería).
   let claveNueva = $state<ResultadoPrimerUso | null>(null); let qrNueva = $state(''); let guardadaN = $state(false);
+  let faseN = $state<'mostrar' | 'comprobar'>('mostrar'); let nombreFarmaciaN = $state(''); let fechaN = $state('');
   let pedidosN = $state<number[]>([]); let tecleadosN = $state<string[]>(['', '', '']); let errClaveN = $state<string | null>(null);
+  let liberarPausa: (() => void) | null = null;
+  $effect(() => () => { liberarPausa?.(); liberarPausa = null; });
   const gruposN = $derived((claveNueva?.claveRecuperacion ?? '').split(/[^A-Za-z0-9]+/).filter(Boolean).flatMap(g => g.length > 4 ? (g.match(/.{1,4}/g) ?? []) : [g]));
   const normN = (t: string) => t.toUpperCase().replace(/[^A-Z0-9]/g, '');
   async function abrirClaveNueva(r: ResultadoPrimerUso) {
-    claveNueva = r; guardadaN = false; errClaveN = null; tecleadosN = ['', '', ''];
+    liberarPausa?.(); liberarPausa = pausarBloqueo();          // antes de cualquier espera: no hay hueco en el que pueda bloquearse
+    claveNueva = r; guardadaN = false; errClaveN = null; tecleadosN = ['', '', '']; faseN = 'mostrar'; qrNueva = '';
+    fechaN = new Date().toLocaleString('es-ES', { dateStyle: 'long', timeStyle: 'short' });
     const n = Math.max(gruposN.length - 1, 3);
     pedidosN = Array.from({ length: n }, (_, i) => i).sort(() => Math.random() - 0.5).slice(0, 3).sort((a, b) => a - b);
-    const q = await spd.codigoSvg(r.uriAutenticador, 'qrcode'); qrNueva = q.ok ? q.datos : '';
+    const [q, f] = await Promise.all([spd.codigoSvg(r.uriAutenticador, 'qrcode'), spd.obtenerFarmacia()]);
+    qrNueva = q.ok ? q.datos : ''; nombreFarmaciaN = f.ok ? f.datos.nombre : '';
   }
+  function irAComprobarClave() {
+    if (!guardadaN) { errClaveN = 'Antes de seguir, guárdala (impresa o en un lugar seguro fuera de este ordenador) y marca la casilla.'; return; }
+    errClaveN = null; tecleadosN = ['', '', '']; faseN = 'comprobar';
+  }
+  function volverAMostrarGrupos() { errClaveN = null; faseN = 'mostrar'; }
   function confirmarClaveNueva() {
-    if (!guardadaN) { errClaveN = 'Marca que has guardado la clave en un sitio seguro.'; return; }
-    if (pedidosN.some((g, i) => normN(tecleadosN[i] ?? '') !== normN(gruposN[g] ?? ''))) { errClaveN = 'Alguno de los grupos no coincide. Míralos en tu copia guardada, no en esta pantalla.'; return; }
-    claveNueva = null; qrNueva = '';
+    const mal = pedidosN.filter((g, i) => normN(tecleadosN[i] ?? '') !== normN(gruposN[g] ?? '')).map(g => g + 1);
+    if (mal.length) {
+      errClaveN = `${mal.length === 1 ? 'No coincide el grupo' : 'No coinciden los grupos'} ${mal.join(' y ')}. Revísalo en tu copia guardada. Si no la tienes o no puedes leerla, pulsa «Volver a mostrar los grupos» para verla otra vez y guardarla de nuevo.`;
+      return;
+    }
+    claveNueva = null; qrNueva = ''; errClaveN = null; liberarPausa?.(); liberarPausa = null;
   }
 
   // ───── Actualizaciones ─────
@@ -178,6 +205,10 @@
     buscandoAct = true; msgAct = null; const r = await spd.buscarActualizaciones(); buscandoAct = false;
     msgAct = r.ok ? { tipo: r.datos.estado === 'al_dia' ? 'ok' : 'info', texto: r.datos.mensaje } : { tipo: 'bloqueo', texto: r.error };
     prefAct = null;
+  }
+  let shaCopiado = $state<string | null>(null);
+  async function copiarSha(version: string, sha: string) {
+    if (await copiarTexto(sha)) { shaCopiado = version; setTimeout(() => { if (shaCopiado === version) shaCopiado = null; }, 3000); } else avisar('No se pudo copiar: selecciona el texto y cópialo con Ctrl+C.', 'atencion', 5000);
   }
   async function cargarVersiones() { cargandoVer = true; errVer = null; const r = await spd.listarVersiones(); cargandoVer = false; if (r.ok) versiones = r.datos; else errVer = r.error; }
 
@@ -310,10 +341,10 @@
         {:else if !lista}<Cargando />
         {:else if lista.length === 0}<p class="suave">Todavía no hay copias.</p>
         {:else}
-          <table class="tabla"><thead><tr><th>Fecha</th><th>Origen</th><th>Programa</th><th>Motivo</th><th>Tamaño</th><th></th></tr></thead><tbody>
+          <div class="scroll-x"><table class="tabla"><caption class="solo-lectores">Copias de seguridad guardadas</caption><thead><tr><th>Fecha</th><th>Origen</th><th>Programa</th><th>Motivo</th><th>Tamaño</th><th></th></tr></thead><tbody>
             {#each lista as c (c.nombre)}<tr><td>{fechaHora(c.fecha)}</td><td>{ORIGEN[c.origen]}</td><td>{c.versionApp ?? '—'}</td><td>{c.motivo ?? '—'}{#if c.avisoRestauracion}<div class="pequeno suave">{c.avisoRestauracion}</div>{/if}</td><td>{kb(c.tamano)}</td>
-              <td>{#if esTitular}<button class="btn" onclick={() => abrirRestaurar(c)} disabled={!c.restaurable}>Restaurar…</button>{/if}</td></tr>{/each}
-          </tbody></table>
+              <td>{#if esTitular}<button class="btn" onclick={() => abrirRestaurar(c)} disabled={!c.restaurable} aria-label="Restaurar la copia del {fechaHora(c.fecha)}{c.versionApp ? ', versión ' + c.versionApp : ''}">Restaurar…</button>{/if}</td></tr>{/each}
+          </tbody></table></div>
           {#if !esTitular}<p class="suave pequeno sin-margen">Sólo el titular puede restaurar una copia.</p>{/if}
           <p class="suave pequeno sin-margen">Se conservan siempre las últimas copias hechas antes de actualizar o de restaurar. Una copia de una versión anterior del programa se restaura y se adapta sola; una de una versión posterior se rechaza.</p>
         {/if}
@@ -326,7 +357,7 @@
           <label class="marca"><input type="checkbox" checked={prefAct.comprobarAlArrancar} onchange={(e) => guardarPrefAct({ comprobarAlArrancar: e.currentTarget.checked })} />Buscar actualizaciones al abrir el programa</label>
           {#if prefAct.versionIgnorada}<p class="suave pequeno sin-margen">No se avisa de la versión {prefAct.versionIgnorada}. <button class="btn" onclick={() => guardarPrefAct({ versionIgnorada: null })}>Volver a avisar</button></p>{/if}
           <div class="fila"><button class="btn principal" onclick={buscarAct} disabled={buscandoAct}>{buscandoAct ? 'Buscando…' : 'Buscar actualizaciones'}</button></div>
-          {#if msgAct}<Aviso tipo={msgAct.tipo} titulo="Actualizaciones">{msgAct.texto}</Aviso>{/if}
+          {#if msgAct}<Aviso tipo={msgAct.tipo} titulo={msgAct.tipo === 'ok' ? 'Estás al día' : msgAct.tipo === 'bloqueo' ? 'No se pudo comprobar' : msgAct.tipo === 'atencion' ? 'Atención' : 'Resultado de la búsqueda'}>{msgAct.texto}</Aviso>{/if}
           <p class="suave pequeno sin-margen">Sólo se consulta la página de versiones del proyecto (github.com/PharmaJava/SPD) por internet seguro. No se envía ningún dato de la farmacia ni de pacientes. Nada se descarga ni se instala sin que lo aceptes; antes de instalar se hace una copia de seguridad y se comprueba la suma SHA-256 del instalador.</p>
         {/if}
       </div>
@@ -335,29 +366,31 @@
         <div class="fila"><button class="btn" onclick={cargarVersiones} disabled={cargandoVer}>{cargandoVer ? 'Consultando…' : 'Ver versiones publicadas'}</button></div>
         {#if errVer}<Aviso tipo="bloqueo" titulo="No se pudo consultar">{errVer}</Aviso>{/if}
         {#if versiones}
-          <table class="tabla"><thead><tr><th>Versión</th><th>Fecha</th><th>Enlaces</th><th>SHA-256 del instalador</th></tr></thead><tbody>
+          <Aviso tipo="info" titulo="Los enlaces se abren fuera de SPD">«Notas» e «Instalador» se abren en tu navegador web, en una página de internet. SPD no envía ningún dato de la farmacia al abrirlos.</Aviso>
+          <div class="scroll-x"><table class="tabla"><caption class="solo-lectores">Versiones publicadas</caption><thead><tr><th>Versión</th><th>Fecha</th><th>Enlaces</th><th>SHA-256 del instalador</th></tr></thead><tbody>
             {#each versiones as v (v.version)}<tr><td class="negrita">{v.version}{v.esActual ? ' (instalada)' : ''}</td><td>{v.fecha ? fechaHora(v.fecha) : '—'}</td>
-              <td><a href={v.urlPagina} target="_blank" rel="noopener noreferrer">Notas</a>{#if v.instalador} · <a href={v.instalador.url} target="_blank" rel="noopener noreferrer">Instalador</a>{/if}</td>
-              <td class="mono pequeno">{v.instalador?.sha256 ?? 'no disponible'}</td></tr>{/each}
-          </tbody></table>
+              <td><a href={v.urlPagina} target="_blank" rel="noopener noreferrer" aria-label="Notas de la versión {v.version} (se abre en el navegador)">Notas ↗</a>{#if v.instalador} · <a href={v.instalador.url} target="_blank" rel="noopener noreferrer" aria-label="Instalador de la versión {v.version} (se abre en el navegador)">Instalador ↗</a>{/if}</td>
+              <td>{#if v.instalador?.sha256}<div class="sha">{v.instalador.sha256}</div><button class="btn mini" type="button" onclick={() => copiarSha(v.version, v.instalador!.sha256)} aria-label="Copiar el SHA-256 de la versión {v.version}">{shaCopiado === v.version ? 'Copiado' : 'Copiar'}</button>{:else}<span class="suave">no disponible</span>{/if}</td></tr>{/each}
+          </tbody></table></div>
           <p class="suave pequeno sin-margen">Comprueba que el SHA-256 del fichero descargado coincide con el de la tabla antes de ejecutarlo. Los instaladores no están firmados: Windows puede avisar de «aplicación no reconocida».</p>
         {/if}
       </div>
 
     {:else if activa === 'seguridad'}
       <div class="tarjeta apilado"><h2>Cambiar la contraseña</h2>
-        <Campo etiqueta="Contraseña actual" tipo="contrasena" bind:valor={cs.actual} error={errCs.actual} autocomplete="current-password" />
+        <Campo id="cs-actual" etiqueta="Contraseña actual" tipo="contrasena" bind:valor={cs.actual} error={errCs.actual} autocomplete="current-password" />
         <Campo etiqueta="Contraseña nueva" tipo="contrasena" bind:valor={cs.nueva} error={errCs.nueva} autocomplete="new-password" ayuda="Mínimo 10 caracteres.">
           {#if cs.nueva}<div class="medidor" aria-hidden="true">{#each [1,2,3,4] as i}<span class={fz.nivel >= i ? 'on-' + fz.nivel : ''}></span>{/each}</div><div class="pequeno suave">Fortaleza: {fz.texto}</div>{/if}</Campo>
         <Campo etiqueta="Repite la contraseña nueva" tipo="contrasena" bind:valor={cs.nueva2} error={errCs.nueva2} autocomplete="new-password" onenter={cambiarContrasena} />
         <div class="fila fin"><button class="btn principal" onclick={cambiarContrasena}>Cambiar contraseña</button></div>
       </div>
       <div class="tarjeta apilado" style="margin-top:1rem"><h2>Bloqueo automático</h2>
-        <Campo etiqueta="Bloquear tras (minutos sin actividad)" tipo="numero" bind:valor={bloqueoMin} min={0} max={240} step={1} ayuda="0 = no bloquear solo. Recomendado en un mostrador con público." disabled={!esTitular} />
-        {#if esTitular}<div class="fila fin"><button class="btn" onclick={() => guardarAj({ bloqueoMinutos: Math.max(0, Number(bloqueoMin) || 0) })}>Guardar</button></div>{/if}
+        <Campo etiqueta="Bloquear tras (minutos sin actividad)" tipo="numero" bind:valor={bloqueoMin} min={0} max={240} step={1} error={errBloqueo} ayuda="De 0 a 240 minutos; 0 = no bloquear solo. Recomendado en un mostrador con público. Se avisa 30 segundos antes de bloquear y el cambio se aplica al momento." disabled={!esTitular} onenter={guardarBloqueo} />
+        {#if esTitular}<div class="fila fin"><button class="btn" onclick={guardarBloqueo}>Guardar</button></div>{:else}<Aviso tipo="info">Solo el titular puede cambiar el bloqueo automático.</Aviso>{/if}
       </div>
       <div class="tarjeta apilado" style="margin-top:1rem"><h2>Clave de recuperación</h2>
-        <Aviso tipo="info" titulo="Pendiente">Por seguridad la clave no se puede volver a ver. Poder generar una nueva (pidiendo la contraseña) todavía no está disponible: si dudas de dónde está tu copia impresa, avisa a quien mantiene el programa.</Aviso>
+        <Aviso tipo="info" titulo="La clave de antes no se puede volver a ver">Por seguridad, la clave de recuperación sólo se muestra una vez. Si no encuentras tu copia impresa, <strong>cambia la contraseña</strong> (arriba): al hacerlo se genera una clave de recuperación nueva, que se muestra en pantalla para que la imprimas y la guardes fuera de este ordenador. La anterior deja de valer.</Aviso>
+        <div class="fila"><button class="btn" type="button" onclick={() => document.getElementById('cs-actual')?.focus()}>Ir a cambiar la contraseña</button></div>
       </div>
 
     {:else if activa === 'aspecto'}
@@ -373,27 +406,28 @@
 
     {:else if activa === 'acerca'}
       <div class="tarjeta apilado"><h2>Acerca de SPD</h2>
-        <dl class="par"><dt>Versión</dt><dd>{sistema?.version ?? '…'}</dd><dt>Desarrollador</dt><dd>PharmaJava</dd><dt>Datos en</dt><dd class="mono pequeno">{sistema?.rutaDatos ?? '…'}</dd></dl>
-        <p>SPD está desarrollado por <strong>PharmaJava</strong>: farmacéutico y programador. Es un programa <strong>gratuito (freeware)</strong> y forma parte de la suite de herramientas y atención farmacéutica de <a href="https://conveniodefarmacia.com" target="_blank" rel="noopener noreferrer">conveniodefarmacia.com</a> (web y contacto).</p>
+        <dl class="par"><dt>Versión</dt><dd>{sistema?.version ?? '…'}</dd><dt>Desarrollador</dt><dd>PharmaJava</dd><dt>Datos en</dt><dd class="mono pequeno pie-tabla">{sistema?.rutaDatos ?? '…'}</dd></dl>
+        <p>SPD está desarrollado por <strong>PharmaJava</strong>: farmacéutico y programador. Es un programa <strong>gratuito (freeware)</strong> y forma parte de la suite de herramientas y atención farmacéutica de <a href="https://conveniodefarmacia.com" target="_blank" rel="noopener noreferrer">conveniodefarmacia.com</a> (web y contacto; se abre en el navegador).</p>
         <Aviso tipo="atencion" titulo="Aviso legal">SPD es una herramienta de registro, organización e impresión. <strong>No es un producto sanitario</strong>, no decide dosis ni tratamientos y no sustituye el criterio del farmacéutico ni la ficha técnica. La farmacia es la responsable de verificar cada preparación y de los datos de sus pacientes. Los textos de consentimiento que incluye son <strong>borradores</strong> para revisar con un profesional del derecho antes de usarlos.</Aviso>
-        <div class="suave pequeno" style="border-top:1px solid var(--borde, #ddd);padding-top:.6rem">
-          <strong>¿Te ha gustado SPD?</strong> <span class="seleccionable" style="user-select:text">{TEXTO_DONACION}</span>.
-          <button class="btn" style="margin-left:.4rem" onclick={copiarDonacion}>{copiadoDon ? 'Copiado' : 'Copiar'}</button>
-          <div>Donar es voluntario y no da ninguna ventaja: el programa es igual para todos.</div>
-        </div>
         <h3>Licencia de uso (freeware)</h3>
-        <div class="licencia">
+        <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+        <div class="licencia" tabindex="0" role="region" aria-label="Texto de la licencia de uso">
           <p>Se concede a cualquier persona o farmacia el derecho gratuito e indefinido de instalar y usar el programa en tantos equipos como necesite, y de copiarlo y redistribuirlo sin modificar y sin cobrar.</p>
           <p>No se puede vender, incluir en un producto de pago, modificar, descompilar ni quitar el aviso del autor.</p>
           <p>El programa se ofrece «tal cual», sin garantía ni soporte. El usuario debe mantener sus propias copias de seguridad.</p>
           <p class="suave pequeno">Texto completo en el archivo LICENSE.txt que acompaña al programa. Copyright © 2026 PharmaJava.</p>
         </div>
       </div>
+      <div class="tarjeta apilado" style="margin-top:1rem"><h2>Apoyar el proyecto</h2>
+        <p class="sin-margen"><strong>¿Te ha gustado SPD?</strong> <span class="seleccionable" style="user-select:text">{TEXTO_DONACION}</span>.</p>
+        <div class="fila"><button class="btn" type="button" onclick={copiarDonacion}>{copiadoDon ? 'Copiado' : 'Copiar el correo de PayPal'}</button><span class="solo-lectores" role="status" aria-live="polite">{copiadoDon ? 'Correo copiado' : ''}</span></div>
+        <p class="suave pequeno sin-margen">Donar es voluntario y no da ninguna ventaja: el programa es igual para todos.</p>
+      </div>
     {/if}
   </div>
 </div>
 
-<Dialogo abierto={nuevoU} titulo="Nuevo usuario" onclose={() => (nuevoU = false)}>
+<Dialogo bind:this={dlgU} abierto={nuevoU} titulo="Nuevo usuario" sucio={sucioU} onclose={() => (nuevoU = false)}>
   <Campo etiqueta="Nombre" bind:valor={nu.nombre} error={errU.nombre} requerido autofocus />
   <div class="cols-2">
     <Campo etiqueta="Iniciales" bind:valor={nu.iniciales} error={errU.iniciales} maxlength={4} requerido />
@@ -405,32 +439,51 @@
     <Campo etiqueta="Repite el PIN" tipo="contrasena" bind:valor={nu.pin2} error={errU.pin2} inputmode="numeric" maxlength={8} requerido onenter={crearUsuario} />
   </div>
   {#if errU.general}<Aviso tipo="bloqueo" titulo="No se ha creado">{errU.general}</Aviso>{/if}
-  {#snippet pie()}<button class="btn" onclick={() => (nuevoU = false)}>Cancelar</button><button class="btn principal" onclick={crearUsuario} disabled={ocupadoU}>Crear usuario</button>{/snippet}
+  {#snippet pie()}<button class="btn" onclick={() => dlgU?.pedirCerrar()}>Cancelar</button><button class="btn principal" onclick={crearUsuario} disabled={ocupadoU}>Crear usuario</button>{/snippet}
 </Dialogo>
 
 <Dialogo abierto={claveNueva !== null} titulo="Clave de recuperación NUEVA" bloqueante onclose={() => {}}>
   {#if claveNueva}
-    <Aviso tipo="atencion" titulo="La de antes ya no vale">Al cambiar la contraseña se ha renovado la clave de los datos. Esta clave de recuperación sustituye a la anterior: imprímela y guárdala fuera de este ordenador. <strong>Las copias de seguridad hechas antes</strong> se siguen abriendo con la contraseña (o la clave de recuperación) de cuando se hicieron: guárdalas aparte o bórralas si la contraseña antigua pudo conocerla alguien.</Aviso>
-    <div class="clave" aria-label="Clave de recuperación nueva">{#each gruposN as g, i}<span><small class="suave" style="font-size:.6rem;display:block">{i + 1}</small>{g}</span>{/each}</div>
-    {#if qrNueva}<div class="qr" aria-label="Código QR de la clave">{@html qrNueva}</div>{/if}
-    <div class="fila"><button class="btn" onclick={async () => { if (await copiarTexto(claveNueva!.claveRecuperacion)) avisar('Clave copiada. Pégala en un sitio seguro y bórrala del portapapeles.', 'info'); }}>Copiar</button><button class="btn" onclick={() => window.print()}>Imprimir</button></div>
-    <label class="marca"><input type="checkbox" bind:checked={guardadaN} />Ya he guardado la clave nueva en un lugar seguro.</label>
-    <p class="sin-margen"><strong>Comprobación:</strong> mira tu copia guardada y escribe estos grupos.</p>
-    <div class="fila">{#each pedidosN as g, i}<Campo etiqueta="Grupo {g + 1}" bind:valor={tecleadosN[i]} maxlength={6} />{/each}</div>
-    {#if errClaveN}<Aviso tipo="bloqueo" titulo="No coincide">{errClaveN}</Aviso>{/if}
+    <Aviso tipo="bloqueo" titulo="No cierres ni bloquees el programa hasta terminar">Esta clave sólo se muestra ahora y no se puede volver a ver. Mientras esta ventana esté abierta, el programa no se bloquea por inactividad. Si lo cierras o lo bloqueas desde fuera (menú o atajos), la clave se pierde.</Aviso>
+    {#if faseN === 'mostrar'}
+      <Aviso tipo="atencion" titulo="La de antes ya no vale">Al cambiar la contraseña se ha renovado la clave de los datos. Esta clave de recuperación sustituye a la anterior: imprímela y guárdala fuera de este ordenador. <strong>Las copias de seguridad hechas antes</strong> se siguen abriendo con la contraseña (o la clave de recuperación) de cuando se hicieron: guárdalas aparte o bórralas si la contraseña antigua pudo conocerla alguien.</Aviso>
+      <ClaveGrupos grupos={gruposN} etiqueta="Clave de recuperación nueva" />
+      {#if qrNueva}<div class="qr" role="img" aria-label="Código QR con la misma clave">{@html qrNueva}</div>{/if}
+      <div class="fila"><button class="btn" type="button" onclick={async () => { if (await copiarTexto(claveNueva!.claveRecuperacion)) avisar('Clave copiada. Pégala en un sitio seguro y bórrala del portapapeles.', 'info'); }}>Copiar</button><button class="btn" type="button" onclick={() => window.print()}>Imprimir</button></div>
+      <label class="marca"><input type="checkbox" bind:checked={guardadaN} />Ya he guardado la clave nueva en un lugar seguro, fuera de este ordenador.</label>
+    {:else}
+      <p class="sin-margen"><strong>Comprobación:</strong> los grupos ya no se ven. Mira tu copia guardada y escribe estos tres.</p>
+      <div class="fila">{#each pedidosN as g, i}<Campo etiqueta="Grupo {g + 1}" bind:valor={tecleadosN[i]} maxlength={6} autocomplete="off" onenter={confirmarClaveNueva} />{/each}</div>
+    {/if}
+    {#if errClaveN}<Aviso tipo="bloqueo" titulo={faseN === 'mostrar' ? 'Falta un paso' : 'No coincide'}>{errClaveN}</Aviso>{/if}
   {/if}
-  {#snippet pie()}<button class="btn principal" onclick={confirmarClaveNueva}>Ya la tengo guardada</button>{/snippet}
+  {#snippet pie()}
+    {#if faseN === 'mostrar'}<button class="btn principal" type="button" onclick={irAComprobarClave}>Ya la he guardado: comprobar</button>
+    {:else}<button class="btn" type="button" onclick={volverAMostrarGrupos}>Volver a mostrar los grupos</button><button class="btn principal" type="button" onclick={confirmarClaveNueva}>Ya la tengo guardada</button>{/if}
+  {/snippet}
 </Dialogo>
+
+{#if claveNueva}
+  <!-- Hoja de la clave nueva: sólo existe al imprimir. Lleva farmacia y fecha para saber de quién y de cuándo es esa clave. -->
+  <div class="solo-impresion">
+    <h1>Clave de recuperación NUEVA</h1>
+    <p><strong>Farmacia:</strong> {nombreFarmaciaN || '—'} · <strong>Fecha:</strong> {fechaN}</p>
+    <p>Esta clave sustituye a cualquier clave de recuperación anterior, que ya no sirve. Es la única forma de recuperar los datos si se olvida la contraseña. Guárdala fuera de este ordenador (caja fuerte, sobre cerrado).</p>
+    <ClaveGrupos grupos={gruposN} etiqueta="Clave de recuperación nueva" />
+    {#if qrNueva}<div class="qr" style="margin-top:1rem">{@html qrNueva}</div>{/if}
+  </div>
+{/if}
 
 <Dialogo abierto={resC !== null} titulo="Restaurar una copia" onclose={() => (resC = null)}>
   {#if resC}
-    <Aviso tipo="bloqueo" titulo="Esto sustituye TODOS los datos actuales">Se volverá al estado del {fechaHora(resC.fecha)}: se pierde todo lo hecho después (pacientes, preparaciones, entregas, auditoría). Antes se guardará una copia del estado actual («Antes de restaurar») para poder deshacerlo. Tendrás que volver a iniciar sesión con tu PIN.</Aviso>
+    <Aviso tipo="bloqueo" titulo="Esto sustituye TODOS los datos actuales">Se volverá a la copia del {fechaHora(resC.fecha)}{resC.versionApp ? ` (hecha con la versión ${resC.versionApp})` : ''}: se pierde todo lo hecho después (pacientes, preparaciones, entregas, auditoría). Antes se guardará una copia del estado actual («Antes de restaurar») para poder deshacerlo. Tendrás que volver a iniciar sesión con tu PIN.</Aviso>
     <Campo etiqueta="Contraseña de la farmacia" tipo="contrasena" bind:valor={rc.pass} requerido autofocus />
     {#if pedirPassCopia}<Campo etiqueta="Contraseña (o clave de recuperación) que tenía la farmacia cuando se hizo la copia" tipo="contrasena" bind:valor={rc.passCopia} />{/if}
     <Campo etiqueta="Escribe RESTAURAR para confirmar" bind:valor={rc.frase} requerido onenter={restaurar} />
+    <p class="suave pequeno sin-margen" id="rest-ayuda">El botón se activa cuando escribes la contraseña de la farmacia y la palabra RESTAURAR.</p>
     {#if errRc}<Aviso tipo="bloqueo" titulo="No se ha restaurado">{errRc}</Aviso>{/if}
   {/if}
-  {#snippet pie()}<button class="btn" onclick={() => (resC = null)}>Cancelar</button><button class="btn principal" onclick={restaurar} disabled={restaurando}>{restaurando ? 'Restaurando…' : 'Restaurar copia'}</button>{/snippet}
+  {#snippet pie()}<button class="btn" onclick={() => (resC = null)}>Cancelar</button><button class="btn peligro" onclick={restaurar} disabled={restaurando || !restaurarListo} aria-describedby="rest-ayuda">{restaurando ? 'Restaurando…' : 'Restaurar copia del ' + fechaHora(resC?.fecha)}</button>{/snippet}
 </Dialogo>
 
 <Confirmar abierto={pedirExt} titulo="¿Permitir hasta 30 días?" confirmarTexto="Sí, asumo la desviación" peligro

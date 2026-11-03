@@ -31,25 +31,62 @@ export const VARIABLES_DOCUMENTO: readonly string[] = [
   'documento.version', 'documento.id',
 ];
 
-/** Variables que la propia plantilla marca como opcionales: vacías se imprimen «no indicado». */
-export const VARIABLES_OPCIONALES: readonly string[] = ['motivo'];
+/**
+ * Variables OPCIONALES: vacías no bloquean y se imprimen con su texto. `farmacia.rgpd_dpd`: el delegado de protección de datos
+ * sólo existe si la farmacia lo ha designado (no es obligatorio en toda farmacia): se dice con el texto genérico, nunca se
+ * inventa un nombre. (Texto BORRADOR para revisar con un abogado.)
+ */
+export const TEXTOS_OPCIONAL_VACIO: Readonly<Record<string, string>> = {
+  'motivo': 'no indicado',
+  'farmacia.rgpd_dpd': 'no designado (la farmacia no ha designado delegado de protección de datos; para consultas y para ejercer sus derechos, utilice el contacto indicado)',
+};
+export const VARIABLES_OPCIONALES: readonly string[] = Object.keys(TEXTOS_OPCIONAL_VACIO);
 
 /** Variables que son tablas de varias líneas: conservan los saltos de línea. */
 export const VARIABLES_BLOQUE: readonly string[] = ['tabla_envases_devueltos', 'tabla_envases_sigre'];
 
 export const LIMITE_VALOR = 300;
 export const LIMITE_VALOR_BLOQUE = 3000;
-export const TEXTO_OPCIONAL_VACIO = 'no indicado';
+export const TEXTO_OPCIONAL_VACIO = TEXTOS_OPCIONAL_VACIO['motivo'];
 
 const RE_VARIABLE = /\{\{\s*([^{}\s][^{}]*?)\s*\}\}/g;
 const RE_COMENTARIO = /<!--([\s\S]*?)-->[ \t]*\r?\n?/g;
 
 export type ValorDocumento = string | number | null | undefined;
 
+/** De quién es el dato que falta (para que la interfaz mande a completar la ficha correcta). */
+export type EntidadFaltante = 'paciente' | 'firmante' | 'farmacia' | 'autorizado' | 'documento' | 'otro';
+export interface FaltaDocumento { ruta: string; entidad: EntidadFaltante; campo: string; etiqueta: string }
+
+const ETIQUETAS_FALTA: Readonly<Record<string, string>> = {
+  'farmacia.nombre': 'nombre de la farmacia', 'farmacia.titular': 'titular de la farmacia', 'farmacia.nif': 'NIF de la farmacia',
+  'farmacia.direccion': 'dirección de la farmacia', 'farmacia.municipio': 'municipio de la farmacia', 'farmacia.telefono': 'teléfono de la farmacia',
+  'farmacia.email': 'correo de la farmacia', 'farmacia.rgpd_contacto': 'contacto de protección de datos (o correo de la farmacia)',
+  'farmacia.rgpd_dpd': 'delegado de protección de datos',
+  'paciente.nombre_completo': 'nombre del paciente', 'paciente.dni_nie': 'DNI/NIE del paciente', 'paciente.fecha_nacimiento': 'fecha de nacimiento del paciente',
+  'paciente.direccion': 'dirección del paciente',
+  'firmante.nombre': 'nombre del firmante', 'firmante.dni_nie': 'DNI/NIE del firmante', 'firmante.calidad': 'calidad del firmante',
+  'autorizado.nombre': 'nombre de la persona autorizada', 'autorizado.dni_nie': 'DNI/NIE de la persona autorizada',
+  'autorizado.parentesco': 'parentesco de la persona autorizada', 'autorizado.telefono': 'teléfono de la persona autorizada',
+};
+
+/** Rutas que faltan → entidad y campo (`farmacia.nif` → farmacia / nif). Una ruta desconocida sale como «otro», nunca se pierde. */
+export function detalleFaltan(rutas: readonly string[]): FaltaDocumento[] {
+  return rutas.map((ruta) => {
+    const [prefijo, ...resto] = ruta.split('.');
+    const entidad: EntidadFaltante = (['paciente', 'firmante', 'farmacia', 'autorizado'] as const).find((e) => e === prefijo)
+      ?? (prefijo === 'documento' || prefijo === 'fecha' ? 'documento' : 'otro');
+    const campo = resto.length > 0 ? resto.join('.') : ruta;
+    return { ruta, entidad, campo, etiqueta: ETIQUETAS_FALTA[ruta] ?? ruta };
+  });
+}
+
 export interface DocumentoRenderizado {
   texto: string;
   /** Rutas sin valor (excepto las opcionales). Bloquean el definitivo. */
   faltan: string[];
+  /** Lo mismo con la entidad (paciente, firmante, farmacia…) y el campo, para que la interfaz los distinga. */
+  faltanDetalle: FaltaDocumento[];
   /** SHA-256 hex del texto resultante. */
   hash: string;
   /** Falta algún dato, queda un «[A COMPLETAR …]», llaves sin resolver o un valor se recortó → false. */
@@ -136,7 +173,7 @@ export function renderizarDocumento(
     // Solo texto o números finitos son valores: un objeto, un booleano o NaN no se imprimen («[object Object]»).
     const crudo = typeof bruto === 'string' ? bruto : (typeof bruto === 'number' && Number.isFinite(bruto) ? String(bruto) : '');
     if (sinInvisibles(crudo) === '') {
-      if (VARIABLES_OPCIONALES.includes(ruta)) return TEXTO_OPCIONAL_VACIO;
+      if (VARIABLES_OPCIONALES.includes(ruta)) return TEXTOS_OPCIONAL_VACIO[ruta];
       if (!ya.has(ruta)) { ya.add(ruta); faltan.push(ruta); }
       return `⟦${ruta}⟧`;
     }
@@ -156,6 +193,7 @@ export function renderizarDocumento(
   return {
     texto,
     faltan,
+    faltanDetalle: detalleFaltan(faltan),
     hash: createHash('sha256').update(texto, 'utf8').digest('hex'),
     imprimibleDefinitivo: faltan.length === 0 && sinCompletar.length === 0 && !estado.recortado,
     esBorrador,

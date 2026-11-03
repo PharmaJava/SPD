@@ -38,7 +38,9 @@ export type MetodosPreparacion = Pick<ApiClinica,
   | 'vistaDocumento' | 'registrarDocumentoFirmado' | 'revocarDocumento' | 'estadoConsentimientos'>;
 
 /** Estos dos bloqueos se exigen al VALIDAR, no al guardar el borrador. */
-const BLOQUEOS_DE_VALIDACION = new Set(['ROL_NO_PUEDE_VALIDAR', 'CONSENTIMIENTO_NO_VIGENTE']);
+const BLOQUEOS_DE_VALIDACION = new Set(['ROL_NO_PUEDE_VALIDAR', 'CONSENTIMIENTO_NO_VIGENTE', 'ALERGIA_SIN_CONFIRMAR']);
+/** Al guardar o preparar, el solape lo dice `exigirSinSolape` (con su propio código); aquí no se repite. */
+const BLOQUEOS_SIN_GUARDAR = new Set([...BLOQUEOS_DE_VALIDACION, 'PERIODO_SOLAPADO']);
 const ESTADOS: readonly string[] = ['borrador', 'preparado', 'validado', 'entregado', 'anulado'];
 
 const SQL_PREP =
@@ -135,6 +137,7 @@ function cargadoDe(ctx: Contexto, db: Db, prep: R, u: UsuarioPublico): Cargado {
       pacienteId: Number(prep.paciente_id), desde: String(prep.fecha_inicio), dias: diasDe(prep),
       fechaPreparacion: estado === 'preparado' && prep.preparado_en ? fechaLocal(String(prep.preparado_en)) : hoyISO(ctx),
       diasValidez: Number(prep.validez_dias), justificacion: textoONull(prep.justificacion_validez) ?? undefined, rol: u.rol,
+      excluirPreparacionId: Number(prep.id),
       ...(estado === 'preparado' ? { soloEnvases: new Set(lineas.map((l) => Number(l.envase_id))) } : {}),
     });
   }
@@ -163,7 +166,7 @@ export function crearClinicaPreparacion(ctx: Contexto): MetodosPreparacion {
       const p = comprobarParams(params);
       return cargarEvaluacion(ctx, {
         pacienteId: p.pacienteId, desde: p.desde, dias: p.dias, fechaPreparacion: p.fechaPreparacion,
-        diasValidez: p.diasValidez, justificacion: p.justificacion, rol: u.rol,
+        diasValidez: p.diasValidez, justificacion: p.justificacion, rol: u.rol, confirmarAlergias: p.confirmarAlergias === true,
       }).evaluacion;
     }),
 
@@ -174,11 +177,14 @@ export function crearClinicaPreparacion(ctx: Contexto): MetodosPreparacion {
       const p = comprobarParams(params);
       const cond = validarCondiciones(params);
       const db = bd(ctx);
+      if (esFechaIso(p.fechaPreparacion) && p.fechaPreparacion > hoyISO(ctx)) {
+        throw new ErrorSpd(`La fecha de preparación (${formatoFecha(p.fechaPreparacion)}) es futura: un SPD se prepara hoy o antes, nunca en el futuro.`, 'FECHA_PREPARACION_FUTURA');
+      }
       const c = cargarEvaluacion(ctx, {
         pacienteId: p.pacienteId, desde: p.desde, dias: p.dias, fechaPreparacion: p.fechaPreparacion,
-        diasValidez: p.diasValidez, justificacion: p.justificacion, rol: u.rol,
+        diasValidez: p.diasValidez, justificacion: p.justificacion, rol: u.rol, confirmarAlergias: p.confirmarAlergias === true,
       });
-      const bloqueos = c.evaluacion.bloqueos.filter((b) => !BLOQUEOS_DE_VALIDACION.has(b.codigo));
+      const bloqueos = c.evaluacion.bloqueos.filter((b) => !BLOQUEOS_SIN_GUARDAR.has(b.codigo));
       if (bloqueos.length > 0) throw new ErrorSpd(`No se puede guardar el borrador: ${textos(bloqueos)}`, 'BLOQUEOS');
       const cad = c.evaluacion.caducidadSpd;
       if (!cad?.ok || !cad.caducidadSpd || !c.evaluacion.finPeriodo) throw new ErrorSpd('No se puede guardar el borrador: no se ha podido calcular la caducidad del SPD.', 'BLOQUEOS');
@@ -216,8 +222,9 @@ export function crearClinicaPreparacion(ctx: Contexto): MetodosPreparacion {
       const c = cargarEvaluacion(ctx, {
         pacienteId: Number(prep.paciente_id), desde: String(prep.fecha_inicio), dias: diasDe(prep), fechaPreparacion: hoyISO(ctx),
         diasValidez: Number(prep.validez_dias), justificacion: textoONull(prep.justificacion_validez) ?? undefined, rol: u.rol,
+        excluirPreparacionId: Number(prep.id),
       });
-      const bloqueos = c.evaluacion.bloqueos.filter((b) => !BLOQUEOS_DE_VALIDACION.has(b.codigo));
+      const bloqueos = c.evaluacion.bloqueos.filter((b) => !BLOQUEOS_SIN_GUARDAR.has(b.codigo));
       if (bloqueos.length > 0) throw new ErrorSpd(`No se puede preparar: ${textos(bloqueos)}`, 'BLOQUEOS');
       const cad = c.evaluacion.caducidadSpd;
       if (!cad?.ok || !cad.caducidadSpd) throw new ErrorSpd('No se puede preparar: no se ha podido calcular la caducidad del SPD.', 'BLOQUEOS');
@@ -242,7 +249,7 @@ export function crearClinicaPreparacion(ctx: Contexto): MetodosPreparacion {
     }),
 
     // ── validar: re-evalúa, descuenta unidades, todo o nada ──
-    validarPreparacion: (id) => proteger(() => {
+    validarPreparacion: (id, opciones) => proteger(() => {
       const u = exigirSesion(ctx);
       if (!puedeValidar(u.rol)) throw new ErrorSpd('Sólo un farmacéutico o el titular puede validar un SPD.', 'ROL_NO_PUEDE_VALIDAR');
       const db = bd(ctx);
@@ -257,6 +264,7 @@ export function crearClinicaPreparacion(ctx: Contexto): MetodosPreparacion {
         fechaPreparacion: fechaLocal(String(prep.preparado_en)),
         diasValidez: Number(prep.validez_dias), justificacion: textoONull(prep.justificacion_validez) ?? undefined, rol: u.rol,
         soloEnvases: new Set(guardadas.map((l) => l.envaseId)),
+        excluirPreparacionId: Number(prep.id), confirmarAlergias: opciones?.confirmarAlergias === true,
       });
       if (c.evaluacion.bloqueos.length > 0) throw new ErrorSpd(`No se puede validar: ${textos(c.evaluacion.bloqueos)}`, 'BLOQUEOS');
       exigirSinSolape(db, Number(prep.paciente_id), Number(prep.id), String(prep.fecha_inicio), String(prep.fecha_fin));
@@ -274,6 +282,7 @@ export function crearClinicaPreparacion(ctx: Contexto): MetodosPreparacion {
       }
 
       const mismoUsuario = prep.preparado_por != null && Number(prep.preparado_por) === u.id;
+      const alergiasConfirmadas = c.evaluacion.avisos.filter((a) => a.codigo === 'POSIBLE_ALERGIA').map((a) => a.texto);
       const consumo = new Map<number, number>();
       for (const l of guardadas) consumo.set(l.envaseId, (consumo.get(l.envaseId) ?? 0) + aCuartos(l.unidades));
 
@@ -303,7 +312,8 @@ export function crearClinicaPreparacion(ctx: Contexto): MetodosPreparacion {
           accion: 'validar', entidad: 'preparacion', entidadId: Number(prep.id),
           antes: { estado: 'preparado' },
           despues: { estado: 'validado', validadoPor: u.id, consumo: [...consumo].map(([envaseId, cuartos]) => ({ envaseId, unidades: cuartos / 4 })), caducidadSpd: prep.caducidad_spd },
-          motivo: mismoUsuario ? 'validación por el mismo usuario que preparó' : null,
+          motivo: [mismoUsuario ? 'validación por el mismo usuario que preparó' : null,
+            alergiasConfirmadas.length > 0 ? `posible alergia revisada y confirmada por el farmacéutico: ${alergiasConfirmadas.join(' | ')}` : null].filter(Boolean).join('; ') || null,
         });
       });
       ctx.persistir();
@@ -440,7 +450,7 @@ export function crearClinicaPreparacion(ctx: Contexto): MetodosPreparacion {
     // ── documentos y consentimientos ──
     listarPlantillasDocumento: () => proteger(() => docs.listarPlantillas(ctx)),
     vistaDocumento: (codigo, pacienteId, firmante) => proteger(() => docs.vistaDocumento(ctx, codigo, pacienteId, firmante)),
-    registrarDocumentoFirmado: (codigo, pacienteId, firmante) => proteger(() => docs.registrarFirmado(ctx, codigo, pacienteId, firmante)),
+    registrarDocumentoFirmado: (codigo, pacienteId, firmante, opciones) => proteger(() => docs.registrarFirmado(ctx, codigo, pacienteId, firmante, opciones)),
     revocarDocumento: (id, motivo) => proteger(() => docs.revocar(ctx, id, motivo)),
     estadoConsentimientos: (pacienteId) => proteger(() => docs.estadoConsentimientosDto(ctx, pacienteId)),
   };

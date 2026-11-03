@@ -24,7 +24,8 @@ import { envasesAfectados } from '../../dominio/alertas-calidad.ts';
 import type { AlertaCalidad } from '../../dominio/alertas-calidad.ts';
 import { analizarDescripcion, resumenDescripcion } from '../../dominio/descripcion-fisica.ts';
 import { formatearUnidades } from '../../dominio/etiquetas.ts';
-import { aCuartos, bd, leerAjustesPrep, marcadores, nombreCompleto, noEncontrado } from './util.ts';
+import { puedeValidar } from '../../dominio/caducidad-spd.ts';
+import { aCuartos, bd, formatoFecha, hoyISO, leerAjustesPrep, marcadores, nombreCompleto, noEncontrado } from './util.ts';
 import type { AjustesPrep, R } from './util.ts';
 
 // ───────────────────────── tipos internos ─────────────────────────
@@ -76,6 +77,10 @@ export interface OpcionesCarga {
   rol: Rol;
   /** Si se indica, SOLO se consideran estas cajas (validación: las que se usaron al preparar). */
   soloEnvases?: Set<number>;
+  /** El usuario pide dar por revisadas las posibles alergias. Sólo vale si su rol puede validar. */
+  confirmarAlergias?: boolean;
+  /** Preparación que se está re-evaluando: no cuenta como «solapada» consigo misma. */
+  excluirPreparacionId?: number;
 }
 
 // ───────────────────────── descripción y leyenda ─────────────────────────
@@ -313,8 +318,15 @@ export function cargarEvaluacion(ctx: Contexto, o: OpcionesCarga): Cargado {
 
   const tratamientos: TratamientoPreparacion[] = [...trats.values()].map((t) => ({
     tratamientoId: t.id, nombre: t.nombre === '' ? `tratamiento ${t.id}` : t.nombre, emblistable: t.emblistable,
-    versiones: t.versiones, envases: envasesPorTrat.get(t.id) ?? [],
+    principioActivo: t.principioActivo, versiones: t.versiones, envases: envasesPorTrat.get(t.id) ?? [],
   }));
+  // Regla 2: lo que llega al blíster se identifica por una descripción física CONFIRMADA por un farmacéutico.
+  const medicamentos = new Map<string, { cn: string; nombre: string; descripcionConfirmada: boolean }>();
+  for (const e of envases.values()) {
+    if (!medicamentos.has(e.cn)) medicamentos.set(e.cn, { cn: e.cn, nombre: e.medicamento, descripcionConfirmada: e.descripcion !== undefined });
+  }
+  const alergias = db.all<R>("SELECT descripcion FROM salud_dato WHERE paciente_id = ? AND tipo = 'alergia' AND vigente = 1 ORDER BY id", [o.pacienteId])
+    .map((a) => String(a.descripcion));
 
   const { estado: consentimiento } = consentimientosDe(db, o.pacienteId);
   const entrada: EntradaPreparacion = {
@@ -326,6 +338,9 @@ export function cargarEvaluacion(ctx: Contexto, o: OpcionesCarga): Cargado {
     consentimiento,
     disposicion: ajustes.disposicion,
     alertas: leerAlertas(db),
+    medicamentos: [...medicamentos.values()],
+    alergias,
+    alergiasConfirmadas: o.confirmarAlergias === true && puedeValidar(o.rol),
   };
   const res = evaluarDominio(entrada);
   res.avisos.push(...avisosExtra);
@@ -337,6 +352,22 @@ export function cargarEvaluacion(ctx: Contexto, o: OpcionesCarga): Cargado {
   for (const t of trats.values()) {
     if (t.emblistable && t.versiones.length === 0) {
       anadirBloqueo(res, { codigo: 'PAUTA_INVALIDA', texto: `${t.nombre || `Tratamiento ${t.id}`}: no tiene ninguna pauta definida.` });
+    }
+  }
+  // La fecha de preparación es la de HOY o anterior: no se puede preparar en el futuro.
+  if (/^\d{4}-\d{2}-\d{2}$/.test(o.fechaPreparacion) && o.fechaPreparacion > hoyISO(ctx)) {
+    anadirBloqueo(res, { codigo: 'FECHA_PREPARACION_FUTURA', texto: `La fecha de preparación (${formatoFecha(o.fechaPreparacion)}) es futura: un SPD se prepara hoy o antes, nunca en el futuro.` });
+  }
+  // Otra preparación del mismo paciente que ya cubre días de este periodo.
+  if (res.finPeriodo !== undefined) {
+    const solapadas = db.all<R>(
+      `SELECT id, fecha_inicio, fecha_fin, estado FROM preparacion
+        WHERE paciente_id = ? AND id <> ? AND estado IN ('borrador','preparado','validado','entregado') AND fecha_inicio <= ? AND fecha_fin >= ? ORDER BY id`,
+      [o.pacienteId, o.excluirPreparacionId ?? 0, res.finPeriodo, o.desde]);
+    for (const x of solapadas) {
+      const texto = `El paciente ya tiene una preparación ${x.estado} (nº ${x.id}) del ${formatoFecha(x.fecha_inicio)} al ${formatoFecha(x.fecha_fin)} que se solapa con este periodo.`;
+      if (x.estado === 'borrador') res.avisos.push({ codigo: 'BORRADOR_SOLAPADO', texto: `${texto} (es un borrador: revisa si sobra).` });
+      else anadirBloqueo(res, { codigo: 'PERIODO_SOLAPADO', texto });
     }
   }
 

@@ -222,6 +222,32 @@ export function pareceFicheroSpd(fichero: Uint8Array): boolean {
   return fichero.length >= 13 + 16 && Buffer.from(fichero.buffer, fichero.byteOffset, 8).equals(MAGIC) && fichero[8] === VERSION_FORMATO;
 }
 
+// ───────────────────────────── Política de contraseña ─────────────────────────────
+
+/** Longitud mínima de la contraseña de la farmacia (la misma que exige el asistente de la interfaz). */
+export const CONTRASENA_MIN = 10;
+/** Fortaleza mínima aceptada (0-4, ver `fortalezaContrasena`): «Aceptable» o mejor. */
+export const CONTRASENA_FORTALEZA_MIN = 2;
+
+/** Fortaleza 0-4 de una contraseña: MISMO criterio que el medidor de la interfaz (`fortaleza` en componentes/util.ts). */
+export function fortalezaContrasena(p: string): { nivel: number; texto: string } {
+  let n = 0;
+  if (p.length >= 10) n++;
+  if (p.length >= 14) n++;
+  if (/[a-z]/.test(p) && /[A-Z]/.test(p)) n++;
+  if (/\d/.test(p) && /[^A-Za-z0-9]/.test(p)) n++;
+  if (p.length < 10) n = Math.min(n, 1);
+  if (/^(.)\1+$/.test(p) || /^(1234|abcd|password|contrase)/i.test(p)) n = 0;
+  return { nivel: n, texto: ['Muy débil', 'Débil', 'Aceptable', 'Buena', 'Muy buena'][n]! };
+}
+
+/** Política ÚNICA de la contraseña de la farmacia (primer uso, cambio y recuperación). Lanza CONTRASENA_DEBIL; devuelve la contraseña. */
+export function exigirContrasenaValida(c: unknown): string {
+  if (typeof c !== 'string' || c.length < CONTRASENA_MIN) throw new ErrorSpd(`La contraseña debe tener al menos ${CONTRASENA_MIN} caracteres.`, 'CONTRASENA_DEBIL');
+  if (fortalezaContrasena(c).nivel < CONTRASENA_FORTALEZA_MIN) throw new ErrorSpd('La contraseña es demasiado fácil de adivinar: usa mayúsculas y minúsculas, números y símbolos, o alárgala (14 o más caracteres).', 'CONTRASENA_DEBIL');
+  return c;
+}
+
 // ───────────────────────────── PIN de usuario ─────────────────────────────
 
 const PIN_N = 1 << 14;

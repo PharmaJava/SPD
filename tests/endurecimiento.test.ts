@@ -17,7 +17,7 @@ import { listarPacientes } from '../src/servicios/clinica/pacientes.ts';
 import { leerEfimero, guardarEfimero, limpiarEfimero } from '../src/interfaz/lib/efimero.ts';
 
 const KDF = { n: 1 << 10, r: 8, p: 1 };
-const PASS = 'contraseña-farmacia', PIN = '4821';
+const PASS = 'mi-contraseña-farmacia', PIN = '4821';
 const PRIMER_USO: PrimerUso = {
   farmacia: { nombre: 'Farmacia Luz', titular: 'Marta' }, titular: { nombre: 'Marta', iniciales: 'M', pin: PIN }, contrasena: PASS, momentos: [{ nombre: 'Desayuno', hora: '08:00' }],
 };
@@ -31,6 +31,7 @@ async function entorno() {
   const crear = () => crearSistema({ rutaDatos: join(dir, 'datos'), ahora: () => new Date(t), kdf: KDF, debounceMs: 60_000, carpetaCopiasPorDefecto: join(dir, 'defecto') });
   const s = crear();
   const uso = ok(await s.api.primerUso(PRIMER_USO));
+  mkdirSync(copias, { recursive: true });
   ok(await s.api.guardarAjustes({ carpetaCopias: copias }));
   ok(await s.api.iniciarSesion(ok(await s.api.listarUsuarios())[0].id, PIN));
   return { dir, copias, s, crear, uso, avanzar: (ms = 60_000) => { t += ms; }, fin: async () => { await s.cerrar(); rmSync(dir, { recursive: true, force: true }); } };
@@ -41,7 +42,7 @@ test('cambiar la contraseña ROTA la clave de datos: la clave de recuperación d
   const e = await entorno();
   try {
     const claveVieja = claveDesdeTexto(e.uso.claveRecuperacion);
-    const r = ok(await e.s.api.cambiarContrasena(PASS, 'contraseña-NUEVA-9'));
+    const r = ok(await e.s.api.cambiarContrasena(PASS, 'mi-contraseña-NUEVA-9'));
     assert.notEqual(r.claveRecuperacion, e.uso.claveRecuperacion);
     const claveNueva = claveDesdeTexto(r.claveRecuperacion);
     await e.s.guardarAhora();
@@ -49,7 +50,7 @@ test('cambiar la contraseña ROTA la clave de datos: la clave de recuperación d
       const bytes = new Uint8Array(readFileSync(join(e.dir, 'datos', f)));
       assert.equal(cod(() => abrirConClaveDeDatos(bytes, claveVieja)), 'FICHERO_CORRUPTO', f + ' no debe abrir con la clave vieja');
       assert.equal(cod(() => abrirConContrasena(bytes, PASS)), 'CONTRASENA_INCORRECTA', f + ' no debe abrir con la contraseña vieja');
-      abrirConClaveDeDatos(bytes, claveNueva); abrirConContrasena(bytes, 'contraseña-NUEVA-9');
+      abrirConClaveDeDatos(bytes, claveNueva); abrirConContrasena(bytes, 'mi-contraseña-NUEVA-9');
     }
     // La clave nueva recupera de verdad.
     ok(await e.s.api.bloquear());
@@ -65,17 +66,17 @@ test('copia anterior al cambio: se restaura con SU contraseña (o su clave de re
     ok(await e.s.api.crearUsuario({ nombre: 'Ana', iniciales: 'A', rol: 'tecnico', pin: '1111' }));
     ok(await e.s.api.crearCopia());
     const nombre = ok(await e.s.api.listarCopias())[0].nombre;
-    const r = ok(await e.s.api.cambiarContrasena(PASS, 'contraseña-NUEVA-9'));
+    const r = ok(await e.s.api.cambiarContrasena(PASS, 'mi-contraseña-NUEVA-9'));
     e.avanzar();
     // con la clave de recuperación de entonces
-    const res = ok(await e.s.api.restaurarCopia(nombre, 'contraseña-NUEVA-9', e.uso.claveRecuperacion));
+    const res = ok(await e.s.api.restaurarCopia(nombre, 'mi-contraseña-NUEVA-9', e.uso.claveRecuperacion));
     assert.match(res.aviso, /restaurada/i);
     ok(await e.s.api.iniciarSesion(ok(await e.s.api.listarUsuarios())[0].id, PIN));
     assert.ok(ok(await e.s.api.listarAuditoria({ entidad: 'copia' })).some(a => /otra clave de datos/.test(a.motivo ?? '')));
     await e.s.guardarAhora();
     // tras restaurar manda la contraseña y la clave de recuperación ACTUALES
     const bytes = new Uint8Array(readFileSync(join(e.dir, 'datos', 'spd.datos')));
-    abrirConContrasena(bytes, 'contraseña-NUEVA-9'); abrirConClaveDeDatos(bytes, claveDesdeTexto(r.claveRecuperacion));
+    abrirConContrasena(bytes, 'mi-contraseña-NUEVA-9'); abrirConClaveDeDatos(bytes, claveDesdeTexto(r.claveRecuperacion));
     assert.equal(cod(() => abrirConClaveDeDatos(bytes, claveDesdeTexto(e.uso.claveRecuperacion))), 'FICHERO_CORRUPTO');
   } finally { await e.fin(); }
 });

@@ -13,10 +13,19 @@ export function mensajeError(e: unknown): string {
 export interface Tostada { id: number; texto: string; tipo: 'ok' | 'info' | 'atencion' | 'bloqueo' }
 export const tostadas = writable<Tostada[]>([]);
 let contador = 0;
+const temporizadores = new Map<number, ReturnType<typeof setTimeout>>();
+export function cerrarTostada(id: number): void {
+  clearTimeout(temporizadores.get(id)); temporizadores.delete(id);
+  tostadas.update(l => l.filter(t => t.id !== id));
+}
+/**
+ * Aviso breve. Los de tipo «bloqueo» (errores) NO desaparecen solos: se quedan hasta que la persona los cierra,
+ * porque un error que se va a los 3 s se pierde (y con lector de pantalla puede no llegar a leerse). El resto se cierra solo.
+ */
 export function avisar(texto: string, tipo: Tostada['tipo'] = 'ok', ms = 3000): void {
   const id = ++contador;
-  tostadas.update(l => [...l, { id, texto, tipo }].slice(-2));
-  setTimeout(() => tostadas.update(l => l.filter(t => t.id !== id)), ms);
+  tostadas.update(l => [...l, { id, texto, tipo }].slice(-4));
+  if (tipo !== 'bloqueo') temporizadores.set(id, setTimeout(() => cerrarTostada(id), Math.max(ms, 4000)));
 }
 
 // ───────────── Aspecto (tema y tamaño de letra), guardado en el equipo ─────────────

@@ -21,6 +21,8 @@ export const MS_ATRASADA = 2 * 24 * 3600 * 1000;
 
 const RE_NOMBRE = /^spd-(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})\.datos$/;
 
+/** Copias manuales recientes que se conservan SIEMPRE (varias el mismo día no se pisan entre sí ni con la automática). */
+export const COPIAS_MANUALES = 10;
 export const COPIAS_PREACTUALIZACION = 3;
 export const COPIAS_PRERESTAURACION = 3;
 
@@ -128,27 +130,33 @@ export function seleccionarConservar(copias: CopiaInfo[]): Set<string> {
   return conservar;
 }
 
-/** Aplica la rotación. Devuelve los nombres borrados. Nunca borra `proteger`. */
-export function rotarCopias(carpeta: string, proteger?: string, ahora: Date = new Date()): string[] {
+/**
+ * Aplica la rotación. Devuelve los nombres borrados. Nunca borra `proteger` (un nombre o varios).
+ * «Una por día, 4 semanas, 12 meses» es sólo para las AUTOMÁTICAS (y las sin ficha): las manuales y las de antes de actualizar o
+ * restaurar tienen su propia regla, para que no se pisen entre sí el mismo día ni desaparezca la copia que se acaba de restaurar.
+ */
+export function rotarCopias(carpeta: string, proteger?: string | string[], ahora: Date = new Date()): string[] {
   // Sólo las copias de verdad: un nombre plantado (fecha futura o sin cabecera de SPD) ni cuenta ni se borra, y no desplaza a las buenas.
   const copias = listarCopiasValidas(carpeta, ahora);
-  const conservar = seleccionarConservar(copias);
+  const protegidas = new Set(proteger === undefined ? [] : Array.isArray(proteger) ? proteger : [proteger]);
+  const conservar = seleccionarConservar(copias.filter(c => !c.meta || c.meta.origen === 'automatica'));
   // Las copias de seguridad previas a actualizar o restaurar más recientes NO se borran por rotación.
   const protegerUltimas = (origen: OrigenCopia, n: number) => {
     for (const c of copias.filter(x => x.meta?.origen === origen).slice(-n)) conservar.add(c.nombre);
   };
+  protegerUltimas('manual', COPIAS_MANUALES);
   protegerUltimas('antes_actualizar', COPIAS_PREACTUALIZACION);
   protegerUltimas('antes_restaurar', COPIAS_PRERESTAURACION);
   const borradas: string[] = [];
   for (const c of copias) {
-    if (conservar.has(c.nombre) || c.nombre === proteger) continue;
+    if (conservar.has(c.nombre) || protegidas.has(c.nombre)) continue;
     try { rmSync(join(carpeta, c.nombre)); rmSync(rutaMeta(join(carpeta, c.nombre)), { force: true }); borradas.push(c.nombre); } catch { /* si no se puede borrar, se queda */ }
   }
   return borradas;
 }
 
 /** Copia el fichero cifrado a la carpeta (atómico: temporal + rename) y rota. Devuelve la ruta. */
-export function crearCopiaFichero(origen: string, carpeta: string, ahora: Date, meta?: MetaCopia): string {
+export function crearCopiaFichero(origen: string, carpeta: string, ahora: Date, meta?: MetaCopia, protegerTambien: string[] = []): string {
   if (!carpeta || !carpeta.trim()) throw new ErrorSpd('No hay carpeta de copias configurada.', 'SIN_CARPETA_COPIAS');
   try { mkdirSync(carpeta, { recursive: true }); }
   catch (e) { throw new ErrorSpd(`No se puede usar la carpeta de copias «${carpeta}»: ${e instanceof Error ? e.message : String(e)}`, 'CARPETA_COPIAS'); }
@@ -167,7 +175,7 @@ export function crearCopiaFichero(origen: string, carpeta: string, ahora: Date, 
     try { rmSync(tmp, { force: true }); } catch { /* nada */ }
     throw new ErrorSpd(`No se pudo crear la copia: ${e instanceof Error ? e.message : String(e)}`, 'COPIA_FALLIDA');
   }
-  rotarCopias(carpeta, nombre, ahora);
+  rotarCopias(carpeta, [nombre, ...protegerTambien], ahora);
   return destino;
 }
 

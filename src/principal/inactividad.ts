@@ -2,13 +2,14 @@
  * Bloqueo por inactividad: cada actividad en la ventana reinicia un reloj; si pasan `bloqueoMinutos`
  * sin actividad se llama a `alBloquear`. Sin Electron ni temporizadores globales: se inyectan (pruebas).
  *
- * ⚠️ Nunca se puede desactivar: un valor ausente, no numérico o < 1 usa el valor por defecto, y el máximo es 120.
+ * Un valor ausente, no numérico o negativo usa el valor por defecto; el máximo es 240. `0` = NO bloquear solo (lo decide el titular
+ * en Ajustes, con ese aviso en pantalla y queda auditado): es lo que dice la interfaz y lo que acepta la API.
  */
 export const BLOQUEO_POR_DEFECTO_MIN = 5;
-export const BLOQUEO_MAXIMO_MIN = 120;
+export const BLOQUEO_MAXIMO_MIN = 240;
 
 export function minutosValidos(v: unknown): number {
-  if (typeof v !== 'number' || !Number.isFinite(v) || v < 1) return BLOQUEO_POR_DEFECTO_MIN;
+  if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) return BLOQUEO_POR_DEFECTO_MIN;
   return Math.min(Math.floor(v), BLOQUEO_MAXIMO_MIN);
 }
 
@@ -43,6 +44,8 @@ export function crearVigilanteInactividad(
 
   const armar = () => {
     if (id !== null) t.clearTimeout(id);
+    id = null;
+    if (minutos === 0) return;   // 0 = no bloquear por inactividad
     id = t.setTimeout(() => { id = null; if (!parado) { try { opciones.alBloquear(); } catch { /* nunca debe romper el reloj */ } } }, minutos * 60_000);
   };
   armar();

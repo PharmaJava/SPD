@@ -32,7 +32,7 @@
       {#each contactos as c (c.id)}
         <tr><td class="negrita">{c.nombre}{#if c.parentesco} <span class="suave">({c.parentesco})</span>{/if}</td><td>{CONTACTO_TIPOS[c.tipo] ?? c.tipo}</td><td>{c.telefono ?? '—'}</td>
           <td>{#if c.autorizadoRecoger}<span class="etiqueta ok">Sí</span>{:else}<span class="suave">No</span>{/if}</td>
-          <td class="derecha"><button class="btn enlace" onclick={() => { editando = { ...c }; error = errNombre = null; }}>Editar</button></td></tr>
+          <td class="derecha"><button class="btn enlace" onclick={() => { editando = { ...c }; error = errNombre = null; }} aria-label="Editar el contacto {c.nombre}">Editar</button></td></tr>
       {/each}
     </tbody></table>
   {/if}

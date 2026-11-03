@@ -77,11 +77,12 @@ test('sin DNI del paciente el definitivo se bloquea y lo dice', async () => {
   assert.match(v.texto, /⟦paciente\.dni_nie⟧/);
 });
 
-test('info_rgpd: trae «[A COMPLETAR]» de la plantilla y se avisa; no inventa el DPD', async () => {
+test('info_rgpd: trae «[A COMPLETAR]» de la plantilla y se avisa; el DPD es opcional y no se inventa', async () => {
   const { t, api } = await montar();
   t.db.run("UPDATE farmacia SET rgpd_dpd = NULL");
   const v = ok(await api.vistaDocumento('info_rgpd', 1));
-  assert.ok(v.faltan.includes('farmacia.rgpd_dpd'));
+  assert.ok(!v.faltan.includes('farmacia.rgpd_dpd'));
+  assert.match(v.texto, /la farmacia no ha designado delegado de protección de datos/);
   assert.ok(v.avisos.some((a) => /Falta completar en la plantilla/.test(a)));
   assert.equal(v.imprimibleDefinitivo, false);
 });

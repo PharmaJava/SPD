@@ -60,8 +60,12 @@ export function colorMed(color: string | undefined, indice: number): string {
 
 /** Markdown mínimo (títulos, negrita) y datos que faltan (⟦…⟧) para enseñar y imprimir un documento. Escapa antes de nada. */
 export function mdBasico(texto: string): string {
-  return escaparHtml(texto).split('\n').map(l => {
-    const t = l.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/⟦(.+?)⟧/g, '<mark>[falta: $1]</mark>');
+  // Los comentarios de la plantilla (<!-- … -->) no son texto del documento. Lo único de HTML que se admite es <small>…</small> (pie «Documento n.º · versión»),
+  // y se admite DESPUÉS de escapar: nada más que esa etiqueta exacta llega a pintarse como marcado.
+  const limpio = texto.replace(/<!--[\s\S]*?-->/g, '');
+  return escaparHtml(limpio).split('\n').map(l => {
+    const t = l.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/⟦(.+?)⟧/g, '<mark>[falta: $1]</mark>')
+      .replace(/&lt;small&gt;(.*?)&lt;\/small&gt;/g, '<small>$1</small>');
     const h = /^#{1,3}\s+(.*)$/.exec(t);
     return h ? `<h3>${h[1]}</h3>` : t;
   }).join('<br>').replace(/<\/h3><br>/g, '</h3>');

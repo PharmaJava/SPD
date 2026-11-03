@@ -60,7 +60,7 @@
   {:else}
     {#if panel.copias.atrasada}
       <div class="tarea atencion"><div class="txt"><span class="rot"><Icono n="alerta" tam={16} />Atención</span><div>La copia de seguridad está atrasada.</div></div>
-        <button class="btn principal" onclick={() => ir('ajustes/copias')}>Hacer copia</button></div>
+        <button class="btn principal" onclick={() => ir('ajustes/copias')} aria-label="Hacer copia de seguridad: la última está atrasada">Hacer copia</button></div>
     {/if}
     {#each GRUPOS as gr (gr.g)}
       {@const ts = panel.tareas.filter(t => t.gravedad === gr.g)}
@@ -71,7 +71,7 @@
             {@const d = destino(t)}
             <div class="tarea {t.gravedad}">
               <div class="txt"><span class="rot"><Icono n={gr.icono} tam={16} />{gr.rot}</span><div>{t.texto}</div></div>
-              <button class="btn" onclick={() => ir(d.ruta)}>{d.texto}<Icono n="flecha" tam={16} /></button>
+              <button class="btn" onclick={() => ir(d.ruta)} aria-label="{d.texto}: {t.texto}">{d.texto}<Icono n="flecha" tam={16} /></button>
             </div>
           {/each}
         </section>

@@ -62,14 +62,18 @@ test('inactividad: tras bloquear no vuelve a bloquear hasta nueva actividad', as
   await r.avanzar(10 * MIN); assert.equal(bloqueos, 1);
 });
 
-test('inactividad: configurar cambia el plazo; no se puede desactivar', async () => {
+test('inactividad: configurar cambia el plazo; 0 = no bloquear solo; valores raros → el de por defecto', async () => {
   const r = reloj(); let bloqueos = 0;
   const v = crearVigilanteInactividad({ minutos: 5, alBloquear: () => { bloqueos++; }, t: r.t });
   v.configurar(1); await r.avanzar(61_000); assert.equal(bloqueos, 1);
-  for (const raro of [0, -3, NaN, Infinity, undefined, null, '5', {}]) {
-    assert.equal(minutosValidos(raro), raro === Infinity ? BLOQUEO_POR_DEFECTO_MIN : BLOQUEO_POR_DEFECTO_MIN, String(raro));
+  for (const raro of [-3, NaN, Infinity, undefined, null, '5', {}]) {
+    assert.equal(minutosValidos(raro), BLOQUEO_POR_DEFECTO_MIN, String(raro));
   }
+  assert.equal(minutosValidos(0), 0);
   assert.equal(minutosValidos(100000), BLOQUEO_MAXIMO_MIN);
+  assert.equal(BLOQUEO_MAXIMO_MIN, 240);
+  v.configurar(0); bloqueos = 0; await r.avanzar(300 * MIN); assert.equal(bloqueos, 0, '0 = no bloquear solo');
+  v.configurar(1); await r.avanzar(61_000); assert.equal(bloqueos, 1, 'al volver a un plazo, bloquea');
   assert.equal(minutosValidos(2.9), 2);
 });
 

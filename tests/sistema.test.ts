@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { crearSistema } from '../src/servicios/sistema.ts';
@@ -9,7 +9,7 @@ import type { Ajustes, PrimerUso, Resultado } from '../src/servicios/api.ts';
 import { abrirConContrasena } from '../src/servicios/seguridad.ts';
 
 const KDF = { n: 1 << 10, r: 8, p: 1 };
-const PASS = 'contraseña-farmacia';
+const PASS = 'mi-contraseña-farmacia';
 const PIN = '4821';
 
 const PRIMER_USO: PrimerUso = {
@@ -247,13 +247,13 @@ test('recuperar con la clave de recuperación: contraseña nueva, la vieja deja 
   try {
     const { claveRecuperacion } = ok(await e.s.api.primerUso(PRIMER_USO));
     await e.s.api.bloquear();
-    const r = ok(await e.s.api.recuperar(claveRecuperacion.toLowerCase().replaceAll('-', ' '), 'contraseña-nueva-1'));
+    const r = ok(await e.s.api.recuperar(claveRecuperacion.toLowerCase().replaceAll('-', ' '), 'mi-contraseña-nueva-1'));
     assert.equal(r.desbloqueado, true);
     assert.equal(ok(await e.s.api.obtenerFarmacia()).nombre, 'Farmacia Luz del Sur');
     await e.s.api.bloquear();
     mal(await e.s.api.desbloquear(PASS), 'CONTRASENA_INCORRECTA');
     e.reloj.t += 5000;
-    ok(await e.s.api.desbloquear('contraseña-nueva-1'));
+    ok(await e.s.api.desbloquear('mi-contraseña-nueva-1'));
     ok(await e.s.api.iniciarSesion(1, PIN));
     assert.ok(ok(await e.s.api.listarAuditoria({ entidad: 'sistema' })).some(x => x.accion === 'recuperar'));
   } finally { await e.fin(); }
@@ -267,8 +267,8 @@ test('recuperar con UNA errata en la clave: CLAVE_RECUPERACION_INVALIDA y sigue 
     const c = claveRecuperacion.split('');
     const i = c.findIndex(x => /[A-Z]/.test(x));
     c[i] = c[i] === 'A' ? 'B' : 'A';
-    mal(await e.s.api.recuperar(c.join(''), 'contraseña-nueva-1'), 'CLAVE_RECUPERACION_INVALIDA');
-    mal(await e.s.api.recuperar(claveRecuperacion.slice(0, 20), 'contraseña-nueva-1'), 'CLAVE_RECUPERACION_INVALIDA');
+    mal(await e.s.api.recuperar(c.join(''), 'mi-contraseña-nueva-1'), 'CLAVE_RECUPERACION_INVALIDA');
+    mal(await e.s.api.recuperar(claveRecuperacion.slice(0, 20), 'mi-contraseña-nueva-1'), 'CLAVE_RECUPERACION_INVALIDA');
     assert.equal(ok(await e.s.api.estado()).desbloqueado, false);
     ok(await e.s.api.desbloquear(PASS));                                           // la contraseña de siempre sigue valiendo
   } finally { await e.fin(); }
@@ -280,7 +280,7 @@ test('recuperar con la clave de OTRA farmacia: CLAVE_RECUPERACION_INCORRECTA (cu
   try {
     const { claveRecuperacion: ajena } = ok(await otra.s.api.primerUso(PRIMER_USO));
     await a.s.api.bloquear();
-    mal(await a.s.api.recuperar(ajena, 'contraseña-nueva-1'), 'CLAVE_RECUPERACION_INCORRECTA');
+    mal(await a.s.api.recuperar(ajena, 'mi-contraseña-nueva-1'), 'CLAVE_RECUPERACION_INCORRECTA');
     assert.equal(ok(await a.s.api.estado()).esperaIntento, 1);
     assert.equal(ok(await a.s.api.estado()).desbloqueado, false);
   } finally { await a.fin(); await otra.fin(); }
@@ -460,7 +460,7 @@ test('ajustes: rangos y tipos (validez 1-30, bloqueo, enteros, enums, lector)', 
   try {
     const invalidos: Partial<Ajustes>[] = [
       { diasValidezSpd: 0 }, { diasValidezSpd: 31 }, { diasValidezSpd: 7.5 }, { diasValidezSpd: '14' as never },
-      { bloqueoMinutos: 0 }, { bloqueoMinutos: 121 }, { conservacionAniosTrasBaja: 0 }, { conservacionAniosTrasBaja: 51 },
+      { bloqueoMinutos: -1 }, { bloqueoMinutos: 241 }, { conservacionAniosTrasBaja: 0 }, { conservacionAniosTrasBaja: 51 },
       { inicioDia: 'otro' as never }, { sentidoTomas: 'arriba' as never }, { posicionInicial: 'centro' as never },
       { rotar180: 'si' as never }, { lector: { modo: 'usb' as never, separadorGs: '' } }, { lector: { modo: 'serie', separadorGs: '', baudios: 5 } },
       { lector: { modo: 'serie', separadorGs: 'demasiado-largo' } }, { lector: null as never },
@@ -470,7 +470,7 @@ test('ajustes: rangos y tipos (validez 1-30, bloqueo, enteros, enums, lector)', 
     const ok1 = ok(await e.s.api.guardarAjustes({
       diasValidezSpd: 7, bloqueoMinutos: 10, conservacionAniosTrasBaja: 5, inicioDia: 'cronologico', rotar180: true,
       sentidoTomas: 'derecha_izquierda', posicionInicial: 'derecha', lector: { modo: 'serie', separadorGs: '|', puerto: 'COM3', baudios: 9600 },
-      impresoraEtiquetas: 'Zebra ZD', carpetaCopias: 'D:\\Copias',
+      impresoraEtiquetas: 'Zebra ZD', carpetaCopias: e.dir,
     }));
     assert.equal(ok1.diasValidezSpd, 7); assert.equal(ok1.rotar180, true); assert.deepEqual(ok1.lector, { modo: 'serie', separadorGs: '|', puerto: 'COM3', baudios: 9600 });
     assert.deepEqual({ ...ok1, diasValidezSpd: 0 }, { ...ok1, diasValidezSpd: 0 });
@@ -481,6 +481,9 @@ test('ajustes: rangos y tipos (validez 1-30, bloqueo, enteros, enums, lector)', 
     // y se puede vaciar una impresora
     assert.equal(ok(await e.s.api.guardarAjustes({ impresoraEtiquetas: null })).impresoraEtiquetas, null);
     assert.equal(ok(await e.s.api.guardarAjustes({ carpetaCopias: '' })).carpetaCopias, null);
+    // 0 (= no bloquear solo) y 240 se aceptan, como dice la interfaz
+    assert.equal(ok(await e.s.api.guardarAjustes({ bloqueoMinutos: 0 })).bloqueoMinutos, 0);
+    assert.equal(ok(await e.s.api.guardarAjustes({ bloqueoMinutos: 240 })).bloqueoMinutos, 240);
   } finally { await e.fin(); }
 });
 
@@ -745,6 +748,7 @@ test('copias: crearCopia con carpeta; el fichero abre con la contraseña y trae 
   const e = await conPrimerUso();
   try {
     const carpeta = join(e.dir, 'mis-copias');
+    mkdirSync(carpeta);
     ok(await e.s.api.guardarAjustes({ carpetaCopias: carpeta }));
     const { ruta } = ok(await e.s.api.crearCopia());
     assert.equal(ruta, join(carpeta, 'spd-20261102-090000.datos'));
@@ -766,6 +770,7 @@ test('copias: aviso de atrasada pasados 2 días y rotación; una carpeta pasada 
   const e = await conPrimerUso();
   try {
     const carpeta = join(e.dir, 'otra');
+    mkdirSync(carpeta);
     ok(await e.s.api.guardarAjustes({ carpetaCopias: carpeta }));
     ok(await e.s.api.crearCopia(join(e.dir, 'ajena')));
     assert.equal(existsSync(join(e.dir, 'ajena')), false, 'crearCopia no acepta otra carpeta que la de los ajustes');
@@ -782,6 +787,7 @@ test('copias: aviso de atrasada pasados 2 días y rotación; una carpeta pasada 
 test('copias: el técnico no puede; la automática no pide sesión', async () => {
   const e = await conPrimerUso();
   try {
+    mkdirSync(join(e.dir, 'copias'));
     ok(await e.s.api.guardarAjustes({ carpetaCopias: join(e.dir, 'copias') }));
     await entrarComo(e, 'tecnico');
     mal(await e.s.api.crearCopia(), 'SIN_PERMISO');
@@ -795,12 +801,16 @@ test('copias: el técnico no puede; la automática no pide sesión', async () =>
   } finally { await e.fin(); }
 });
 
-test('copias: carpeta imposible → fallo claro, sin excepción', async () => {
+test('copias: carpeta imposible → se rechaza AL GUARDAR los ajustes, con fallo claro y sin excepción', async () => {
   const e = await conPrimerUso();
   try {
     writeFileSync(join(e.dir, 'archivo'), 'x');
-    ok(await e.s.api.guardarAjustes({ carpetaCopias: join(e.dir, 'archivo', 'dentro') }));
-    mal(await e.s.api.crearCopia(), 'CARPETA_COPIAS');
+    mal(await e.s.api.guardarAjustes({ carpetaCopias: join(e.dir, 'archivo', 'dentro') }), 'AJUSTE_INVALIDO');
+    mal(await e.s.api.guardarAjustes({ carpetaCopias: join(e.dir, 'archivo') }), 'AJUSTE_INVALIDO');       // es un fichero, no una carpeta
+    mal(await e.s.api.guardarAjustes({ carpetaCopias: join(e.dir, 'no-existe') }), 'AJUSTE_INVALIDO');     // no existe
+    mal(await e.s.api.guardarAjustes({ carpetaCopias: 'relativa/copias' }), 'AJUSTE_INVALIDO');            // no es absoluta
+    assert.equal(ok(await e.s.api.obtenerAjustes()).carpetaCopias, null, 'no se guardó nada');
+    mal(await e.s.api.crearCopia(), 'SIN_CARPETA_COPIAS');
   } finally { await e.fin(); }
 });
 
@@ -816,7 +826,7 @@ test('fichero principal dañado con copia buena: error con código propio y desb
     const p = readFileSync(join(e.dir, 'spd.datos')); writeFileSync(join(e.dir, 'spd.datos'), p.subarray(0, p.length - 30));
     const s2 = e.reabrir();
     mal(await s2.api.desbloquear(PASS), 'FICHERO_DANADO_COPIA_DISPONIBLE');
-    mal(await s2.api.desbloquearConCopia('contraseña-equivocada'), 'CONTRASENA_INCORRECTA');
+    mal(await s2.api.desbloquearConCopia('mi-contraseña-equivocada'), 'CONTRASENA_INCORRECTA');
     e.reloj.t += 5000;
     assert.equal(ok(await s2.api.estado()).desbloqueado, false);
     assert.equal(ok(await s2.api.estado()).esperaIntento, 0);                           // no es un fallo de contraseña

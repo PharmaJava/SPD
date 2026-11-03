@@ -40,12 +40,38 @@ function exigirPaciente(db: Db, id: unknown): PacienteDto {
   return p;
 }
 
-/** DNI/NIE: sólo se normaliza (mayúsculas, sin espacios, puntos ni guiones). El dígito de control NO se valida. */
+/**
+ * DNI/NIE: se normaliza (mayúsculas, sin espacios, puntos ni guiones) y se comprueba el FORMATO (8 cifras + letra, o X/Y/Z + 7 cifras +
+ * letra). La letra de control NO se valida: una fórmula sin contrastar rechazaría documentos buenos (CLAUDE.md).
+ */
 export function normalizarDni(v: unknown): string | null {
   const t = texto(v, 'DNI/NIE', 30);
   if (t === null) return null;
   const n = t.toUpperCase().replace(/[\s.\-]/g, '');
-  return n === '' ? null : n;
+  if (n === '') return null;
+  if (!/^(\d{8}|[XYZ]\d{7})[A-Z]$/.test(n)) throw invalido(`El DNI/NIE «${t}» no tiene un formato válido (8 cifras y una letra, o X/Y/Z, 7 cifras y una letra).`);
+  return n;
+}
+
+/** Fecha de nacimiento verosímil: de 1900 a hoy. */
+const NACIMIENTO_MINIMO = '1900-01-01';
+
+/** Código postal español: 5 cifras. */
+function codigoPostalValido(v: unknown): string | null {
+  const t = texto(v, 'código postal', 10);
+  if (t === null) return null;
+  if (!/^\d{5}$/.test(t)) throw invalido(`El código postal «${t}» no es válido (5 cifras).`);
+  return t;
+}
+
+/** Mismo nombre y apellidos (sin tildes ni mayúsculas) y misma fecha de nacimiento que otro paciente: probablemente es la misma persona. */
+function avisosDuplicado(db: Db, d: DatosPaciente, excluirId: number | null): string[] {
+  if (!d.fechaNacimiento) return [];
+  const clave = (n: unknown, a1: unknown, a2: unknown) => normalizar([n, a1, a2].filter(Boolean).join(' ')).replace(/[^a-z0-9ñ ]/g, '').replace(/\s+/g, ' ').trim();
+  const mia = clave(d.nombre, d.apellido1, d.apellido2);
+  return db.all<R>('SELECT id, nombre, apellido1, apellido2, estado FROM paciente WHERE fecha_nacimiento = ? AND id <> ?', [d.fechaNacimiento, excluirId ?? 0])
+    .filter((o) => clave(o.nombre, o.apellido1, o.apellido2) === mia)
+    .map((o) => `Posible paciente duplicado: ya existe ${nombreCompleto(o)} (nº ${o.id}, ${o.estado}) con el mismo nombre y la misma fecha de nacimiento. Comprueba que no es la misma persona antes de seguir.`);
 }
 
 const nombreCompleto = (r: R): string => [r.nombre, r.apellido1, r.apellido2].filter(Boolean).join(' ');
@@ -160,6 +186,7 @@ function validarPaciente(db: Db, p: NuevoPaciente, hoy: string, centroActual: nu
   if (fechaNacimiento !== null) {
     if (!esFechaIso(fechaNacimiento)) throw invalido('La fecha de nacimiento no es válida (AAAA-MM-DD).');
     if (fechaNacimiento > hoy) throw invalido('La fecha de nacimiento no puede ser futura.');
+    if (fechaNacimiento < NACIMIENTO_MINIMO) throw invalido('La fecha de nacimiento no es verosímil (anterior a 1900): comprueba el año.');
   }
   const sexo = p.sexo ?? null;
   if (sexo !== null && !['M', 'H', 'X'].includes(sexo)) throw invalido('Sexo no válido (M, H o X).');
@@ -179,7 +206,7 @@ function validarPaciente(db: Db, p: NuevoPaciente, hoy: string, centroActual: nu
     nombre, apellido1, apellido2: texto(p.apellido2, 'segundo apellido', 100), fechaNacimiento, sexo, dniNie: normalizarDni(p.dniNie),
     cipAutonomico: texto(p.cipAutonomico, 'CIP autonómico', 60), cipSns: texto(p.cipSns, 'CIP-SNS', 60), nass: texto(p.nass, 'NASS', 60),
     tsiCcaa: texto(p.tsiCcaa, 'comunidad de la tarjeta', 100), aseguradora: texto(p.aseguradora, 'aseguradora', 100),
-    direccion: texto(p.direccion, 'dirección', 200), codigoPostal: texto(p.codigoPostal, 'código postal', 10), municipio: texto(p.municipio, 'municipio', 100),
+    direccion: texto(p.direccion, 'dirección', 200), codigoPostal: codigoPostalValido(p.codigoPostal), municipio: texto(p.municipio, 'municipio', 100),
     telefono: texto(p.telefono, 'teléfono', 40), telefono2: texto(p.telefono2, 'segundo teléfono', 40), email, centroId,
     habitacion: centroId === null ? null : texto(p.habitacion, 'habitación', 40), necesitaBraille: bool(p.necesitaBraille), letraGrande: bool(p.letraGrande),
     proximaRevision, notas: texto(p.notas, 'notas', 4000),
@@ -214,7 +241,8 @@ export function guardarPaciente(ctx: Contexto, p: NuevoPaciente): Promise<Result
         const despues = exigirPaciente(db, id);
         ctx.auditar({ accion: 'modificar', entidad: 'paciente', entidadId: id, antes, despues });
         if (reactivar) ctx.auditar({ accion: 'reactivar', entidad: 'paciente', entidadId: id, antes: { estado: antes.estado }, despues: { estado: 'activo' }, motivo: 'Vuelve al servicio' });
-        return despues;
+        const avisos = avisosDuplicado(db, d, id);
+        return avisos.length > 0 ? { ...despues, avisos } : despues;
       }
       if (d.dniNie) {
         const otro = db.get<R>('SELECT nombre, apellido1, estado FROM paciente WHERE dni_nie = ?', [d.dniNie]);
@@ -229,8 +257,9 @@ export function guardarPaciente(ctx: Contexto, p: NuevoPaciente): Promise<Result
           d.aseguradora, d.direccion, d.codigoPostal, d.municipio, d.telefono, d.telefono2, d.email, d.centroId, d.habitacion,
           boolDb(d.necesitaBraille), boolDb(d.letraGrande), hoy, revision, d.notas]).ultimoId;
       const creado = exigirPaciente(db, nuevo);
-      ctx.auditar({ accion: 'crear', entidad: 'paciente', entidadId: nuevo, despues: creado });
-      return creado;
+      const avisos = avisosDuplicado(db, d, nuevo);
+      ctx.auditar({ accion: 'crear', entidad: 'paciente', entidadId: nuevo, despues: creado, motivo: avisos.length > 0 ? avisos.join(' ') : null });
+      return avisos.length > 0 ? { ...creado, avisos } : creado;
     });
     ctx.persistir();
     return dto;
@@ -432,6 +461,26 @@ export function listarSalud(ctx: Contexto, pacienteId: number): Promise<Resultad
   });
 }
 
+/** Número al principio de un valor («70», «70 kg», «62,5»), o null si no empieza por un número. */
+function numeroInicial(v: string): number | null {
+  const m = /^\s*(\d+(?:[.,]\d+)?)/.exec(v);
+  return m ? Number(m[1].replace(',', '.')) : null;
+}
+
+/** Peso (kg) y función renal (mL/min) con valores creíbles; un error al teclear («700» kg) pasaría a las decisiones de dosis. */
+function valorSaludPlausible(tipo: string, valor: string | null): string | null {
+  if (valor === null) return null;
+  if (tipo === 'peso') {
+    const n = numeroInicial(valor);
+    if (n === null) throw invalido('El peso tiene que ser un número (kg).');
+    if (n < 1 || n > 400) throw invalido(`El peso (${valor}) no es verosímil: debe estar entre 1 y 400 kg.`);
+  } else if (tipo === 'insuficiencia_renal') {
+    const n = numeroInicial(valor);
+    if (n !== null && n > 250) throw invalido(`El valor de función renal (${valor}) no es verosímil (0-250 mL/min).`);
+  }
+  return valor;
+}
+
 export function guardarSalud(ctx: Contexto, s: Omit<SaludDatoDto, 'id'> & { id?: number }): Promise<Resultado<SaludDatoDto>> {
   return proteger(() => {
     const u = exigirSesion(ctx);
@@ -443,7 +492,10 @@ export function guardarSalud(ctx: Contexto, s: Omit<SaludDatoDto, 'id'> & { id?:
       const descripcion = textoObligatorio(s.descripcion, 'la descripción', 500);
       const fecha = texto(s.fecha, 'fecha', 10);
       if (fecha !== null && !esFechaIso(fecha)) throw invalido('La fecha no es válida (AAAA-MM-DD).');
-      const vals = [s.tipo, descripcion, texto(s.valor, 'valor', 100), fecha, texto(s.fuente, 'fuente', 200), s.vigente === false ? 0 : 1];
+      if (fecha !== null && fecha > hoyISO(ctx)) throw invalido('La fecha de un dato de salud no puede ser futura: es cuándo se supo o se midió.');
+      if (fecha !== null && fecha < NACIMIENTO_MINIMO) throw invalido('La fecha del dato de salud no es verosímil (anterior a 1900).');
+      const valor = valorSaludPlausible(s.tipo, texto(s.valor, 'valor', 100));
+      const vals = [s.tipo, descripcion, valor, fecha, texto(s.fuente, 'fuente', 200), s.vigente === false ? 0 : 1];
       if (s.id !== undefined && s.id !== null) {
         const antes = db.get<R>('SELECT * FROM salud_dato WHERE id = ?', [s.id]);
         if (!antes) throw noEncontrado('Dato de salud no encontrado.');

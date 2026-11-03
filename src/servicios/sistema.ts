@@ -20,9 +20,9 @@ import type { Db } from './db.ts';
 import { crearCopiaFichero, estadoDeCopias, leerFicheroCopia, listarCopias as listarCopiasCarpeta, rutaDeCopia } from './copias.ts';
 import type { MetaCopia } from './copias.ts';
 import { VERSION_ESQUEMA } from './db.ts';
-import { statSync } from 'node:fs';
-import { join } from 'node:path';
-import { COD_CONTRASENA, hashPin, limitadorContrasena, limitadorPin, verificarPin } from './seguridad.ts';
+import { mkdtempSync, rmSync, statSync } from 'node:fs';
+import { isAbsolute, join } from 'node:path';
+import { COD_CONTRASENA, exigirContrasenaValida, hashPin, limitadorContrasena, limitadorPin, verificarPin } from './seguridad.ts';
 import type { LimitadorFallos } from './seguridad.ts';
 import { claveDesdeTexto, textoRecuperacion, uriAutenticador } from '../dominio/clave-recuperacion.ts';
 import { crearEntrada, diferencias, HASH_GENESIS, verificarCadena } from '../dominio/auditoria.ts';
@@ -64,7 +64,6 @@ export interface Sistema {
 const ROLES: RolUsuario[] = ['titular', 'farmaceutico', 'tecnico', 'administrativo'];
 const CAMPOS_OCULTOS = ['hash_clave', 'pin', 'contrasena', 'nuevaContrasena', 'claveRecuperacion', 'clave'];
 const RE_HORA = /^([01]\d|2[0-3]):[0-5]\d$/;
-const CONTRASENA_MIN = 8;
 const ULTIMO_HASH = 'auditoria_ultimo_hash';
 
 const AJUSTES_POR_DEFECTO: Ajustes = {
@@ -76,10 +75,8 @@ const AJUSTES_POR_DEFECTO: Ajustes = {
 const err = (m: string, c: string) => new ErrorSpd(m, c);
 const texto = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null);
 
-function validarContrasenaNueva(c: unknown): string {
-  if (typeof c !== 'string' || c.length < CONTRASENA_MIN) throw err(`La contraseña debe tener al menos ${CONTRASENA_MIN} caracteres.`, 'CONTRASENA_DEBIL');
-  return c;
-}
+/** Política única de seguridad.ts (la misma que el medidor de la interfaz): primer uso, cambio y recuperación. */
+const validarContrasenaNueva = exigirContrasenaValida;
 function validarPin(p: unknown): string {
   if (typeof p !== 'string' || !/^\d{4,8}$/.test(p)) throw err('El PIN debe tener entre 4 y 8 cifras.', 'PIN_INVALIDO');
   return p;
@@ -199,7 +196,8 @@ export function crearSistema(opciones: OpcionesSistema): Sistema {
     };
     if (a.diasValidezSpd !== undefined) rango(a.diasValidezSpd, 1, 30, 'La validez del SPD (días)');
     if (a.conservacionAniosTrasBaja !== undefined) rango(a.conservacionAniosTrasBaja, 1, 50, 'La conservación tras la baja (años)');
-    if (a.bloqueoMinutos !== undefined) rango(a.bloqueoMinutos, 1, 120, 'El bloqueo por inactividad (minutos)');
+    // 0 = no bloquear solo (lo ofrece la interfaz con ese aviso); hasta 240 min.
+    if (a.bloqueoMinutos !== undefined) rango(a.bloqueoMinutos, 0, 240, 'El bloqueo por inactividad (minutos)');
     const bools: (keyof Ajustes)[] = ['validezExtendidaPermitida', 'rotar180'];
     for (const k of bools) if (a[k] !== undefined && typeof a[k] !== 'boolean') throw err(`«${k}» debe ser verdadero o falso.`, 'AJUSTE_INVALIDO');
     const enums: [keyof Ajustes, string[]][] = [
@@ -217,6 +215,17 @@ export function crearSistema(opciones: OpcionesSistema): Sistema {
       const v = a[k];
       if (v !== undefined && v !== null && (typeof v !== 'string' || v.length > 500)) throw err(`«${k}» no es válido.`, 'AJUSTE_INVALIDO');
     }
+  }
+
+  /** La carpeta de copias tiene que ser una ruta ABSOLUTA, existir, ser una carpeta y admitir escritura: si no, las copias fallarían en silencio. */
+  function exigirCarpetaCopiasUtil(ruta: string): void {
+    const falla = (motivo: string) => err(`La carpeta de copias «${ruta}» no sirve: ${motivo}`, 'AJUSTE_INVALIDO');
+    if (!isAbsolute(ruta)) throw falla('tiene que ser una ruta completa (por ejemplo D:\\Copias SPD), no relativa.');
+    let ok = false;
+    try { ok = statSync(ruta).isDirectory(); } catch { throw falla('no existe. Créala antes o elige otra.'); }
+    if (!ok) throw falla('no es una carpeta.');
+    try { rmSync(mkdtempSync(join(ruta, '.spd-prueba-')), { recursive: true, force: true }); }
+    catch { throw falla('no se puede escribir en ella (permisos o disco de sólo lectura).'); }
   }
 
   function guardarClave(base: Db, clave: string, valor: unknown): void {
@@ -323,13 +332,13 @@ export function crearSistema(opciones: OpcionesSistema): Sistema {
   };
 
   /** La carpeta SIEMPRE sale de los ajustes (nunca de lo que mande la interfaz). `seguridad`: puede usar la del programa. */
-  async function hacerCopia(usuarioId: number | null, meta: Omit<MetaCopia, 'versionApp' | 'esquema'>, seguridad = false): Promise<{ ruta: string }> {
+  async function hacerCopia(usuarioId: number | null, meta: Omit<MetaCopia, 'versionApp' | 'esquema'>, seguridad = false, protegerTambien: string[] = []): Promise<{ ruta: string }> {
     const base = db();
     const destino = seguridad ? carpetaDeCopias() : leerAjustes(base).carpetaCopias;
     if (!destino) throw err('No hay carpeta de copias configurada: elige una en Ajustes.', 'SIN_CARPETA_COPIAS');
     escribirAuditoria({ accion: 'exportar', entidad: 'copia', entidadId: null, motivo: meta.motivo }, usuarioId);
     await almacen.flush(true);
-    const ruta = crearCopiaFichero(almacen.rutaFichero, destino, ahora(), metaCopia(meta.origen, meta.motivo, base.version()));
+    const ruta = crearCopiaFichero(almacen.rutaFichero, destino, ahora(), metaCopia(meta.origen, meta.motivo, base.version()), protegerTambien);
     return { ruta };
   }
 
@@ -371,7 +380,7 @@ export function crearSistema(opciones: OpcionesSistema): Sistema {
       const restaurada = r.db.get<{ n: number; m: number | null }>('SELECT count(*) AS n, max(id) AS m FROM auditoria');
       const perdidas = Math.max(0, Number(actual?.n ?? 0) - Number(restaurada?.n ?? 0));
       // Fase 2: copia de seguridad del estado actual (para poder deshacer) y sustitución.
-      const previa = await hacerCopia(quien.id, { origen: 'antes_restaurar', motivo: `Antes de restaurar la copia ${nombre}` }, true);
+      const previa = await hacerCopia(quien.id, { origen: 'antes_restaurar', motivo: `Antes de restaurar la copia ${nombre}` }, true, [nombre]);
       await r.aplicar();
       reiniciarSesion(); limPines.clear();
       auditarYGuardar({ accion: 'restaurar', entidad: 'copia', entidadId: null, motivo: `Restaurada la copia ${nombre}; estado anterior guardado en ${previa.ruta.split(/[\\/]/).pop()}; ${perdidas} entradas de auditoría posteriores a la copia quedan sólo en la copia previa${r.claveDistinta ? '; la copia tenía otra clave de datos (anterior a un cambio de contraseña) y se ha recifrado con la actual' : ''}` }, null);
@@ -577,10 +586,13 @@ export function crearSistema(opciones: OpcionesSistema): Sistema {
       const numColegiado = texto(u.numColegiado);
       const hash = hashPin(validarPin(u.pin));
       return base.transaccion(() => {
+        // Iniciales repetidas: no bloquea, pero en los registros impresos no se sabría quién es quién.
+        const iguales = base.all<{ nombre: string }>('SELECT nombre FROM usuario WHERE activo = 1 AND upper(iniciales) = ? ORDER BY id', [iniciales]).map((x) => x.nombre);
+        const avisos = iguales.length > 0 ? [`Las iniciales «${iniciales}» ya las usa ${iguales.join(', ')}: en las etiquetas y registros impresos no se distinguirá quién hizo cada cosa. Valora usar otras.`] : [];
         const id = base.run('INSERT INTO usuario(nombre,iniciales,rol,num_colegiado,hash_clave) VALUES (?,?,?,?,?)', [nombre, iniciales, u.rol, numColegiado, hash]).ultimoId;
-        ctx.auditar({ accion: 'crear', entidad: 'usuario', entidadId: id, despues: { nombre, iniciales, rol: u.rol, numColegiado } });
+        ctx.auditar({ accion: 'crear', entidad: 'usuario', entidadId: id, despues: { nombre, iniciales, rol: u.rol, numColegiado }, motivo: avisos.length > 0 ? 'Iniciales repetidas con otro usuario' : null });
         almacen.persistir();
-        return { id, nombre, iniciales, rol: u.rol };
+        return { id, nombre, iniciales, rol: u.rol, ...(avisos.length > 0 ? { avisos } : {}) };
       });
     }),
 
@@ -619,6 +631,7 @@ export function crearSistema(opciones: OpcionesSistema): Sistema {
         if (quien.rol !== 'titular') throw err('Sólo el titular puede cambiar la validez extendida del SPD.', 'SIN_PERMISO');
         if (despues.validezExtendidaPermitida && (!motivo || motivo.length < 5)) throw err('Activar la validez extendida (hasta 30 días) exige un motivo escrito.', 'MOTIVO_OBLIGATORIO');
       }
+      if (despues.carpetaCopias && despues.carpetaCopias !== antes.carpetaCopias) exigirCarpetaCopiasUtil(despues.carpetaCopias);
       if (despues.diasValidezSpd > 14 && !despues.validezExtendidaPermitida) throw err('Una validez de más de 14 días exige activar antes la validez extendida (lo hace el titular, con motivo).', 'VALIDEZ_NO_PERMITIDA');
       return base.transaccion(() => {
         const cambios: Record<string, [unknown, unknown]> = {};

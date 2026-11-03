@@ -105,7 +105,11 @@ interface Evaluacion {
   asociacion: Asociacion;
   gtin: string | null;
   crudo: string | null;
+  hayDuplicado: boolean;
 }
+
+/** «Registrado en segundos» (doble clic, dos lecturas seguidas): una caja idéntica reciente se trata como posible doble registro. */
+const VENTANA_DUPLICADO_MS = 10 * 60_000;
 
 function evaluarEntrada(ctx: Contexto, db: Db, e: EntradaEnvaseParams): Evaluacion {
   if (!e || typeof e !== 'object') throw invalido('Faltan los datos del envase.');
@@ -156,6 +160,10 @@ function evaluarEntrada(ctx: Contexto, db: Db, e: EntradaEnvaseParams): Evaluaci
   }, contexto);
 
   const bloqueos = [...r.bloqueos, ...(asociacion.bloqueos ?? [])];
+  // Una caja se registra con unidades ENTERAS (28, 30, 56…): las fracciones sólo salen al consumir comprimidos partidos.
+  if (typeof unidades === 'number' && Number.isFinite(unidades) && unidades > 0 && !Number.isInteger(unidades) && !bloqueos.some((b) => b.codigo === 'UNIDADES_NO_MULTIPLO')) {
+    bloqueos.push({ codigo: 'UNIDADES_NO_ENTERAS', texto: 'Una caja se registra con un número ENTERO de unidades (28, 30, 56…).' });
+  }
   let atencion = [...r.atencion];
   const cnFinal = r.envaseNormalizado?.cn ?? cnCandidato;
   const med = cnFinal ? leerMedicamento(db, cnFinal) : null;
@@ -163,6 +171,27 @@ function evaluarEntrada(ctx: Contexto, db: Db, e: EntradaEnvaseParams): Evaluaci
     // El envase referencia al catálogo: sin ficha local no se puede guardar.
     atencion = atencion.filter((a) => a.codigo !== 'CN_DESCONOCIDO');
     bloqueos.push({ codigo: 'CN_NO_EN_CATALOGO', texto: `El CN ${cnFinal} no está en el catálogo local: consúltalo en CIMA o dalo de alta antes de registrar la caja.` });
+  }
+  if (med && med.unidadesEnvase && typeof e.unidades === 'number' && e.unidades > med.unidadesEnvase) {
+    atencion.push({ codigo: 'UNIDADES_SUPERAN_FORMATO', texto: `Has puesto ${e.unidades} unidades, pero el envase de ${med.nombre} es de ${med.unidadesEnvase}: compruébalo con la caja.` });
+  }
+  // Posible doble registro: una caja idéntica (mismo CN, lote, caducidad y unidades) del mismo paciente en uso o registrada hace minutos.
+  let duplicados: R[] = [];
+  const n0 = r.envaseNormalizado;
+  if (n0) {
+    const desde = new Date(ctx.ahora().getTime() - VENTANA_DUPLICADO_MS).toISOString().replace(/\.\d+Z$/, 'Z');
+    duplicados = db.all<R>(
+      `SELECT id, numero_serie, estado, recibido_en FROM envase
+        WHERE paciente_id = ? AND cn = ? AND lote = ? AND caducidad = ? AND unidades_inicio = ? AND (estado = 'en_uso' OR recibido_en >= ?) ORDER BY id`,
+      [e.pacienteId, n0.cn, n0.lote, n0.caducidad, n0.unidades, desde])
+      // Dos números de serie distintos son dos cajas distintas: no hay duda.
+      .filter((d) => !(n0.numeroSerie && d.numero_serie && d.numero_serie !== n0.numeroSerie));
+    if (duplicados.length > 0) {
+      atencion.push({
+        codigo: 'POSIBLE_DUPLICADO',
+        texto: `Ya hay ${duplicados.length === 1 ? 'una caja' : `${duplicados.length} cajas`} de este paciente con el mismo CN, lote, caducidad y unidades (nº ${duplicados.map((d) => d.id).join(', ')}). Si es OTRA caja física confirma que no es un doble registro; si no, no la registres otra vez.`,
+      });
+    }
   }
   if (med) {
     if (med.descripcionEstado !== 'confirmada') {
@@ -177,7 +206,7 @@ function evaluarEntrada(ctx: Contexto, db: Db, e: EntradaEnvaseParams): Evaluaci
     ...(ok && r.envaseNormalizado ? { normalizado: r.envaseNormalizado } : {}),
     ...(med ? { medicamentoNombre: med.nombre } : {}),
   };
-  return { resultado, asociacion, gtin: parsed && parsed.gtin !== undefined && !parsed.ambiguo ? parsed.gtin : null, crudo: lectura };
+  return { resultado, asociacion, gtin: parsed && parsed.gtin !== undefined && !parsed.ambiguo ? parsed.gtin : null, crudo: lectura, hayDuplicado: duplicados.length > 0 };
 }
 
 export function comprobarEntradaEnvase(ctx: Contexto, e: EntradaEnvaseParams): Promise<Resultado<ResultadoEntradaEnvase>> {
@@ -196,6 +225,11 @@ export function registrarEnvase(ctx: Contexto, e: EntradaEnvaseParams): Promise<
       const ev = evaluarEntrada(ctx, db, e);
       const n = ev.resultado.normalizado;
       if (!ev.resultado.ok || !n) return ev.resultado;
+      if (ev.hayDuplicado && e.confirmarDuplicado !== true) {
+        // Sin confirmación explícita NO se guarda: parece el mismo registro hecho dos veces.
+        const aviso = ev.resultado.atencion.find((a) => a.codigo === 'POSIBLE_DUPLICADO')!;
+        return { ...ev.resultado, ok: false, bloqueos: [...ev.resultado.bloqueos, { codigo: 'POSIBLE_DUPLICADO', texto: `${aviso.texto} No se ha guardado: repite la operación confirmando que es otra caja.` }], atencion: ev.resultado.atencion.filter((a) => a !== aviso) };
+      }
       let id: number;
       try {
         id = db.run(
@@ -208,7 +242,7 @@ export function registrarEnvase(ctx: Contexto, e: EntradaEnvaseParams): Promise<
         throw err;
       }
       const dto = leerEnvase(db, id, hoyISO(ctx))!;
-      ctx.auditar({ accion: 'crear', entidad: 'envase', entidadId: id, despues: dto });
+      ctx.auditar({ accion: 'crear', entidad: 'envase', entidadId: id, despues: dto, motivo: ev.hayDuplicado ? 'Registrada tras confirmar que es otra caja física con los mismos datos que una existente' : null });
       return { ...ev.resultado, envaseId: id };
     });
     if (res.envaseId !== undefined) ctx.persistir();

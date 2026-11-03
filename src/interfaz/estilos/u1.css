@@ -6,12 +6,13 @@ label.marca { display: flex; align-items: center; gap: .6rem; font-weight: 500; 
 .cols-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0 1rem; }
 .cols-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0 1rem; }
 @media (max-width: 900px) { .cols-3, .cols-4 { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 640px) { .cols-2, .cols-3, .cols-4, .dos-campos, .cuatro-campos, .tres-col { grid-template-columns: minmax(0, 1fr); } .col-2 { grid-column: auto; } }
 .col-2 { grid-column: span 2; }
 .fila.fin { justify-content: flex-end; }
 .btn.grande { min-height: 52px; padding: 0 1.6rem; font-size: 1.05rem; }
 .btn.pequeno { min-height: 34px; padding: 0 .7rem; font-size: .88rem; }
 .btn .icono-svg { flex: none; }
-.apilado > * + * { margin-top: .8rem; }
+/* .apilado (flex + gap) vive en u2.css: aquí no se añade otro margen encima (era un doble espacio). */
 .sin-margen { margin: 0; }
 .negrita { font-weight: 700; }
 .mono { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; }
@@ -41,7 +42,8 @@ dialog.dialogo[open] { display: flex; flex-direction: column; }
 
 /* Tostadas */
 .tostadas { position: fixed; right: 1.2rem; bottom: 1.2rem; display: flex; flex-direction: column; gap: .5rem; z-index: 100; }
-.tostada { display: flex; align-items: center; gap: .6rem; padding: .7rem 1rem; border-radius: var(--radio-s); background: var(--superficie); border: 1px solid var(--borde); box-shadow: var(--sombra); font-weight: 600; border-left-width: 5px; }
+.tostada .texto { flex: 1; }
+.tostada { display: flex; align-items: center; gap: .6rem; max-width: min(460px, 92vw); padding: .7rem 1rem; border-radius: var(--radio-s); background: var(--superficie); border: 1px solid var(--borde); box-shadow: var(--sombra); font-weight: 600; border-left-width: 5px; }
 .tostada.ok { border-left-color: var(--ok); } .tostada.bloqueo { border-left-color: var(--bloqueo); } .tostada.atencion { border-left-color: var(--atencion); } .tostada.info { border-left-color: var(--info); }
 
 /* Armazón */
@@ -51,9 +53,9 @@ dialog.dialogo[open] { display: flex; flex-direction: column; }
 .buscador .icono-svg { position: absolute; left: .75rem; top: 50%; transform: translateY(-50%); color: var(--texto-suave); pointer-events: none; }
 .buscador input { padding-left: 2.4rem; }
 .resultados { position: absolute; top: calc(100% + 4px); left: 0; right: 0; background: var(--superficie); border: 1px solid var(--borde); border-radius: var(--radio-s); box-shadow: var(--sombra); z-index: 20; max-height: 60vh; overflow: auto; }
-.resultados h4 { margin: 0; padding: .5rem .8rem .2rem; font-size: .75rem; text-transform: uppercase; color: var(--texto-suave); letter-spacing: .04em; }
+.resultados .tit, .resultados h4 { margin: 0; padding: .5rem .8rem .2rem; font-size: .75rem; text-transform: uppercase; color: var(--texto-suave); letter-spacing: .04em; }
 .resultados button { display: block; width: 100%; text-align: left; font: inherit; background: none; border: none; padding: .55rem .8rem; cursor: pointer; color: var(--texto); }
-.resultados button:hover, .resultados button.sel { background: var(--acento-fondo); }
+.resultados button:hover, .resultados button.sel, .resultados button[aria-selected="true"] { background: var(--acento-fondo); }
 .usuario-barra { display: flex; align-items: center; gap: .7rem; }
 .avatar { width: 38px; height: 38px; border-radius: 50%; background: var(--acento-fondo); color: var(--acento-fuerte); display: grid; place-items: center; font-weight: 800; font-size: .85rem; }
 .lateral a.nav .icono-svg { flex: none; }
@@ -78,15 +80,25 @@ dialog.dialogo[open] { display: flex; flex-direction: column; }
 .licencia { max-height: 190px; overflow: auto; font-size: .88rem; border: 1px solid var(--borde); border-radius: var(--radio-s); padding: .7rem .9rem; background: var(--superficie-2); }
 .licencia p { margin: 0 0 .5rem; }
 .clave { display: grid; grid-template-columns: repeat(4, 1fr); gap: .5rem .8rem; padding: 1rem; border: 2px dashed var(--acento); border-radius: var(--radio); background: var(--acento-fondo); }
-.clave span { font: 700 1.55rem ui-monospace, "Cascadia Mono", Consolas, monospace; letter-spacing: .08em; text-align: center; color: var(--texto); }
+.clave .grupo { display: flex; flex-direction: column; align-items: center; gap: .1rem; }
+.clave .n { font: 600 .9rem var(--fuente); color: var(--texto-suave); }
+.clave .cod { font: 700 1.55rem ui-monospace, "Cascadia Mono", Consolas, monospace; letter-spacing: .08em; text-align: center; color: var(--texto); }
+@media (max-width: 560px) { .clave { grid-template-columns: repeat(2, 1fr); } }
 .qr { width: 160px; height: 160px; background: #fff; padding: 6px; border-radius: 8px; border: 1px solid var(--borde); } .qr svg { width: 100%; height: 100%; }
 .lista-momentos .fila-mom { display: grid; grid-template-columns: 1fr 130px auto; gap: .6rem; align-items: center; margin-bottom: .5rem; }
 .lista-momentos .fila-mom.inactivo { opacity: .55; }
+/* Hoja que sólo existe al imprimir (p. ej. la clave de recuperación nueva): en pantalla no se ve. */
+.solo-impresion { display: none; }
 @media print {
   body * { visibility: hidden !important; }
-  .zona-impresion, .zona-impresion * { visibility: visible !important; }
-  .zona-impresion { position: absolute; left: 0; top: 0; width: 100%; color: #000; padding: 1cm; }
-  .zona-impresion .clave { border-color: #000; background: #fff; }
+  .zona-impresion, .zona-impresion *, .solo-impresion, .solo-impresion * { visibility: visible !important; }
+  .zona-impresion, .solo-impresion { display: block; position: absolute; left: 0; top: 0; width: 100%; color: #000; background: #fff; padding: 1cm; }
+  .zona-impresion .clave, .solo-impresion .clave { border-color: #000; background: #fff; }
+  .zona-impresion .clave .n, .solo-impresion .clave .n, .solo-impresion .suave { color: #000; }
+  /* El armazón recorta a la altura de la ventana; para imprimir tiene que dejar crecer la página. */
+  html, body, #app, .app, .principal, .contenido { height: auto !important; overflow: visible !important; display: block !important; }
+  dialog.dialogo, dialog.dialogo::backdrop { display: none !important; }
+  .lateral, .barra, .tostadas, .saltar, .aviso-bloqueo, .contenido > .ancho > :not(.solo-impresion) { display: none !important; }
   .no-imprimir { display: none !important; }
 }
 
@@ -151,6 +163,13 @@ dialog.dialogo[open] { display: flex; flex-direction: column; }
 /* Ajustes */
 .ajustes-cols { display: grid; grid-template-columns: 220px 1fr; gap: 1.5rem; align-items: start; }
 .ajustes-menu { display: flex; flex-direction: column; gap: .2rem; position: sticky; top: 0; }
+@media (max-width: 900px) {
+  .ajustes-cols { grid-template-columns: minmax(0, 1fr); gap: 1rem; }
+  .ajustes-menu { position: static; flex-direction: row; overflow-x: auto; gap: .3rem; padding-bottom: .3rem; border-bottom: 2px solid var(--borde); }
+  .ajustes-menu button { white-space: nowrap; flex: none; }
+  .contenido { padding: 1rem; }
+  .barra { padding: .6rem 1rem; flex-wrap: wrap; }
+}
 .ajustes-menu button { text-align: left; font: inherit; font-weight: 600; background: none; border: none; padding: .65rem .8rem; border-radius: var(--radio-s); cursor: pointer; color: var(--texto); min-height: var(--alto-control); }
 .ajustes-menu button:hover { background: var(--superficie-2); }
 .ajustes-menu button.activo { background: var(--acento-fondo); color: var(--acento-fuerte); }
@@ -159,3 +178,36 @@ dialog.dialogo[open] { display: flex; flex-direction: column; }
 .btn { white-space: nowrap; }
 .btn { justify-content: center; line-height: 1.2; }
 .usuario-barra strong, .usuario-barra .suave { white-space: nowrap; }
+
+/* Saltar al contenido: invisible hasta que recibe el foco con el teclado */
+.saltar { position: absolute; left: .5rem; top: -4rem; z-index: 200; background: var(--acento); color: #fff; padding: .6rem 1rem; border-radius: var(--radio-s); font-weight: 700; border: 0; cursor: pointer; }
+.saltar:focus { top: .5rem; }
+.contenido:focus, .contenido h1:focus { outline: none; }
+.contenido h1:focus-visible { outline: 3px solid var(--acento); outline-offset: 4px; }
+
+/* Aviso de bloqueo inminente por inactividad */
+.aviso-bloqueo { position: fixed; top: .8rem; left: 50%; transform: translateX(-50%); z-index: 150; width: min(560px, 94vw); box-shadow: var(--sombra); }
+.aviso-bloqueo .aviso { background: var(--atencion-fondo); margin: 0; }
+.aviso-bloqueo .fila { margin-top: .5rem; }
+
+/* Fila de tabla que se abre: el enlace/botón real es el nombre; la fila entera también responde al ratón */
+.enlace-fila { font: inherit; font-weight: 700; color: var(--acento-fuerte); background: none; border: 0; padding: 0; text-align: left; cursor: pointer; text-decoration: underline; text-decoration-color: transparent; }
+.enlace-fila:hover { text-decoration-color: currentColor; }
+.tabla tr.sel-fila { background: var(--acento-fondo); }
+.filtros select, .herramientas select { width: auto; min-width: 170px; }
+.filtros input[type="search"] { min-width: 260px; }
+.pie-tabla { word-break: break-word; overflow-wrap: anywhere; }
+.sha { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: .8rem; overflow-wrap: anywhere; word-break: break-all; user-select: all; max-width: 22rem; }
+.dividido { border-top: 1px solid var(--borde); padding-top: .8rem; }
+.solo-lectores { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* Pantallas táctiles: todo lo que se pulsa mide al menos 44 px */
+@media (pointer: coarse) {
+  .btn, .btn.mini, .btn.pequeno, .btn.enlace, .pestanas button, .ajustes-menu button, label.marca, .lateral a.nav, .resultados button, .enlace-fila { min-height: 44px; }
+  .btn.mini, .btn.pequeno { padding: 0 .9rem; }
+  .btn.enlace { padding: 0 .7rem; }
+  .paso-dosis button { width: 44px; height: 44px; }
+  .chips-dias label { min-height: 44px; min-width: 52px; }
+  .enlace-fila { display: inline-flex; align-items: center; }
+  input[type="checkbox"], input[type="radio"] { width: 1.5rem; height: 1.5rem; }
+}

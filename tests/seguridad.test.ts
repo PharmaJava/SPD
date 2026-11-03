@@ -65,11 +65,11 @@ test('NADA en claro: ni el contenido ni la clave de datos aparecen en el fichero
 });
 
 test('un solo bit cambiado en CUALQUIER byte hace fallar la apertura (contraseña y clave de datos)', () => {
-  const { fichero, claveDatos } = crearAlmacenNuevo('contraseña-1', CONTENIDO, KDF);
+  const { fichero, claveDatos } = crearAlmacenNuevo('mi-contraseña-1', CONTENIDO, KDF);
   let probados = 0;
   for (let i = 0; i < fichero.length; i++) {
     const mal = new Uint8Array(fichero); mal[i] ^= 0x01;
-    assert.notEqual(codigo(() => abrirConContrasena(mal, 'contraseña-1')), 'SIN_ERROR', `byte ${i} con contraseña`);
+    assert.notEqual(codigo(() => abrirConContrasena(mal, 'mi-contraseña-1')), 'SIN_ERROR', `byte ${i} con contraseña`);
     assert.notEqual(codigo(() => abrirConClaveDeDatos(mal, claveDatos)), 'SIN_ERROR', `byte ${i} con clave de datos`);
     probados++;
   }
@@ -77,7 +77,7 @@ test('un solo bit cambiado en CUALQUIER byte hace fallar la apertura (contraseñ
 });
 
 test('un fichero truncado en cualquier longitud no abre', () => {
-  const { fichero, claveDatos } = crearAlmacenNuevo('contraseña-1', CONTENIDO, KDF);
+  const { fichero, claveDatos } = crearAlmacenNuevo('mi-contraseña-1', CONTENIDO, KDF);
   for (let n = 0; n < fichero.length; n += 1) {
     const corto = fichero.slice(0, n);
     assert.notEqual(codigo(() => abrirConClaveDeDatos(corto, claveDatos)), 'SIN_ERROR', `longitud ${n}`);
@@ -85,14 +85,14 @@ test('un fichero truncado en cualquier longitud no abre', () => {
 });
 
 test('bytes añadidos al final tampoco pasan', () => {
-  const { fichero, claveDatos } = crearAlmacenNuevo('contraseña-1', CONTENIDO, KDF);
+  const { fichero, claveDatos } = crearAlmacenNuevo('mi-contraseña-1', CONTENIDO, KDF);
   const largo = Buffer.concat([fichero, Buffer.from([0])]);
   assert.equal(codigo(() => abrirConClaveDeDatos(largo, claveDatos)), 'FICHERO_CORRUPTO');
-  assert.equal(codigo(() => abrirConContrasena(largo, 'contraseña-1')), 'FICHERO_CORRUPTO');
+  assert.equal(codigo(() => abrirConContrasena(largo, 'mi-contraseña-1')), 'FICHERO_CORRUPTO');
 });
 
 test('cabecera reescrita (otra sal, mismo resto) → error: la cabecera va autenticada', () => {
-  const { fichero, claveDatos } = crearAlmacenNuevo('contraseña-1', CONTENIDO, KDF);
+  const { fichero, claveDatos } = crearAlmacenNuevo('mi-contraseña-1', CONTENIDO, KDF);
   const b = Buffer.from(fichero);
   const lon = b.readUInt32BE(9);
   const cab = JSON.parse(b.subarray(13, 13 + lon).toString('utf8'));
@@ -100,12 +100,12 @@ test('cabecera reescrita (otra sal, mismo resto) → error: la cabecera va auten
   const json = Buffer.from(JSON.stringify(cab));
   const nuevo = Buffer.concat([b.subarray(0, 13), json, b.subarray(13 + lon)]);
   nuevo.writeUInt32BE(json.length, 9);
-  assert.notEqual(codigo(() => abrirConContrasena(nuevo, 'contraseña-1')), 'SIN_ERROR');
+  assert.notEqual(codigo(() => abrirConContrasena(nuevo, 'mi-contraseña-1')), 'SIN_ERROR');
   assert.notEqual(codigo(() => abrirConClaveDeDatos(nuevo, claveDatos)), 'SIN_ERROR');
 });
 
 test('parámetros de scrypt hostiles en la cabecera se rechazan sin calcularlos', () => {
-  const { fichero } = crearAlmacenNuevo('contraseña-1', CONTENIDO, KDF);
+  const { fichero } = crearAlmacenNuevo('mi-contraseña-1', CONTENIDO, KDF);
   const b = Buffer.from(fichero);
   const lon = b.readUInt32BE(9);
   const cab = JSON.parse(b.subarray(13, 13 + lon).toString('utf8'));
@@ -114,23 +114,23 @@ test('parámetros de scrypt hostiles en la cabecera se rechazan sin calcularlos'
   const nuevo = Buffer.concat([b.subarray(0, 13), json, b.subarray(13 + lon)]);
   nuevo.writeUInt32BE(json.length, 9);
   const t0 = Date.now();
-  assert.equal(codigo(() => abrirConContrasena(nuevo, 'contraseña-1')), 'FICHERO_CORRUPTO');
+  assert.equal(codigo(() => abrirConContrasena(nuevo, 'mi-contraseña-1')), 'FICHERO_CORRUPTO');
   assert.ok(Date.now() - t0 < 500);
 });
 
 test('magic y versión: lo que no es un fichero SPD se rechaza con un error claro', () => {
   assert.equal(codigo(() => abrirConContrasena(new Uint8Array(100), 'x')), 'FICHERO_CORRUPTO');
   assert.equal(codigo(() => abrirConContrasena(new Uint8Array(0), 'x')), 'FICHERO_CORRUPTO');
-  const { fichero } = crearAlmacenNuevo('contraseña-1', CONTENIDO, KDF);
+  const { fichero } = crearAlmacenNuevo('mi-contraseña-1', CONTENIDO, KDF);
   const v = new Uint8Array(fichero); v[8] = 9;
-  assert.equal(codigo(() => abrirConContrasena(v, 'contraseña-1')), 'VERSION_FICHERO');
+  assert.equal(codigo(() => abrirConContrasena(v, 'mi-contraseña-1')), 'VERSION_FICHERO');
   assert.equal(pareceFicheroSpd(fichero), true);
   assert.equal(pareceFicheroSpd(new Uint8Array(100)), false);
   assert.equal(pareceFicheroSpd(v), false);
 });
 
 test('cada guardado usa un iv NUEVO: mismo contenido, distinto cifrado', () => {
-  const { fichero, claveDatos } = crearAlmacenNuevo('contraseña-1', CONTENIDO, KDF);
+  const { fichero, claveDatos } = crearAlmacenNuevo('mi-contraseña-1', CONTENIDO, KDF);
   const ivs = new Set<string>(), cifrados = new Set<string>();
   for (let i = 0; i < 6; i++) {
     const f = Buffer.from(guardarCarga(fichero, claveDatos, CONTENIDO));
@@ -143,10 +143,10 @@ test('cada guardado usa un iv NUEVO: mismo contenido, distinto cifrado', () => {
 });
 
 test('guardarCarga: ida y vuelta, mantiene la envoltura y exige la clave correcta', () => {
-  const { fichero, claveDatos } = crearAlmacenNuevo('contraseña-1', CONTENIDO, KDF);
+  const { fichero, claveDatos } = crearAlmacenNuevo('mi-contraseña-1', CONTENIDO, KDF);
   const otro = new Uint8Array(randomBytes(100));
   const nuevo = guardarCarga(fichero, claveDatos, otro);
-  assert.deepEqual(Buffer.from(abrirConContrasena(nuevo, 'contraseña-1').bytesDb), Buffer.from(otro));
+  assert.deepEqual(Buffer.from(abrirConContrasena(nuevo, 'mi-contraseña-1').bytesDb), Buffer.from(otro));
   assert.equal(codigo(() => guardarCarga(fichero, new Uint8Array(randomBytes(32)), otro)), 'FICHERO_CORRUPTO');
   const roto = new Uint8Array(fichero); roto[roto.length - 1] ^= 1;
   assert.equal(codigo(() => guardarCarga(roto, claveDatos, otro)), 'FICHERO_CORRUPTO');   // no sobrescribe sobre algo dañado sin enterarse
@@ -174,12 +174,12 @@ test('reenvolver exige la clave de datos buena y una contraseña no vacía', () 
 
 test('los parámetros por defecto son scrypt N=2^17, r=8, p=1 y quedan escritos en la cabecera', () => {
   assert.deepEqual({ ...KDF_POR_DEFECTO }, { n: 131072, r: 8, p: 1 });
-  const { fichero } = crearAlmacenNuevo('contraseña-1', CONTENIDO);
+  const { fichero } = crearAlmacenNuevo('mi-contraseña-1', CONTENIDO);
   const f = Buffer.from(fichero);
   const cab = JSON.parse(f.subarray(13, 13 + f.readUInt32BE(9)).toString());
   assert.equal(cab.kdf.alg, 'scrypt');
   assert.equal(cab.kdf.n, 131072); assert.equal(cab.kdf.r, 8); assert.equal(cab.kdf.p, 1);
-  assert.equal(abrirConContrasena(fichero, 'contraseña-1').bytesDb.length, CONTENIDO.length);
+  assert.equal(abrirConContrasena(fichero, 'mi-contraseña-1').bytesDb.length, CONTENIDO.length);
 });
 
 test('hash de PIN: formato scrypt, sal propia y verificación', () => {

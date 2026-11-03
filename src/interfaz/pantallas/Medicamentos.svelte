@@ -160,12 +160,13 @@
     {:else}
       <div class="scroll-x">
         <table class="tabla" data-prueba="lista-med">
+          <caption class="solo-lectores">Medicamentos del catálogo. Pulsa el nombre para ver y completar su ficha.</caption>
           <thead><tr><th>CN</th><th>Medicamento</th><th>Aspecto</th><th>Ficha</th><th>SPD</th></tr></thead>
           <tbody>
             {#each lista as m (m.cn)}
-              <tr class="clicable" tabindex="0" onclick={() => elegir(m)} onkeydown={(e) => { if (e.key === 'Enter') elegir(m); }} aria-selected={sel?.cn === m.cn} style={sel?.cn === m.cn ? 'background:var(--acento-fondo)' : ''}>
+              <tr class="clicable" class:sel-fila={sel?.cn === m.cn} onclick={(e) => { if (!(e.target as HTMLElement).closest('button')) elegir(m); }}>
                 <td class="mono">{m.cn}</td>
-                <td><strong>{m.nombre}</strong><div class="suave pequeno">{m.formaFarmaceutica ?? ''}{m.unidadesEnvase ? ` · ${m.unidadesEnvase} ud.` : ''}</div></td>
+                <td><button type="button" class="enlace-fila" aria-pressed={sel?.cn === m.cn} aria-label="Abrir la ficha de {m.nombre}, código nacional {m.cn}" onclick={() => elegir(m)}>{m.nombre}</button><div class="suave pequeno">{m.formaFarmaceutica ?? ''}{m.unidadesEnvase ? ` · ${m.unidadesEnvase} ud.` : ''}</div></td>
                 <td class="pequeno">{[m.color, m.forma, m.ranurado ? 'ranurado' : ''].filter(Boolean).join(' · ') || '—'}</td>
                 <td><span class="etiqueta {ESTADO_FICHA[m.descripcionEstado].c}">{ESTADO_FICHA[m.descripcionEstado].t}</span></td>
                 <td>{#if m.spdAptitud}<span class="etiqueta {APTITUD[m.spdAptitud].c}">{APTITUD_CORTA[m.spdAptitud]}</span>{:else}<span class="suave pequeno">Sin evaluar</span>{/if}</td>

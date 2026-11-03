@@ -51,7 +51,7 @@ async function montar(rol: RolUsuario | null = 'farmaceutico', o: { consentimien
   const db = t.db;
   db.run("UPDATE farmacia SET telefono='955 000 000', direccion='Calle Sol 1', municipio='Sevilla', nif='B12345678', email='f@farmacia.test', rgpd_dpd='No designado' WHERE id=1");
   db.run("INSERT INTO paciente(id, id_publico, nombre, apellido1, apellido2, dni_nie, fecha_nacimiento, direccion, codigo_postal, municipio) VALUES (1,'aaaaaaaa-1111-4111-8111-111111111111','Ana','López','Pérez','12345678Z','1940-03-04','Calle Luna 5','41001','Sevilla')");
-  db.run("INSERT INTO medicamento(cn,nombre,descripcion_estado) VALUES ('654321','Metformina Test 850 mg 28 comp','sin_datos')");
+  db.run("INSERT INTO medicamento(cn,nombre,descripcion_fisica,descripcion_estado,descripcion_confirmada_por) VALUES ('654321','Metformina Test 850 mg 28 comp','comprimido blanco, oblongo','confirmada',?)", [m.uid('farmaceutico')]);
   db.run("INSERT INTO medicamento(cn,nombre,descripcion_fisica,marcas_grabado,descripcion_estado,descripcion_confirmada_por) VALUES ('123456','Enalapril Test 10 mg 30 comp','comprimido blanco, redondo, ranurado','E10','confirmada',?)", [m.uid('farmaceutico')]);
   db.run("INSERT INTO tratamiento(id, paciente_id, principio_activo, dosis_texto, cn_preferente, emblistable) VALUES (1,1,'Metformina','850 mg','654321',1)");
   db.run("INSERT INTO tratamiento(id, paciente_id, principio_activo, dosis_texto, cn_preferente, emblistable) VALUES (2,1,'Enalapril','10 mg','123456',1)");
@@ -95,7 +95,7 @@ test('evaluar: leyenda con letra, color de la paleta y abreviatura distintos', a
 test('evaluar: la descripción física sólo sale si está CONFIRMADA', async () => {
   const m = await montar();
   const l = ok(await m.api.evaluarPreparacion(PARAMS)).leyenda;
-  assert.equal(l[0].descripcion, undefined);
+  assert.match(l[0].descripcion ?? '', /Comprimido blanco/);
   assert.match(l[1].descripcion ?? '', /Comprimido blanco/);
   assert.match(l[1].descripcion ?? '', /E10/);
   m.t.db.run("UPDATE medicamento SET descripcion_estado='propuesta' WHERE cn='123456'");
@@ -757,7 +757,7 @@ test('hoja del paciente: mapa día × toma, descripción, lotes, caducidad y qui
   assert.match(h.html, /Martes 03\/11/);
   assert.match(h.html, /<b>A<\/b> ×1/);
   assert.match(h.html, /Comprimido blanco/);
-  assert.match(h.html, /sin descripción física/);        // la metformina no tiene descripción confirmada
+  assert.match(h.html, /Comprimido blanco, oblongo/);   // la metformina del montaje tiene descripción confirmada
   assert.match(h.html, /Lote MET1 · cad\. 31\/05\/2028 · CN 654321/);
   assert.match(h.html, /Caduca el SPD:<\/b> 15\/11\/2026/);
   assert.match(h.html, /Preparado por:<\/b> Técnico Prueba \(TE\)/);

@@ -129,7 +129,8 @@ export interface ApiSistema {
   listarUsuarios(): Promise<Resultado<UsuarioPublico[]>>;
   iniciarSesion(usuarioId: number, pin: string): Promise<Resultado<UsuarioPublico>>;
   cerrarSesion(): Promise<Resultado<null>>;
-  crearUsuario(u: { nombre: string; iniciales: string; rol: RolUsuario; numColegiado?: string; pin: string }): Promise<Resultado<UsuarioPublico>>;
+  /** `avisos`: no bloquean (p. ej. otro usuario con las mismas iniciales, que saldrían iguales en los registros impresos). */
+  crearUsuario(u: { nombre: string; iniciales: string; rol: RolUsuario; numColegiado?: string; pin: string }): Promise<Resultado<UsuarioPublico & { avisos?: string[] }>>;
 
   obtenerFarmacia(): Promise<Resultado<DatosFarmacia>>;
   guardarFarmacia(d: DatosFarmacia): Promise<Resultado<DatosFarmacia>>;
@@ -161,6 +162,8 @@ export interface PacienteDto {
   centroId?: number | null; habitacion?: string | null; necesitaBraille: boolean; letraGrande: boolean;
   estado: EstadoPaciente; motivoEstado?: string | null; altaEn: string; bajaEn?: string | null;
   proximaRevision?: string | null; notas?: string | null;
+  /** Sólo al guardar (guardarPaciente): avisos que no bloquean, p. ej. posible paciente duplicado (mismo nombre, apellidos y fecha de nacimiento). */
+  avisos?: string[];
 }
 export type NuevoPaciente = Omit<PacienteDto, 'id' | 'idPublico' | 'altaEn' | 'bajaEn' | 'estado' | 'motivoEstado'> & { id?: number };
 
@@ -234,6 +237,11 @@ export interface EntradaEnvaseParams {
   /** Lectura cruda del DataMatrix (opcional: el lote y la caducidad son obligatorios, el código no). */
   lecturaDatamatrix?: string;
   unidades: number;
+  /**
+   * Sólo `registrarEnvase`: si ya hay una caja idéntica (mismo CN, lote, caducidad y unidades) del paciente, se RECHAZA con el
+   * aviso POSIBLE_DUPLICADO salvo que la persona confirme que es OTRA caja física (p. ej. dos cajas del mismo lote).
+   */
+  confirmarDuplicado?: boolean;
 }
 export interface ResultadoEntradaEnvase {
   ok: boolean; bloqueos: Aviso[]; atencion: Aviso[]; info: Aviso[];
@@ -247,6 +255,8 @@ export interface ResultadoEntradaEnvase {
 export interface EvaluarPreparacionParams {
   pacienteId: number; desde: string; dias: number; fechaPreparacion: string;
   diasValidez?: number; justificacion?: string;
+  /** Un farmacéutico/titular da por revisadas las posibles alergias detectadas (no quita el aviso). Sin esto, bloquea al validar. */
+  confirmarAlergias?: boolean;
 }
 /** Evaluación completa: todo lo que la interfaz necesita pintar (mapa, bloqueos, avisos, líneas). */
 export interface EvaluacionPreparacion extends ResultadoPreparacion {
@@ -268,6 +278,8 @@ export interface VistaImprimible { html: string; imprimible: boolean; problemas:
 export interface PlantillaDocumentoDto { codigo: string; version: number; titulo: string; obligatorioParaValidar: boolean }
 export interface VistaDocumento {
   texto: string; faltan: string[]; imprimibleDefinitivo: boolean; esBorrador: boolean; hash: string; avisos: string[];
+  /** Lo que falta, con su entidad (paciente, firmante, farmacia, autorizado, documento) y campo: la interfaz manda a completar la ficha correcta. */
+  faltanDetalle?: { ruta: string; entidad: 'paciente' | 'firmante' | 'farmacia' | 'autorizado' | 'documento' | 'otro'; campo: string; etiqueta: string }[];
 }
 export interface EstadoConsentimientosDto { completo: boolean; faltan: string[]; desactualizados: string[]; revocados: string[]; firmados: { id: number; codigo: string; version: number; firmadoEn: string; firmante: string; revocado: boolean }[] }
 
@@ -323,7 +335,7 @@ export interface ApiClinica {
   crearPreparacion(p: EvaluarPreparacionParams & { temperatura?: number; humedad?: number; observaciones?: string }): Promise<Resultado<PreparacionDto>>;
   marcarPreparada(id: number): Promise<Resultado<PreparacionDto>>;
   /** Sólo farmacéutico/titular. Vuelve a evaluar, descuenta unidades y deja el estado «validado». */
-  validarPreparacion(id: number): Promise<Resultado<PreparacionDto>>;
+  validarPreparacion(id: number, opciones?: { confirmarAlergias?: boolean }): Promise<Resultado<PreparacionDto>>;
   registrarEntrega(id: number, e: { entregadoA: string; contactoId?: number; observaciones?: string }): Promise<Resultado<PreparacionDto>>;
   anularPreparacion(id: number, motivo: string): Promise<Resultado<PreparacionDto>>;
   listarPreparaciones(filtro?: { pacienteId?: number; estado?: EstadoPreparacion | 'todas' }): Promise<Resultado<PreparacionDto[]>>;
@@ -334,7 +346,12 @@ export interface ApiClinica {
 
   listarPlantillasDocumento(): Promise<Resultado<PlantillaDocumentoDto[]>>;
   vistaDocumento(codigo: string, pacienteId: number, firmante?: { nombre: string; dniNie?: string; calidad: 'paciente' | 'representante_legal' | 'guardador_de_hecho'; contactoId?: number }): Promise<Resultado<VistaDocumento>>;
-  registrarDocumentoFirmado(codigo: string, pacienteId: number, firmante: { nombre: string; dniNie?: string; calidad: 'paciente' | 'representante_legal' | 'guardador_de_hecho'; contactoId?: number }): Promise<Resultado<{ id: number }>>;
+  /**
+   * Registra la firma. Si ya hay una firma VIGENTE del mismo documento (misma versión) para el paciente, se rechaza con
+   * DOCUMENTO_YA_FIRMADO: para versionar (otra firma que sustituye a la anterior) hay que indicar `sustituir` con su `motivo`;
+   * la anterior queda revocada en el historial, no se borra.
+   */
+  registrarDocumentoFirmado(codigo: string, pacienteId: number, firmante: { nombre: string; dniNie?: string; calidad: 'paciente' | 'representante_legal' | 'guardador_de_hecho'; contactoId?: number }, opciones?: { sustituir?: boolean; motivo?: string }): Promise<Resultado<{ id: number }>>;
   revocarDocumento(id: number, motivo: string): Promise<Resultado<null>>;
   estadoConsentimientos(pacienteId: number): Promise<Resultado<EstadoConsentimientosDto>>;
 }

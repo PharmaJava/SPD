@@ -42,7 +42,7 @@ const api = async (m, ...args) => {
 };
 
 // ── datos de ejemplo creados por la API ──
-const PIN = '1234', PASS = 'contraseña-de-prueba-1';
+const PIN = '1234', PASS = 'mi-contraseña-de-prueba-1';
 await api('primerUso', { farmacia: { nombre: 'Farmacia Luz del Sur', titular: 'Marta Etxeberria', municipio: 'Sevilla', provincia: 'Sevilla', direccion: 'Calle Sol 1', telefono: '955 000 000' },
   titular: { nombre: 'Marta Etxeberria', iniciales: 'ME', pin: PIN }, contrasena: PASS, momentos: [{ nombre: 'Desayuno', hora: '08:00' }, { nombre: 'Comida', hora: '14:00' }, { nombre: 'Cena', hora: '21:00' }, { nombre: 'Acostarse', hora: '23:00' }] });
 await api('desbloquear', PASS).catch(() => {});

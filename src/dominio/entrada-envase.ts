@@ -24,6 +24,9 @@ import { claveCn, claveLote } from './alertas-calidad.ts';
 
 export interface Aviso { codigo: string; texto: string }
 
+/** Ninguna caja de medicamento tiene más unidades que esto: por encima es un error al teclear. */
+export const MAX_UNIDADES_ENVASE = 9999;
+
 export interface EntradaEnvase {
   /** Cualquier forma que normalice `gs1.normalizarCN` (puede venir vacío si hay DataMatrix). */
   cn: string;
@@ -270,6 +273,8 @@ export function validarEntradaEnvase(entrada: EntradaEnvase, contexto: ContextoE
     bloquear('UNIDADES_INVALIDAS', 'Las unidades del envase deben ser mayores que cero.');
   } else if (Math.abs(u * 4 - Math.round(u * 4)) > 1e-9) {
     bloquear('UNIDADES_NO_MULTIPLO', 'Las unidades deben ser múltiplo de 0,25 (cuartos de comprimido).');
+  } else if (u > MAX_UNIDADES_ENVASE) {
+    bloquear('UNIDADES_EXCESIVAS', `Las unidades del envase (${u}) superan el máximo razonable (${MAX_UNIDADES_ENVASE}): ¿es un error al teclear?`);
   }
 
   const ok = bloqueos.length === 0;

@@ -28,6 +28,7 @@ import { repartirTomas } from './consumo-envases.ts';
 import { envasesAfectados } from './alertas-calidad.ts';
 import type { AlertaCalidad } from './alertas-calidad.ts';
 import { calcularCaducidadSpd, DIAS_VALIDEZ_ESTANDAR, periodoCabe, puedeValidar } from './caducidad-spd.ts';
+import { cruzarAlergias, textoPosibleAlergia } from './alergias-medicacion.ts';
 import type { ResultadoCaducidad, Rol } from './caducidad-spd.ts';
 
 // ───────────────────────── entrada ─────────────────────────
@@ -37,6 +38,8 @@ export interface TratamientoPreparacion {
   tratamientoId: number;
   /** Nombre que se enseña en bloqueos y avisos. */
   nombre: string;
+  /** Principio activo (sin dosis), para cruzar con las alergias del paciente. Si falta se usa `nombre`. */
+  principioActivo?: string;
   /** false = «aparte» (no emblistable): no entra en el blíster. Por defecto true. */
   emblistable?: boolean;
   /** TODAS las versiones de la pauta (la vigente cada día la decide el calendario). */
@@ -74,6 +77,16 @@ export interface EntradaPreparacion {
   disposicion?: Partial<OpcionesDisposicion>;
   /** Alertas de calidad vigentes: las cajas afectadas NO se reparten (y se avisa con la referencia). */
   alertas?: AlertaCalidad[];
+  /**
+   * Descripción física de cada medicamento (por CN) que puede salir en el reparto. Regla 2 de CLAUDE.md: lo que llega al
+   * blíster lo identifica una descripción CONFIRMADA por un farmacéutico. Si se informa, TODO CN usado tiene que figurar
+   * aquí con `descripcionConfirmada: true`; si falta o es false, bloquea. Ausente = no se comprueba (uso sólo en pruebas).
+   */
+  medicamentos?: { cn: string; nombre: string; descripcionConfirmada: boolean }[];
+  /** Alergias vigentes del paciente (texto libre). Se cruzan SÓLO por nombre del principio activo. */
+  alergias?: string[];
+  /** Un farmacéutico confirma que ha revisado las posibles alergias detectadas (no quita el aviso). */
+  alergiasConfirmadas?: boolean;
 }
 
 // ───────────────────────── salida ─────────────────────────
@@ -89,11 +102,13 @@ export type CodigoBloqueo =
   | 'APARTE_CAJA_CADUCADA' | 'APARTE_ALERTA_CALIDAD' | 'PAUTA_CON_HUECOS'
   | 'UNIDADES_INSUFICIENTES' | 'UNIDADES_NO_CUADRAN' | 'CAJA_CADUCA_EN_PERIODO' | 'NADA_QUE_PREPARAR'
   | 'SIN_LOTES_USADOS' | 'VALIDEZ_EXTENDIDA_NO_ACTIVADA' | 'JUSTIFICACION_FALTA' | 'CADUCIDAD_INVALIDA'
-  | 'PERIODO_NO_CABE' | 'ROL_NO_PUEDE_VALIDAR' | 'CONSENTIMIENTO_NO_VIGENTE' | 'ERROR_INTERNO';
+  | 'PERIODO_NO_CABE' | 'ROL_NO_PUEDE_VALIDAR' | 'CONSENTIMIENTO_NO_VIGENTE' | 'ERROR_INTERNO'
+  | 'DESCRIPCION_FISICA_SIN_CONFIRMAR' | 'ALERGIA_SIN_CONFIRMAR' | 'PERIODO_SOLAPADO' | 'FECHA_PREPARACION_FUTURA';
 
 export type CodigoAviso =
   | 'APARTE_NO_EMBLISTABLE' | 'A_DEMANDA' | 'PAUTA_SIN_COBERTURA' | 'SIN_TOMAS_EN_PERIODO' | 'CAJA_EXCLUIDA_POR_CADUCIDAD' | 'CAJA_SIN_UNIDADES'
-  | 'TOMA_DOS_LOTES' | 'REPARTO_AVISO' | 'PAUTA_AVISO' | 'VALIDEZ_FUERA_DE_ESTANDAR' | 'CADUCIDAD_AVISO';
+  | 'TOMA_DOS_LOTES' | 'REPARTO_AVISO' | 'PAUTA_AVISO' | 'VALIDEZ_FUERA_DE_ESTANDAR' | 'CADUCIDAD_AVISO'
+  | 'POSIBLE_ALERGIA' | 'BORRADOR_SOLAPADO';
 
 export interface Bloqueo { codigo: CodigoBloqueo; texto: string }
 export interface Aviso { codigo: CodigoAviso; texto: string }
@@ -395,6 +410,29 @@ function evaluar(entrada: EntradaPreparacion, res: ResultadoPreparacion): void {
   }
   if (asignadasC !== esperadasC) {
     bloquear('UNIDADES_NO_CUADRAN', `Las unidades asignadas a cajas (${res.unidadesAsignadas}) no coinciden con las que pide la pauta (${res.unidadesEsperadas}).`);
+  }
+
+  // ── 3.bis Descripción física confirmada de lo que se usa (regla 2: nada clínico se inventa) ──
+  if (Array.isArray(entrada.medicamentos)) {
+    const porCn = new Map(entrada.medicamentos.map((m) => [m?.cn, m]));
+    const avisadas = new Set<string>();
+    for (const caja of lotesUsados) {
+      const m = porCn.get(caja.cn);
+      if (m?.descripcionConfirmada === true || avisadas.has(caja.cn)) continue;
+      avisadas.add(caja.cn);
+      bloquear('DESCRIPCION_FISICA_SIN_CONFIRMAR',
+        `${m?.nombre ?? `CN ${caja.cn}`} (CN ${caja.cn}): su descripción física no está confirmada por un farmacéutico, así que no se puede identificar en el blíster. Confírmala en la ficha del medicamento antes de preparar.`);
+    }
+  }
+
+  // ── 3.ter Alergias registradas frente al tratamiento (sólo por nombre; aviso fuerte + confirmación) ──
+  if (Array.isArray(entrada.alergias) && entrada.alergias.length > 0 && tratamientos !== null) {
+    const coinc = cruzarAlergias(entrada.alergias, tratamientos.filter((t) => t !== null && typeof t === 'object')
+      .map((t) => ({ tratamientoId: t.tratamientoId, nombre: typeof t.nombre === 'string' ? t.nombre : `tratamiento ${t.tratamientoId}`, principioActivo: typeof t.principioActivo === 'string' ? t.principioActivo : String(t.nombre ?? '') })));
+    for (const c of coinc) avisar('POSIBLE_ALERGIA', textoPosibleAlergia(c));
+    if (coinc.length > 0 && entrada.alergiasConfirmadas !== true) {
+      bloquear('ALERGIA_SIN_CONFIRMAR', `Hay ${coinc.length === 1 ? 'una posible alergia' : `${coinc.length} posibles alergias`} sin confirmar (${[...new Set(coinc.map((c) => `${c.nombre}: «${c.alergia}»`))].join('; ')}). Un farmacéutico tiene que revisarlo y confirmarlo para validar.`);
+    }
   }
 
   // ── 4. Caducidad del SPD y encaje del periodo ──

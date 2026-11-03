@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import initSqlJs from 'sql.js';
@@ -12,7 +12,7 @@ import { rutaDeCopia, rotarCopias, nombreCopia, listarCopias } from '../src/serv
 import { VERSION_ESQUEMA } from '../src/servicios/db.ts';
 
 const KDF = { n: 1 << 10, r: 8, p: 1 };
-const PASS = 'contraseña-farmacia', PIN = '4821';
+const PASS = 'mi-contraseña-farmacia', PIN = '4821';
 const PRIMER_USO: PrimerUso = {
   farmacia: { nombre: 'Farmacia Luz del Sur', titular: 'Marta', provincia: 'Álava' },
   titular: { nombre: 'Marta', iniciales: 'M', pin: PIN }, contrasena: PASS, momentos: [{ nombre: 'Desayuno', hora: '08:00' }],
@@ -26,6 +26,7 @@ async function entorno() {
   let t = Date.parse('2026-11-02T09:00:00Z');
   const s = crearSistema({ rutaDatos: join(dir, 'datos'), ahora: () => new Date(t), kdf: KDF, debounceMs: 60_000, version: '1.0.0', carpetaCopiasPorDefecto: join(dir, 'defecto') });
   ok(await s.api.primerUso(PRIMER_USO));
+  mkdirSync(copias, { recursive: true });
   ok(await s.api.guardarAjustes({ carpetaCopias: copias }));
   const usuarios = ok(await s.api.listarUsuarios());
   ok(await s.api.iniciarSesion(usuarios[0].id, PIN));
@@ -117,16 +118,16 @@ test('restaurar: contraseña de la copia distinta (copia de antes de cambiarla) 
     await nuevoUsuario(e.s, 'Ana');
     ok(await e.s.api.crearCopia());
     const nombre = ok(await e.s.api.listarCopias())[0].nombre;
-    ok(await e.s.api.cambiarContrasena(PASS, 'contraseña-NUEVA-9'));
+    ok(await e.s.api.cambiarContrasena(PASS, 'mi-contraseña-NUEVA-9'));
     e.avanzar();
-    mal(await e.s.api.restaurarCopia(nombre, 'contraseña-NUEVA-9'), 'CONTRASENA_COPIA');
-    mal(await e.s.api.restaurarCopia(nombre, 'contraseña-NUEVA-9', 'tampoco'), 'CONTRASENA_COPIA');
-    ok(await e.s.api.restaurarCopia(nombre, 'contraseña-NUEVA-9', PASS));
+    mal(await e.s.api.restaurarCopia(nombre, 'mi-contraseña-NUEVA-9'), 'CONTRASENA_COPIA');
+    mal(await e.s.api.restaurarCopia(nombre, 'mi-contraseña-NUEVA-9', 'tampoco'), 'CONTRASENA_COPIA');
+    ok(await e.s.api.restaurarCopia(nombre, 'mi-contraseña-NUEVA-9', PASS));
     // Tras restaurar manda la contraseña ACTUAL.
     ok(await e.s.api.bloquear());
     mal(await e.s.api.desbloquear(PASS), 'CONTRASENA_INCORRECTA');
     e.avanzar(600_000);
-    ok(await e.s.api.desbloquear('contraseña-NUEVA-9'));
+    ok(await e.s.api.desbloquear('mi-contraseña-NUEVA-9'));
   } finally { await e.fin(); }
 });
 

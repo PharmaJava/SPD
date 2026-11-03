@@ -117,6 +117,9 @@ export function tomasDelPeriodo(pauta: Pauta, desde: string, hasta: string): Tom
   return tomas;
 }
 
+/** Más de tantas unidades (comprimidos…) en UNA toma es casi seguro un error al teclear («1000» por «1»). */
+export const MAX_UNIDADES_POR_TOMA = 10;
+
 /** Errores de configuración de la pauta. Vacía si es válida. */
 export function validarPauta(pauta: Pauta): string[] {
   const e: string[] = [];
@@ -160,6 +163,8 @@ export function validarPauta(pauta: Pauta): string[] {
         e.push(`unidades inválidas en el momento ${x.momentoId}: deben ser > 0`);
       } else if (!Number.isInteger(x.unidades * 4)) {
         e.push(`unidades inválidas en el momento ${x.momentoId}: deben ser múltiplo de 0,25`);
+      } else if (x.unidades > MAX_UNIDADES_POR_TOMA) {
+        e.push(`unidades inválidas en el momento ${x.momentoId}: ${x.unidades} por toma supera el máximo razonable (${MAX_UNIDADES_POR_TOMA}); ¿es un error al teclear?`);
       }
     }
   }

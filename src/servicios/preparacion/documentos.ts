@@ -131,12 +131,15 @@ export function vistaDocumento(ctx: Contexto, codigo: string, pacienteId: number
   const { plantilla, datos } = prepararDatos(ctx, db, codigo, pacienteId, firmante);
   const r = renderizarDocumento(String(plantilla.cuerpo), datos);
   return {
-    texto: r.texto, faltan: r.faltan, imprimibleDefinitivo: r.imprimibleDefinitivo, esBorrador: r.esBorrador, hash: r.hash,
+    texto: r.texto, faltan: r.faltan, faltanDetalle: r.faltanDetalle, imprimibleDefinitivo: r.imprimibleDefinitivo, esBorrador: r.esBorrador, hash: r.hash,
     avisos: [...r.avisos, ...r.sinCompletar.map((s) => `Falta completar en la plantilla: ${s}`)],
   };
 }
 
-export function registrarFirmado(ctx: Contexto, codigo: string, pacienteId: number, firmanteEntrada: unknown): { id: number } {
+/** Documentos que se firman VARIAS veces legítimamente (cada devolución, cada baja): no hay «firma vigente» única. */
+const REPETIBLES = new Set(['recibi_devolucion', 'revocacion']);
+
+export function registrarFirmado(ctx: Contexto, codigo: string, pacienteId: number, firmanteEntrada: unknown, opciones?: { sustituir?: boolean; motivo?: string }): { id: number } {
   const u = exigirSesion(ctx);
   sembrarPlantillas(ctx);
   const db = bd(ctx);
@@ -145,10 +148,32 @@ export function registrarFirmado(ctx: Contexto, codigo: string, pacienteId: numb
   const r = renderizarDocumento(String(plantilla.cuerpo), datos);
   // Un dato que falta saldría impreso como «⟦ruta⟧»: eso no es un documento que se pueda firmar.
   if (r.faltan.length > 0) {
-    throw new ErrorSpd(`No se puede registrar el documento: faltan datos (${r.faltan.join(', ')}). Complétalos y vuelve a imprimirlo.`, 'DOCUMENTO_INCOMPLETO');
+    const porEntidad = new Map<string, string[]>();
+    for (const f of r.faltanDetalle) (porEntidad.get(f.entidad) ?? porEntidad.set(f.entidad, []).get(f.entidad)!).push(f.etiqueta);
+    const detalle = [...porEntidad].map(([ent, campos]) => `${ent}: ${campos.join(', ')}`).join('; ');
+    throw new ErrorSpd(`No se puede registrar el documento: faltan datos (${r.faltan.join(', ')}) — ${detalle}. Complétalos y vuelve a imprimirlo.`, 'DOCUMENTO_INCOMPLETO');
+  }
+  // Una segunda firma vigente del mismo documento VERSIONA (sustituye a la anterior con motivo), no se duplica.
+  // La autorización a terceros es por persona autorizada; el resto, una por paciente. Una firma de una versión anterior no cuenta.
+  const porAutorizado = codigo === 'autorizacion_terceros';
+  const vigentes = REPETIBLES.has(codigo) ? [] : db.all<R>(
+    `SELECT d.id, d.firmante, d.firmado_en FROM documento_firmado d JOIN plantilla_documento p ON p.id = d.plantilla_id
+      WHERE d.paciente_id = ? AND p.codigo = ? AND p.version = ? AND d.revocado_en IS NULL ${porAutorizado ? 'AND d.contacto_id IS ?' : ''} ORDER BY d.id`,
+    porAutorizado ? [pacienteId, codigo, plantilla.version, firmante.contactoId ?? null] : [pacienteId, codigo, plantilla.version]);
+  const motivoSustitucion = typeof opciones?.motivo === 'string' ? opciones.motivo.trim() : '';
+  if (vigentes.length > 0) {
+    const previa = vigentes[vigentes.length - 1];
+    if (opciones?.sustituir !== true) {
+      throw new ErrorSpd(`Ya hay una firma vigente de este documento (nº ${previa.id}, ${previa.firmante}, ${formatoFecha(String(previa.firmado_en).slice(0, 10))}). No se registra otra igual: si es una firma nueva que la sustituye (otro firmante, otra versión del texto…), indícalo y explica el motivo; la anterior quedará revocada en el historial.`, 'DOCUMENTO_YA_FIRMADO');
+    }
+    if (motivoSustitucion.length < 5) throw invalido('Para sustituir una firma vigente hay que explicar el motivo (mínimo 5 caracteres).');
   }
   const idPublico = randomUUID();
   const id = db.transaccion(() => {
+    for (const v of vigentes) {
+      db.run('UPDATE documento_firmado SET revocado_en = ?, motivo_revocacion = ? WHERE id = ? AND revocado_en IS NULL', [ahoraISO(ctx), `Sustituida por una firma nueva: ${motivoSustitucion}`, v.id]);
+      ctx.auditar({ accion: 'revocar', entidad: 'documento_firmado', entidadId: Number(v.id), antes: { revocado: false }, despues: { revocado: true, pacienteId }, motivo: `Sustituida por una firma nueva: ${motivoSustitucion}` });
+    }
     const nuevo = db.run(
       `INSERT INTO documento_firmado(id_publico, paciente_id, plantilla_id, firmante, firmante_calidad, contacto_id, firmado_en, texto_impreso, hash_texto, registrado_por)
        VALUES (?,?,?,?,?,?,?,?,?,?)`,

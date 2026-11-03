@@ -9,7 +9,7 @@ import { abrirConContrasena } from '../src/servicios/seguridad.ts';
 import { ErrorSpd } from '../src/servicios/contexto.ts';
 
 const KDF = { n: 1 << 10, r: 8, p: 1 };
-const PASS = 'contraseña-de-prueba';
+const PASS = 'mi-contraseña-de-prueba';
 
 function temp() { return mkdtempSync(join(tmpdir(), 'spd-almacen-')); }
 const limpiar = (d: string) => rmSync(d, { recursive: true, force: true });
