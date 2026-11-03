@@ -5,9 +5,25 @@
 - Base de datos con **SQLCipher** (AES-256) y una **clave de datos aleatoria
   de 256 bits**, que nunca se guarda en claro.
 - La clave de datos se guarda **envuelta** con una clave derivada de la
-  **contraseña de la farmacia** (Argon2id). La contraseña se pide **al
-  arrancar el programa** y se configura en el primer uso. Cambiar la
-  contraseña sólo rehace la envoltura; no hay que recifrar la base.
+  **contraseña de la farmacia** (scrypt, **N=2^17**, r=8, p=1; los ficheros
+  antiguos con N=2^15 se siguen leyendo y se migran al desbloquear o al cambiar
+  la contraseña; al LEER se acepta N≤2^18, p≤4 y un tope de memoria: fuera de
+  eso, error `FICHERO_CORRUPTO` claro, nunca uno interno). La contraseña se pide
+  **al arrancar el programa** y se configura en el primer uso.
+- **Cambiar la contraseña ROTA la clave de datos**: clave nueva, base recifrada,
+  envoltura nueva (también en la `.bak`, para que no siga abriendo con la
+  contraseña antigua) y **clave de recuperación nueva**, que hay que confirmar
+  tecleando tres grupos (el diálogo no se puede cerrar antes). La clave de
+  recuperación anterior deja de abrir el fichero actual. Recuperar con la clave
+  de recuperación (olvido de contraseña) no rota la clave.
+- **Copias antiguas**: siguen abriéndose con la contraseña (o la clave de
+  recuperación) de cuando se hicieron; quien las conserve y conociera esa
+  contraseña puede abrirlas: guardarlas aparte o borrarlas si hay sospecha.
+  **Restaurar** una copia con otra clave de datos pide SU contraseña (o su clave
+  de recuperación) y la **recifra con la clave actual**, así la clave de
+  recuperación vigente sigue valiendo; queda en la auditoría. Ya no se rechazan
+  «copias de otra instalación»: basta con conocer sus credenciales (además de
+  ser titular y escribir RESTAURAR).
 - **Clave de recuperación**: en el primer uso se muestra la clave de datos en
   dos formatos y no se deja continuar hasta confirmar que se ha guardado
   (comprobación tecleando tres grupos):
@@ -48,6 +64,15 @@
   cada cambio (antes/después), impresiones, exportaciones, cambios de
   ajustes.
 - Al arrancar se comprueba la cadena; si está rota, aviso al titular.
+- **Marcha atrás (rollback)**: junto a los datos hay un fichero `spd.estado` con
+  un contador monótono (id de la última entrada de auditoría) y su hash, firmado
+  con HMAC-SHA256 con una clave derivada (HKDF) de la clave de datos. Al
+  desbloquear se compara; si la base es más antigua (o la historia se bifurca)
+  se avisa en pantalla y se audita (`alerta_seguridad`). Restaurar una copia
+  desde Ajustes lo actualiza a propósito (queda auditado). Límite: quien pueda
+  borrar `spd.estado` y sustituir los datos a la vez no deja rastro.
+- Los **listados de pacientes** (lectura masiva) se auditan como «consulta de
+  listado» (sin el texto buscado), una vez por sesión y minuto (y tipo).
 - Informe «quién ha accedido a este paciente», que es lo primero que se
   pregunta ante una queja.
 
@@ -55,7 +80,9 @@
 
 - Copia automática diaria **cifrada** (el fichero de SQLCipher ya lo está)
   a una carpeta elegida: disco USB, NAS. Rotación: 7 diarias, 4 semanales,
-  12 mensuales.
+  12 mensuales. Sólo cuentan las copias con nombre propio, fecha no futura y
+  cabecera `SPDDATOS`: un fichero plantado ni da por buena la copia «al día» ni
+  desplaza a las verdaderas.
 - Copia obligatoria **antes de cada migración** de versión.
 - **Prueba de restauración** guiada desde Ajustes (una copia que nunca se ha
   restaurado no se sabe si sirve).
@@ -68,6 +95,20 @@
 - `contextIsolation`, `sandbox`, sin `nodeIntegration`, CSP estricta, sin
   contenido remoto en las ventanas (lo de CIMA se pide desde el proceso
   principal y se pinta como datos, nunca como HTML ajeno).
+- **Nada de datos de pacientes en el almacenamiento del renderer**: el estado de
+  trabajo (cajas del día, curso de la preparación, avance del llenado, ids de
+  documentos firmados) vive sólo en memoria y se vacía al bloquear y al perder la
+  sesión; al arrancar se borran los restos que dejaban versiones anteriores en
+  `localStorage` (sólo se conserva el aspecto/tema).
+- **Impresión**: el HTML temporal va a `userData/impresion-tmp` (0700), no a
+  `%TEMP%`; la sesión de impresión sólo permite leer ficheros de esa carpeta y
+  `data:`; imprimir y exportar PDF se rechazan con el programa bloqueado.
+- **Fuses de Electron** (`scripts/after-pack.cjs`, hook `afterPack` de
+  electron-builder, sólo en `npm run dist:win`): RunAsNode=false,
+  EnableNodeOptionsEnvironmentVariable=false, EnableNodeCliInspectArguments=false,
+  OnlyLoadAppFromAsar=true, EnableEmbeddedAsarIntegrityValidation=true,
+  EnableCookieEncryption=true. No se ha podido probar el instalador en Windows
+  desde este entorno: probar el .exe resultante antes de publicar.
 - IPC con lista blanca y validación de esquema en cada canal.
 - Actualizaciones firmadas; el instalador firmado con certificado de código.
 - Registro de errores local sin datos de pacientes.

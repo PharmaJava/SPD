@@ -39,13 +39,8 @@ export function pita(): void {
   } catch { /* sin audio */ }
 }
 
-export function leerLocal<T>(clave: string, defecto: T): T {
-  try { const t = localStorage.getItem(clave); return t ? (JSON.parse(t) as T) : defecto; } catch { return defecto; }
-}
-export function guardarLocal(clave: string, valor: unknown): void {
-  try { localStorage.setItem(clave, JSON.stringify(valor)); } catch { /* sin almacenamiento */ }
-}
-export function borrarLocal(clave: string): void { try { localStorage.removeItem(clave); } catch { /* nada */ } }
+// Estado de trabajo con datos de pacientes: sólo en memoria (ver lib/efimero.ts), nunca en localStorage.
+export { leerEfimero as leerLocal, guardarEfimero as guardarLocal, borrarEfimero as borrarLocal } from '../../lib/efimero.ts';
 
 /** Lee y borra un valor de paso entre pantallas (sessionStorage). */
 export function tomarPaso(clave: string): string | null {

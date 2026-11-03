@@ -1,7 +1,7 @@
 <script lang="ts">
   import { spd } from '../api.ts';
   import type { VersionPublicada } from '../../dominio/actualizaciones.ts';
-  import type { Ajustes, DatosFarmacia, UsuarioPublico, MomentoTomaDto, EstadoCopias, CopiaDto, PreferenciasActualizaciones, ImpresoraDto, RolUsuario, EstadoSistema } from '../../servicios/api.ts';
+  import type { ResultadoPrimerUso, Ajustes, DatosFarmacia, UsuarioPublico, MomentoTomaDto, EstadoCopias, CopiaDto, PreferenciasActualizaciones, ImpresoraDto, RolUsuario, EstadoSistema } from '../../servicios/api.ts';
   import { ir } from '../router.ts';
   import { fechaHora } from '../lib/formato.ts';
   import Cargando from '../componentes/Cargando.svelte';
@@ -10,7 +10,7 @@
   import Dialogo from '../componentes/Dialogo.svelte';
   import Confirmar from '../componentes/Confirmar.svelte';
   import EditorMomentos, { type FilaMomento } from '../componentes/EditorMomentos.svelte';
-  import { avisar, fortaleza, inicialesDe, nombreRol, type Aspecto, type Tema } from '../componentes/util.ts';
+  import { avisar, copiarTexto, fortaleza, inicialesDe, nombreRol, type Aspecto, type Tema } from '../componentes/util.ts';
 
   let { rol, seccion, aspecto, cambiaAspecto, alcambiar, alcerrar }: {
     rol: RolUsuario; seccion?: string; aspecto: Aspecto; cambiaAspecto: (a: Aspecto) => void; alcambiar: () => void; alcerrar: () => void;
@@ -150,7 +150,23 @@
     else if (cs.nueva !== cs.nueva2) errCs.nueva2 = 'Las dos contraseñas no coinciden.';
     if (Object.keys(errCs).length) return;
     const r = await spd.cambiarContrasena(cs.actual, cs.nueva);
-    if (r.ok) { cs = { actual: '', nueva: '', nueva2: '' }; avisar('Contraseña cambiada.'); } else errCs.actual = r.error;
+    if (r.ok) { cs = { actual: '', nueva: '', nueva2: '' }; avisar('Contraseña cambiada.'); abrirClaveNueva(r.datos); } else errCs.actual = r.error;
+  }
+  // La clave de datos ha rotado: la clave de recuperación de antes ya no vale. Se muestra la nueva y no se deja seguir sin confirmarla.
+  let claveNueva = $state<ResultadoPrimerUso | null>(null); let qrNueva = $state(''); let guardadaN = $state(false);
+  let pedidosN = $state<number[]>([]); let tecleadosN = $state<string[]>(['', '', '']); let errClaveN = $state<string | null>(null);
+  const gruposN = $derived((claveNueva?.claveRecuperacion ?? '').split(/[^A-Za-z0-9]+/).filter(Boolean).flatMap(g => g.length > 4 ? (g.match(/.{1,4}/g) ?? []) : [g]));
+  const normN = (t: string) => t.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  async function abrirClaveNueva(r: ResultadoPrimerUso) {
+    claveNueva = r; guardadaN = false; errClaveN = null; tecleadosN = ['', '', ''];
+    const n = Math.max(gruposN.length - 1, 3);
+    pedidosN = Array.from({ length: n }, (_, i) => i).sort(() => Math.random() - 0.5).slice(0, 3).sort((a, b) => a - b);
+    const q = await spd.codigoSvg(r.uriAutenticador, 'qrcode'); qrNueva = q.ok ? q.datos : '';
+  }
+  function confirmarClaveNueva() {
+    if (!guardadaN) { errClaveN = 'Marca que has guardado la clave en un sitio seguro.'; return; }
+    if (pedidosN.some((g, i) => normN(tecleadosN[i] ?? '') !== normN(gruposN[g] ?? ''))) { errClaveN = 'Alguno de los grupos no coincide. Míralos en tu copia guardada, no en esta pantalla.'; return; }
+    claveNueva = null; qrNueva = '';
   }
 
   // ───── Actualizaciones ─────
@@ -392,11 +408,25 @@
   {#snippet pie()}<button class="btn" onclick={() => (nuevoU = false)}>Cancelar</button><button class="btn principal" onclick={crearUsuario} disabled={ocupadoU}>Crear usuario</button>{/snippet}
 </Dialogo>
 
+<Dialogo abierto={claveNueva !== null} titulo="Clave de recuperación NUEVA" bloqueante onclose={() => {}}>
+  {#if claveNueva}
+    <Aviso tipo="atencion" titulo="La de antes ya no vale">Al cambiar la contraseña se ha renovado la clave de los datos. Esta clave de recuperación sustituye a la anterior: imprímela y guárdala fuera de este ordenador. <strong>Las copias de seguridad hechas antes</strong> se siguen abriendo con la contraseña (o la clave de recuperación) de cuando se hicieron: guárdalas aparte o bórralas si la contraseña antigua pudo conocerla alguien.</Aviso>
+    <div class="clave" aria-label="Clave de recuperación nueva">{#each gruposN as g, i}<span><small class="suave" style="font-size:.6rem;display:block">{i + 1}</small>{g}</span>{/each}</div>
+    {#if qrNueva}<div class="qr" aria-label="Código QR de la clave">{@html qrNueva}</div>{/if}
+    <div class="fila"><button class="btn" onclick={async () => { if (await copiarTexto(claveNueva!.claveRecuperacion)) avisar('Clave copiada. Pégala en un sitio seguro y bórrala del portapapeles.', 'info'); }}>Copiar</button><button class="btn" onclick={() => window.print()}>Imprimir</button></div>
+    <label class="marca"><input type="checkbox" bind:checked={guardadaN} />Ya he guardado la clave nueva en un lugar seguro.</label>
+    <p class="sin-margen"><strong>Comprobación:</strong> mira tu copia guardada y escribe estos grupos.</p>
+    <div class="fila">{#each pedidosN as g, i}<Campo etiqueta="Grupo {g + 1}" bind:valor={tecleadosN[i]} maxlength={6} />{/each}</div>
+    {#if errClaveN}<Aviso tipo="bloqueo" titulo="No coincide">{errClaveN}</Aviso>{/if}
+  {/if}
+  {#snippet pie()}<button class="btn principal" onclick={confirmarClaveNueva}>Ya la tengo guardada</button>{/snippet}
+</Dialogo>
+
 <Dialogo abierto={resC !== null} titulo="Restaurar una copia" onclose={() => (resC = null)}>
   {#if resC}
     <Aviso tipo="bloqueo" titulo="Esto sustituye TODOS los datos actuales">Se volverá al estado del {fechaHora(resC.fecha)}: se pierde todo lo hecho después (pacientes, preparaciones, entregas, auditoría). Antes se guardará una copia del estado actual («Antes de restaurar») para poder deshacerlo. Tendrás que volver a iniciar sesión con tu PIN.</Aviso>
     <Campo etiqueta="Contraseña de la farmacia" tipo="contrasena" bind:valor={rc.pass} requerido autofocus />
-    {#if pedirPassCopia}<Campo etiqueta="Contraseña que tenía la farmacia cuando se hizo la copia" tipo="contrasena" bind:valor={rc.passCopia} />{/if}
+    {#if pedirPassCopia}<Campo etiqueta="Contraseña (o clave de recuperación) que tenía la farmacia cuando se hizo la copia" tipo="contrasena" bind:valor={rc.passCopia} />{/if}
     <Campo etiqueta="Escribe RESTAURAR para confirmar" bind:valor={rc.frase} requerido onenter={restaurar} />
     {#if errRc}<Aviso tipo="bloqueo" titulo="No se ha restaurado">{errRc}</Aviso>{/if}
   {/if}

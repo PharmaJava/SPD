@@ -5,7 +5,9 @@
   import type { EstadoSistema, UsuarioPublico, EstadoCopias, PacienteResumen, MedicamentoDto } from '../servicios/api.ts';
   import { ruta, ir } from './router.ts';
   import { aplicarAspecto, leerAspecto, nombreRol, mensajeError, type Aspecto } from './componentes/util.ts';
+  import { limpiarEfimero } from './lib/efimero.ts';
   import Icono from './componentes/Icono.svelte';
+  import Aviso from './componentes/Aviso.svelte';
   import Cargando from './componentes/Cargando.svelte';
   import Tostadas from './componentes/Tostadas.svelte';
   import InicioSesion from './componentes/InicioSesion.svelte';
@@ -35,7 +37,14 @@
     sinConexion = null; estado = r.datos;
     if (!r.datos.inicializado) primerUsoEnCurso = true;
   }
-  onMount(() => { cargarEstado(); });
+  onMount(() => {
+    limpiarEfimero();   // restos de versiones anteriores que dejaban datos de pacientes en localStorage
+    cargarEstado();
+    // El proceso principal avisa (bloqueo por inactividad, menú «Bloquear»): se relee el estado.
+    const alEstado = () => { void cargarEstado(); };
+    window.addEventListener('spd:estado', alEstado);
+    return () => window.removeEventListener('spd:estado', alEstado);
+  });
 
   const NAV = [
     { id: 'hoy', texto: 'Hoy', icono: 'hoy' }, { id: 'pacientes', texto: 'Pacientes', icono: 'pacientes' },
@@ -47,6 +56,8 @@
 
   // ───── Copias y bloqueo por inactividad (sólo con sesión) ─────
   const enSesion = $derived(!!estado?.desbloqueado && !!estado.sesion);
+  // Sin sesión (bloqueado, o cerrada) no queda nada de pacientes en la interfaz.
+  $effect(() => { if (estado && !enSesion) limpiarEfimero(); });
   $effect(() => {
     if (!enSesion) return;
     void version;
@@ -62,7 +73,7 @@
     const t = setInterval(() => { if (minutos > 0 && Date.now() - ultimo > minutos * 60_000) bloquear(); }, 15_000);
     return () => { clearInterval(t); for (const ev of ['mousemove', 'keydown', 'click', 'touchstart']) window.removeEventListener(ev, mover); };
   });
-  async function bloquear() { await spd.bloquear(); await cargarEstado(); }
+  async function bloquear() { limpiarEfimero(); await spd.bloquear(); await cargarEstado(); }
   async function alentrarUsuario(u: UsuarioPublico) { if (estado) estado = { ...estado, sesion: u }; await cargarEstado(); if (!location.hash) ir('hoy'); }
 
   // ───── Primer uso: al terminar entra directamente (la contraseña acaba de escribirse) ─────
@@ -172,6 +183,7 @@
           <button class="btn" onclick={bloquear}><Icono n="bloquear" tam={18} />Bloquear</button>
         </div>
       </header>
+      {#if estado.avisoSeguridad}<Aviso tipo="bloqueo" titulo="Aviso de seguridad">{estado.avisoSeguridad}</Aviso>{/if}
       <main class="contenido" id="contenido">
         <div class="ancho">
           {#key $ruta.nombre + ':' + ($ruta.id ?? '')}

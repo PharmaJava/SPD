@@ -95,6 +95,7 @@
     },
     "portable": {
       "artifactName": "SPD-${version}-portable.exe"
-    }
+    },
+    "afterPack": "scripts/after-pack.cjs"
   }
 }
