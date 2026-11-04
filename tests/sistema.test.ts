@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { CONFIG_IMPRESION_POR_DEFECTO } from '../src/dominio/etiquetas-hoja.ts';
 import { crearSistema } from '../src/servicios/sistema.ts';
 import type { Sistema } from '../src/servicios/sistema.ts';
 import type { Ajustes, PrimerUso, Resultado } from '../src/servicios/api.ts';
@@ -60,7 +61,7 @@ test('estado antes del primer uso: no inicializado, bloqueado, sin sesión', asy
   const e = entorno();
   try {
     const s = ok(await e.s.api.estado());
-    assert.deepEqual({ ...s, rutaDatos: undefined, motivoSistemaNoDisponible: undefined }, { inicializado: false, desbloqueado: false, sesion: null, version: '1.0.4', rutaDatos: undefined, esperaIntento: 0, modoAcceso: null, accesoSistemaDisponible: false, motivoSistemaNoDisponible: undefined });
+    assert.deepEqual({ ...s, rutaDatos: undefined, motivoSistemaNoDisponible: undefined }, { inicializado: false, desbloqueado: false, sesion: null, version: '1.0.5', rutaDatos: undefined, esperaIntento: 0, modoAcceso: null, accesoSistemaDisponible: false, motivoSistemaNoDisponible: undefined });
     assert.equal(s.rutaDatos, e.dir);
   } finally { await e.fin(); }
 });
@@ -451,6 +452,7 @@ test('ajustes por defecto', async () => {
       diasValidezSpd: 14, validezExtendidaPermitida: false, exigirConsentimientos: true, conservacionAniosTrasBaja: 2, bloqueoMinutos: 5, inicioDia: 'convencional', rotar180: false,
       sentidoTomas: 'izquierda_derecha', posicionInicial: 'izquierda', lector: { modo: 'teclado', separadorGs: '' },
       impresoraEtiquetas: null, impresoraDocumentos: null, carpetaCopias: null,
+      impresionEtiquetas: CONFIG_IMPRESION_POR_DEFECTO,
       pedirPin: true, pedirUsuarioAlArrancar: true, usuarioPredeterminadoId: null,
     });
   } finally { await e.fin(); }
@@ -920,5 +922,21 @@ test('cerrar() deja todo guardado y es repetible', async () => {
     await e.s.cerrar(); await e.s.cerrar();
     const s2 = e.reabrir(); ok(await s2.api.desbloquear(PASS));
     assert.equal(ok(await s2.api.obtenerAjustes()).bloqueoMinutos, 77);
+  } finally { await e.fin(); }
+});
+
+test('impresión de etiquetas: se guarda por farmacia, se valida y una configuración corrupta vuelve al rollo', async () => {
+  const e = await conPrimerUso();
+  try {
+    const por = ok(await e.s.api.obtenerAjustes()).impresionEtiquetas!;
+    assert.equal(por.modo, 'rollo');
+    assert.deepEqual(por.rollo, { anchoMm: 100, altoMm: 150 });
+    const nueva = { ...por, modo: 'hoja' as const, hoja: { ...por.hoja, primeraLibre: { fila: 3, columna: 2 } }, ajustable: { escalaPct: 95, dxMm: 1.5, dyMm: -2 } };
+    const g = ok(await e.s.api.guardarAjustes({ impresionEtiquetas: nueva }));
+    assert.deepEqual(g.impresionEtiquetas, nueva);
+    mal(await e.s.api.guardarAjustes({ impresionEtiquetas: { ...nueva, hoja: { ...nueva.hoja, columnas: 4 } } }), 'AJUSTE_INVALIDO');
+    mal(await e.s.api.guardarAjustes({ impresionEtiquetas: { ...nueva, ajustable: { escalaPct: 300, dxMm: 0, dyMm: 0 } } }), 'AJUSTE_INVALIDO');
+    mal(await e.s.api.guardarAjustes({ impresionEtiquetas: { ...nueva, modo: 'otro' as never } }), 'AJUSTE_INVALIDO');
+    assert.deepEqual(ok(await e.s.api.obtenerAjustes()).impresionEtiquetas, nueva, 'lo inválido no cambia nada');
   } finally { await e.fin(); }
 });

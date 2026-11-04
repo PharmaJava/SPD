@@ -8,9 +8,16 @@
   import type { VistaImprimible } from '../../../servicios/api.ts';
   import '../../estilos/u2.css';
   import Nota from './Nota.svelte';
+  import type { Snippet } from 'svelte';
 
-  let { titulo, vista, nombreArchivo, impresora = null, anchoMm, altoMm, motivoNoImprimir = '' }: {
+  let { titulo, vista, nombreArchivo, impresora = null, anchoMm, altoMm, motivoNoImprimir = '', controles, onImpreso, avisos = [] }: {
     titulo: string; vista: VistaImprimible; nombreArchivo: string; impresora?: string | null; anchoMm?: number; altoMm?: number;
+    /** Controles propios del documento (p. ej. modo de impresión de la etiqueta), entre los botones y la vista. */
+    controles?: Snippet;
+    /** Se llama tras enviar a la impresora con éxito (no al guardar PDF). */
+    onImpreso?: () => void;
+    /** Avisos no bloqueantes. */
+    avisos?: string[];
     /** Explicación amable cuando no se puede imprimir la versión definitiva. */
     motivoNoImprimir?: string;
   } = $props();
@@ -35,6 +42,7 @@
     ocupado = false;
     tipoEstado = r.ok ? 'ok' : 'atencion';
     mensajeEstado = r.ok ? 'Enviado a la impresora.' : `No se pudo imprimir: ${r.error}`;
+    if (r.ok) onImpreso?.();
   }
   async function pdf() {
     ocupado = true; mensajeEstado = '';
@@ -59,6 +67,8 @@
       {#if vista.faltan.length}<div>Falta: {vista.faltan.join(', ')}.</div>{/if}
     </Nota>
   {/if}
+  {#if controles}{@render controles()}{/if}
+  {#each avisos as a (a)}<Nota gravedad="atencion">{a}</Nota>{/each}
   {#if mensajeEstado}<Nota gravedad={tipoEstado}>{mensajeEstado}</Nota>{/if}
   <div class="vista-marco">
     <div style="width:{ancho * escala}px;height:{alto * escala}px;flex:none">

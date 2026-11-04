@@ -9,6 +9,7 @@
   import Mapa from './Mapa.svelte';
   import Nota from './Nota.svelte';
   import VistaPrevia from './VistaPrevia.svelte';
+  import ImpresionEtiqueta from './ImpresionEtiqueta.svelte';
   import { corto, ir, nombrePdfSugerido, NOMBRE_ROL, puedeValidar } from './util.ts';
   import { QUE_HACER, solucionComun } from './ayuda-bloqueos.ts';
   import { bloqueosParaMostrar } from '../../../dominio/preparacion.ts';
@@ -86,7 +87,7 @@
     if (r.ok) vistas = { ...vistas, [cual]: r.datos }; else errorVista = r.error;
   }
   $effect(() => { preparacion.estado; vistas = {}; });          // al validar o entregar se vuelven a pedir
-  $effect(() => { if ((validada || verBorrador) && !vistas[pestana] && !cargandoVista) void cargarVista(pestana); });
+  $effect(() => { if ((validada || verBorrador) && pestana === 'hoja' && !vistas.hoja && !cargandoVista) void cargarVista('hoja'); });
   const motivoEtiqueta = 'La etiqueta definitiva sólo se imprime cuando el blíster está validado.';
 </script>
 
@@ -204,14 +205,18 @@
         <button class="btn" class:principal={pestana === 'hoja'} role="tab" aria-selected={pestana === 'hoja'} type="button" onclick={() => (pestana = 'hoja')} data-prueba="pestana-hoja">Hoja del paciente</button>
       </div>
       {#if errorVista}<Nota gravedad="bloqueo">{errorVista}</Nota>{/if}
-      {#if cargandoVista && !vistas[pestana]}<div class="cargando-linea">Preparando la vista previa…</div>{/if}
-      {#if vistas[pestana]}
-        {#key pestana + preparacion.estado}
-          <VistaPrevia titulo={pestana === 'etiqueta' ? 'Etiqueta del blíster' : 'Hoja del paciente (plan de administración)'} vista={vistas[pestana]!}
-            nombreArchivo={nombrePdfSugerido(pestana === 'etiqueta' ? 'etiqueta' : 'hoja-paciente', preparacion.pacienteNombre)}
-            impresora={pestana === 'etiqueta' ? ajustes?.impresoraEtiquetas : ajustes?.impresoraDocumentos}
-            motivoNoImprimir={validada ? '' : motivoEtiqueta} />
+      {#if pestana === 'etiqueta'}
+        {#key preparacion.estado}
+          <ImpresionEtiqueta preparacionId={preparacion.id} nombreArchivo={nombrePdfSugerido('etiqueta', preparacion.pacienteNombre)} {ajustes} motivoNoImprimir={validada ? '' : motivoEtiqueta} />
         {/key}
+      {:else}
+        {#if cargandoVista && !vistas.hoja}<div class="cargando-linea">Preparando la vista previa…</div>{/if}
+        {#if vistas.hoja}
+          {#key preparacion.estado}
+            <VistaPrevia titulo="Hoja del paciente (plan de administración)" vista={vistas.hoja} nombreArchivo={nombrePdfSugerido('hoja-paciente', preparacion.pacienteNombre)}
+              impresora={ajustes?.impresoraDocumentos} motivoNoImprimir={validada ? '' : motivoEtiqueta} />
+          {/key}
+        {/if}
       {/if}
     </section>
   {/if}

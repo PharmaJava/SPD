@@ -6,7 +6,7 @@ Guía rápida para el personal de la farmacia. Versión 0.1 · Programa gratuito
 
 ## 1. Instalar el programa
 
-1. Entra en **https://github.com/PharmaJava/SPD/releases** y descarga el fichero `SPD-Setup-x.y.z.exe` de la versión más reciente.
+1. Descarga la última versión desde **https://github.com/PharmaJava/SPD/releases/latest** (fichero `SPD-Instalador-Windows.exe`).
 2. Ábrelo. Como el programa **todavía no está firmado digitalmente**, Windows puede mostrar el aviso azul *«Windows protegió su PC»* (SmartScreen). No es un virus: pulsa **Más información** y después **Ejecutar de todas formas**.
 3. Acepta la licencia y sigue el instalador. Al terminar, abre **SPD** desde el escritorio o el menú Inicio.
 
@@ -80,6 +80,11 @@ La **caducidad del SPD es de 14 días** desde su preparación (ajustable hasta 3
 Una vez validado el blíster aparecen **Etiqueta** y **Hoja del paciente** (plan de administración en A4):
 
 - Pulsa **Imprimir** o **Guardar como PDF**: el PDF sale con el mismo diseño y tamaño que el papel (etiqueta o A4), elige tú dónde guardarlo (el nombre sugerido lleva apellidos y fecha, nunca el DNI) y sirve para imprimir en otro equipo si fallan las impresoras. Lo mismo vale para la hoja de trabajo y los documentos de la ficha. En Ajustes → *Impresoras* eliges la impresora y puedes imprimir una página de prueba; el tamaño de etiqueta es configurable.
+- **Cómo se imprime la etiqueta**, a elegir en la vista previa (y por defecto en Ajustes → *Impresoras*):
+  - **Impresora de etiquetas (rollo)**: una etiqueta del tamaño del rollo.
+  - **Folio con hoja de etiquetas**: una impresora normal y hojas adhesivas. Elige la hoja (3×7, 2×4…; **comprueba sus medidas con la caja**) e indica **la primera etiqueta libre** (fila y columna) para aprovechar una hoja empezada; tras imprimir, SPD recuerda la siguiente. Si lo que hay que escribir no cabe en la etiqueta, **no se imprime** (nunca se recorta).
+  - **Ajustable**: la etiqueta sobre un folio A4 con escala (25–200 %) y desplazamiento X/Y en mm, para calibrar a tu hoja.
+  - Con **Hoja de prueba** imprimes una cuadrícula sin datos para comprobar la alineación antes de gastar etiquetas. En el diálogo de Windows elige papel **A4** y escala **100 % / «Tamaño real»**, nunca «Ajustar a la página». **Guardar como PDF** genera exactamente la misma página.
 - Si el paciente necesita **letra grande**, márcalo en su ficha y saldrá así.
 - Después se registra la **entrega** al paciente o cuidador.
 

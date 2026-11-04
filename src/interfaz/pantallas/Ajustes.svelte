@@ -1,6 +1,9 @@
 <script lang="ts">
   import { spd } from '../api.ts';
   import type { VersionPublicada } from '../../dominio/actualizaciones.ts';
+  import { normalizarConfigImpresion, hojaDePrueba } from '../../dominio/etiquetas-hoja.ts';
+  import type { ConfigImpresion } from '../../dominio/etiquetas-hoja.ts';
+  import ConfigImpresionEditor from '../componentes/ConfigImpresion.svelte';
   import type { ResultadoPrimerUso, Ajustes, DatosFarmacia, UsuarioPublico, MomentoTomaDto, EstadoCopias, CopiaDto, PreferenciasActualizaciones, ImpresoraDto, RolUsuario, EstadoSistema } from '../../servicios/api.ts';
   import { ir } from '../router.ts';
   import { fechaHora } from '../lib/formato.ts';
@@ -114,12 +117,20 @@
   // ───── Impresoras ─────
   let impresoras = $state<ImpresoraDto[] | null>(null); let errImp = $state<string | null>(null);
   let iEt = $state(''); let iDoc = $state(''); let impCargadas = false;
+  let impr = $state<ConfigImpresion>(normalizarConfigImpresion(null));
   $effect(() => { if (activa === 'impresoras' && !impresoras) spd.listarImpresoras().then(r => { if (r.ok) impresoras = r.datos; else { impresoras = []; errImp = r.error; } }); });
-  $effect(() => { if (aj && !impCargadas) { iEt = aj.impresoraEtiquetas ?? ''; iDoc = aj.impresoraDocumentos ?? ''; impCargadas = true; } });
+  $effect(() => { if (aj && !impCargadas) { iEt = aj.impresoraEtiquetas ?? ''; iDoc = aj.impresoraDocumentos ?? ''; impr = normalizarConfigImpresion(aj.impresionEtiquetas); impCargadas = true; } });
   async function probar(nombre: string, tipo: 'etiqueta' | 'documento') {
     const html = `<html><body style="font-family:sans-serif;padding:8mm"><h2>Prueba de impresión</h2><p>${tipo === 'etiqueta' ? 'Etiqueta' : 'Documento'} · SPD</p><p>Si lees esto, la impresora funciona.</p></body></html>`;
     const r = await spd.imprimirHtml(html, { impresora: nombre || undefined, silenciosa: !!nombre, ...(tipo === 'etiqueta' ? { anchoMm: 60, altoMm: 40 } : {}) });
     if (r.ok) avisar('Se ha enviado la hoja de prueba a la impresora.', 'info'); else avisar(r.error, 'bloqueo', 6000);
+  }
+
+  async function probarModo() {
+    const p = hojaDePrueba($state.snapshot(impr));
+    if (p.problemas.length) { avisar(p.problemas.join(' '), 'bloqueo', 6000); return; }
+    const r = await spd.imprimirHtml(p.html, { impresora: iEt || undefined, anchoMm: p.anchoMm, altoMm: p.altoMm, silenciosa: false });
+    if (r.ok) avisar('Se ha enviado la hoja de prueba. Imprímela con «Escala 100 %».', 'info'); else avisar(r.error, 'bloqueo', 6000);
   }
 
   // ───── Copias ─────
@@ -380,7 +391,11 @@
               {:else}<Campo etiqueta={titulo ?? ''} tipo="seleccion" bind:valor={iDoc} opciones={[{ valor: '', texto: 'La predeterminada de Windows' }, ...impresoras.map(i => ({ valor: i.nombre, texto: i.nombre + (i.predeterminada ? ' (predeterminada)' : '') }))]} />{/if}
             </div><button class="btn" style="margin-bottom:.8rem" onclick={() => probar(tipo === 'etiqueta' ? iEt : iDoc, tipo as 'etiqueta' | 'documento')}>Probar</button></div>
           {/each}
-          <div class="fila fin"><button class="btn principal" onclick={() => guardarAj({ impresoraEtiquetas: iEt || null, impresoraDocumentos: iDoc || null })}>Guardar</button></div>
+          <h3 style="margin:1rem 0 .2rem">Cómo se imprime la etiqueta</h3>
+          <p class="suave sin-margen">Se aplica a la impresora de etiquetas de la farmacia y puede cambiarse también al imprimir. Con hojas adhesivas o «Ajustable», imprime siempre con «Escala 100 %» o «Tamaño real», nunca «Ajustar a la página».</p>
+          <ConfigImpresionEditor bind:config={impr} />
+          <div class="fila"><button class="btn" onclick={probarModo} data-prueba="probar-modo">Imprimir hoja de prueba</button></div>
+          <div class="fila fin"><button class="btn principal" onclick={() => guardarAj({ impresoraEtiquetas: iEt || null, impresoraDocumentos: iDoc || null, impresionEtiquetas: $state.snapshot(impr) })}>Guardar</button></div>
         {/if}
       </div>
 

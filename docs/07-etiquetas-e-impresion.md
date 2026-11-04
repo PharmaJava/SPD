@@ -140,3 +140,48 @@ marca en rojo y no deja imprimir la definitiva. Una etiqueta que pierde la
 Opción por paciente: «imprimir en folio». Misma información, más espacio:
 foto del comprimido de CIMA (si existe y se ha descargado), letra grande si
 el paciente lo necesita, y la tabla semanal para colgar en la nevera.
+
+## 7.6 Modos de impresión de la etiqueta
+
+Dominio puro en `src/dominio/etiquetas-hoja.ts` (con `tests/etiquetas-hoja.test.ts`). Se
+elige en **Ajustes → Impresoras → Cómo se imprime la etiqueta** (modo por defecto y todos sus
+parámetros, por farmacia y asociado a la impresora de etiquetas; ajuste `impresion_etiquetas`) y se
+cambia al momento en la **vista previa** de la etiqueta (modo, copias, primera etiqueta libre,
+escala y desplazamiento).
+
+| Modo | Para qué | Página |
+|---|---|---|
+| **A. Impresora de etiquetas (rollo)** | Térmica o similar. Una etiqueta por copia | El tamaño del rollo configurado (por defecto 100×150 mm) |
+| **B. Folio con hoja de etiquetas** | Impresora normal y hojas adhesivas | A4, etiquetas en rejilla |
+| **C. Ajustable** | Calibrar a la hoja que tenga la farmacia | A4; escala 25–200 %, desplazamiento X/Y en mm |
+
+- **Una sola fuente de verdad**: el HTML que se ve en la vista previa es el que se envía a la
+  impresora y el que se guarda en PDF (`exportarPdf` con el mismo `anchoMm × altoMm`, 210×297 en B
+  y C). Lo que se imprime no depende de los márgenes de la impresora: `@page { size; margin: 0 }`
+  y posiciones absolutas en mm.
+- **B. Rejilla**: columnas, filas, tamaño de etiqueta, margen superior e izquierdo y separación
+  horizontal y vertical (mm). Plantillas de partida editables (sin marcas comerciales):
+  «3×7 · 63,5×38,1 mm», «2×7 · 99,1×38,1 mm», «2×4 · 99,1×67,7 mm» y «3×8 · 70×36 mm».
+  **Las medidas son un valor de partida: contrástalas con la caja de tus etiquetas.**
+  `validarRejilla()` rechaza una rejilla que no cabe en el A4 (ancho 210, alto 297 mm).
+- **Primera etiqueta libre** (fila y columna) para reutilizar hojas empezadas. Con varias copias se
+  rellenan los huecos desde ahí y se sigue en una hoja nueva desde el hueco 1.
+  `siguientePosicionLibre()` calcula dónde queda la siguiente: tras **Imprimir** la vista previa la
+  avanza y la recuerda (si el rol puede guardar ajustes; si no, avisa). Guardar PDF no la avanza.
+- **Tamaño**: en A y B la etiqueta se compone **para ese espacio** (`vistaEtiqueta(id, tamano)`;
+  `plantillaParaTamano()` conserva la estructura y el código QR cuadrado). **No se recorta nunca**:
+  si lo que hay que decir no cabe (p. ej. 3×7 con muchos medicamentos), la etiqueta no es
+  imprimible y la vista previa lo explica. Las celdas pequeñas sirven para pocas líneas; para un
+  SPD con muchos medicamentos usa 2×4 o el rollo.
+- **C. Ajustable**: la etiqueta (100×150 mm) se coloca en la esquina superior izquierda del A4, se
+  escala y se desplaza. Si con esa escala y ese desplazamiento se saldría de la hoja, **no se
+  imprime** (no se corta).
+- **Hoja de prueba** (sin datos de nadie, mismo tamaño de página): rollo → marco del tamaño con
+  diagonales; hoja → todos los huecos con su número, los usados en gris y la primera libre en
+  negrita, con regla cada 10 mm; ajustable → el recuadro con la escala y el desplazamiento actuales.
+  Imprímela antes de gastar etiquetas y compárala con la hoja a contraluz.
+- **Ayuda para el usuario**: al imprimir en B o C hay que elegir en el diálogo de Windows papel
+  **A4** y **«Escala 100 %» / «Tamaño real» (nunca «Ajustar a la página»)**; si no, se desplaza todo.
+- La **hoja del paciente** es un folio A4 con sus propios márgenes y no usa estos modos: se imprime
+  al 100 %.
+

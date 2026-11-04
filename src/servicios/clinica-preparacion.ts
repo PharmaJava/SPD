@@ -434,13 +434,17 @@ export function crearClinicaPreparacion(ctx: Contexto): MetodosPreparacion {
       return { preparacion: aDto(prep), evaluacion: c.evaluacion };
     }),
 
-    vistaEtiqueta: (id) => proteger((): VistaImprimible => {
+    vistaEtiqueta: (id, tamano) => proteger((): VistaImprimible => {
+      // Por HTTP (desarrollo) un `undefined` llega como `null`.
+      if (tamano === null) tamano = undefined;
+      if (tamano !== undefined && (typeof tamano !== 'object' || tamano === null || !Number.isFinite(tamano.anchoMm) || !Number.isFinite(tamano.altoMm)
+        || tamano.anchoMm < 20 || tamano.anchoMm > 300 || tamano.altoMm < 20 || tamano.altoMm > 300)) throw invalido('El tamaño de la etiqueta debe estar entre 20 y 300 mm.');
       const u = exigirSesion(ctx);
       const db = bd(ctx);
       const prep = leerPrep(db, id);
       const c = cargadoDe(ctx, db, prep, u);
       ctx.auditar({ accion: 'ver', entidad: 'preparacion', entidadId: Number(prep.id), motivo: 'vista de la etiqueta' });
-      return etiquetaHtml(prep, c, quienDe(db, prep), alertasSobreCajas(db, idsCajas(c)));
+      return etiquetaHtml(prep, c, quienDe(db, prep), alertasSobreCajas(db, idsCajas(c)), tamano);
     }),
 
     vistaHojaPaciente: (id) => proteger((): VistaImprimible => {

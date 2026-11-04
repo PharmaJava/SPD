@@ -17,6 +17,7 @@ import {
   escaparHtml as esc, formatearUnidades, PLANTILLA_DOC07_RESUMIBLE, renderizarEtiqueta,
 } from '../../dominio/etiquetas.ts';
 import type { Plantilla, TomaEntrada } from '../../dominio/etiquetas.ts';
+import { plantillaParaTamano } from '../../dominio/etiquetas-hoja.ts';
 
 export interface Quien { prep?: R | null; val?: R | null }
 
@@ -43,8 +44,9 @@ function iniciales(u: R | null | undefined): string {
 // ───────────────────────── etiqueta ─────────────────────────
 
 /** Plantilla por defecto: la del doc 07 (100×150 mm). Sin teléfono de farmacia, no se pide ese dato. */
-export function plantillaEtiquetaPorDefecto(tieneTelefono: boolean): Plantilla {
-  const base = PLANTILLA_DOC07_RESUMIBLE;
+export function plantillaEtiquetaPorDefecto(tieneTelefono: boolean, tamano?: { anchoMm: number; altoMm: number }): Plantilla {
+  // Con otro tamaño (rollo distinto o celda de una hoja de etiquetas) se usa la misma estructura adaptada al espacio.
+  const base = tamano ? plantillaParaTamano(tamano.anchoMm, tamano.altoMm) : PLANTILLA_DOC07_RESUMIBLE;
   return {
     ...base,
     formato_es: true,
@@ -70,11 +72,11 @@ export function tomasParaEtiqueta(c: Cargado): TomaEntrada[] {
   return [...grupos.values()];
 }
 
-export function etiquetaHtml(prep: R, c: Cargado, quien: Quien, alertas: string[]): VistaImprimible {
+export function etiquetaHtml(prep: R, c: Cargado, quien: Quien, alertas: string[], tamano?: { anchoMm: number; altoMm: number }): VistaImprimible {
   const f = c.aux.farmacia;
   const pac = c.aux.paciente;
   const telefono = f && typeof f.telefono === 'string' && f.telefono.trim() !== '' ? f.telefono : undefined;
-  const plantilla = plantillaEtiquetaPorDefecto(telefono !== undefined);
+  const plantilla = plantillaEtiquetaPorDefecto(telefono !== undefined, tamano);
   const datos = {
     farmacia: { nombre: f?.nombre ?? '', direccion: f?.direccion ?? '', telefono: telefono ?? '' },
     paciente: { nombre_completo: c.evaluacion.paciente.nombreCompleto, id_corto: String(pac.id_publico ?? '').slice(0, 8) },

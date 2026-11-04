@@ -26,6 +26,7 @@ import { COD_CONTRASENA, COD_PROTECTOR, exigirContrasenaValida, hashPin, limitad
 import type { LimitadorFallos, ProtectorClave } from './seguridad.ts';
 import { claveDesdeTexto, textoRecuperacion, uriAutenticador } from '../dominio/clave-recuperacion.ts';
 import { crearEntrada, diferencias, HASH_GENESIS, verificarCadena } from '../dominio/auditoria.ts';
+import { CONFIG_IMPRESION_POR_DEFECTO, normalizarConfigImpresion, validarConfigImpresion } from '../dominio/etiquetas-hoja.ts';
 import type { EntradaAuditoria } from '../dominio/auditoria.ts';
 
 export interface OpcionesSistema {
@@ -71,7 +72,7 @@ const ULTIMO_HASH = 'auditoria_ultimo_hash';
 const AJUSTES_POR_DEFECTO: Ajustes = {
   diasValidezSpd: 14, validezExtendidaPermitida: false, exigirConsentimientos: true, conservacionAniosTrasBaja: 2, bloqueoMinutos: 5,
   inicioDia: 'convencional', rotar180: false, sentidoTomas: 'izquierda_derecha', posicionInicial: 'izquierda',
-  lector: { modo: 'teclado', separadorGs: '' }, impresoraEtiquetas: null, impresoraDocumentos: null, carpetaCopias: null,
+  lector: { modo: 'teclado', separadorGs: '' }, impresoraEtiquetas: null, impresoraDocumentos: null, impresionEtiquetas: CONFIG_IMPRESION_POR_DEFECTO, carpetaCopias: null,
   pedirPin: true, pedirUsuarioAlArrancar: true, usuarioPredeterminadoId: null,
 };
 
@@ -87,7 +88,7 @@ function validarPin(p: unknown): string {
 
 export function crearSistema(opciones: OpcionesSistema): Sistema {
   const ahora = opciones.ahora ?? (() => new Date());
-  const version = opciones.version ?? '1.0.4';
+  const version = opciones.version ?? '1.0.5';
   const almacen = crearAlmacen({
     rutaDatos: opciones.rutaDatos, wasmPath: opciones.wasmPath, ahora, debounceMs: opciones.debounceMs,
     temporizador: opciones.temporizador, alError: opciones.alError, kdf: opciones.kdf, protector: opciones.protector,
@@ -182,9 +183,13 @@ export function crearSistema(opciones: OpcionesSistema): Sistema {
     diasValidezSpd: 'dias_validez_spd', validezExtendidaPermitida: 'validez_extendida_permitida', exigirConsentimientos: 'exigir_consentimientos',
     conservacionAniosTrasBaja: 'conservacion_anios_tras_baja', bloqueoMinutos: 'bloqueo_minutos',
     inicioDia: 'inicio_dia', rotar180: 'rotar_180', sentidoTomas: 'sentido_tomas', posicionInicial: 'posicion_inicial',
-    lector: 'lector', impresoraEtiquetas: 'impresora_etiquetas', impresoraDocumentos: 'impresora_documentos', carpetaCopias: 'carpeta_copias',
+    lector: 'lector', impresoraEtiquetas: 'impresora_etiquetas', impresoraDocumentos: 'impresora_documentos', impresionEtiquetas: 'impresion_etiquetas', carpetaCopias: 'carpeta_copias',
     pedirPin: 'pedir_pin', pedirUsuarioAlArrancar: 'pedir_usuario_arranque', usuarioPredeterminadoId: 'usuario_predeterminado_id',
   } as const;
+
+  function leerImpresion(crudo: string | undefined) {
+    try { return normalizarConfigImpresion(crudo ? JSON.parse(crudo) : null); } catch { return normalizarConfigImpresion(null); }
+  }
 
   function leerAjustes(base: Db): Ajustes {
     const mapa = new Map(base.all<{ clave: string; valor: string }>('SELECT clave, valor FROM ajuste').map(f => [f.clave, f.valor]));
@@ -207,6 +212,7 @@ export function crearSistema(opciones: OpcionesSistema): Sistema {
       lector,
       impresoraEtiquetas: mapa.get('impresora_etiquetas') ?? null,
       impresoraDocumentos: mapa.get('impresora_documentos') ?? null,
+      impresionEtiquetas: leerImpresion(mapa.get('impresion_etiquetas')),
       carpetaCopias: mapa.get('carpeta_copias') ?? null,
       pedirPin: bool('pedir_pin', d.pedirPin),
       pedirUsuarioAlArrancar: bool('pedir_usuario_arranque', d.pedirUsuarioAlArrancar),
@@ -235,6 +241,10 @@ export function crearSistema(opciones: OpcionesSistema): Sistema {
       if (typeof l.separadorGs !== 'string' || l.separadorGs.length > 4) throw err('El separador del lector no es válido.', 'AJUSTE_INVALIDO');
       if (l.puerto !== undefined && (typeof l.puerto !== 'string' || l.puerto.length > 100)) throw err('El puerto del lector no es válido.', 'AJUSTE_INVALIDO');
       if (l.baudios !== undefined) rango(l.baudios, 300, 921600, 'La velocidad del lector');
+    }
+    if (a.impresionEtiquetas !== undefined) {
+      const motivos = validarConfigImpresion(a.impresionEtiquetas);
+      if (motivos.length) throw err(`La impresión de etiquetas no es válida: ${motivos.join(' ')}`, 'AJUSTE_INVALIDO');
     }
     for (const k of ['impresoraEtiquetas', 'impresoraDocumentos', 'carpetaCopias'] as const) {
       const v = a[k];

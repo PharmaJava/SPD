@@ -19,6 +19,7 @@ import type { PropuestaDescripcion } from '../dominio/descripcion-fisica.ts';
 import type { Clasificacion } from '../dominio/aptitud-spd.ts';
 import type { TrazabilidadAlerta } from '../dominio/alertas-calidad.ts';
 import type { VersionPublicada } from '../dominio/actualizaciones.ts';
+import type { ConfigImpresion } from '../dominio/etiquetas-hoja.ts';
 import type { TipoCentro, OrigenPaciente, ResumenOrigen } from '../dominio/origen-paciente.ts';
 
 export type { TipoCentro, OrigenPaciente, ResumenOrigen };
@@ -85,6 +86,8 @@ export interface Ajustes {
   /** Impresora de etiquetas y de documentos (nombre de Windows) y plantilla activa. */
   impresoraEtiquetas?: string | null;
   impresoraDocumentos?: string | null;
+  /** Modo de impresión de la etiqueta y sus parámetros (rollo, hoja de etiquetas, ajustable). Asociado a la impresora de etiquetas de la farmacia. */
+  impresionEtiquetas?: ConfigImpresion;
   carpetaCopias?: string | null;
   /** ¿Se pide el PIN al elegir usuario / cambiar de usuario? Si no, basta elegir y confirmar con un clic. Sólo el titular, con motivo. */
   pedirPin: boolean;
@@ -403,7 +406,8 @@ export interface ApiClinica {
   anularPreparacion(id: number, motivo: string): Promise<Resultado<PreparacionDto>>;
   listarPreparaciones(filtro?: { pacienteId?: number; estado?: EstadoPreparacion | 'todas' }): Promise<Resultado<PreparacionDto[]>>;
   obtenerPreparacion(id: number): Promise<Resultado<{ preparacion: PreparacionDto; evaluacion: EvaluacionPreparacion }>>;
-  vistaEtiqueta(preparacionId: number): Promise<Resultado<VistaImprimible>>;
+  /** `tamano` (mm): para un rollo o una celda de hoja de etiquetas distintos del estándar 100×150; la etiqueta se compone para ese espacio (y no es imprimible si no cabe). */
+  vistaEtiqueta(preparacionId: number, tamano?: { anchoMm: number; altoMm: number }): Promise<Resultado<VistaImprimible>>;
   /** Hoja A4 de plan de administración. */
   vistaHojaPaciente(preparacionId: number): Promise<Resultado<VistaImprimible>>;
 

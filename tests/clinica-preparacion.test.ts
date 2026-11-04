@@ -841,3 +841,17 @@ test('PRN marcado emblistable: sale en la etiqueta como «A DEMANDA»', async ()
   const txt = m.t.db.get<{ texto: string }>('SELECT texto FROM preparacion_aparte WHERE preparacion_id = ? AND tratamiento_id = 3', [b.id])!.texto;
   assert.match(txt, /^A DEMANDA: Paracetamol 1 g/);
 });
+
+test('etiqueta: con otro tamaño (rollo o celda de hoja) se compone para ese espacio y no recorta', async () => {
+  const m = await montar();
+  const val = await validada(m);
+  const est = ok(await m.api.vistaEtiqueta(val.id));
+  assert.match(est.html, /@page\{size:100mm 150mm/);
+  const g = ok(await m.api.vistaEtiqueta(val.id, { anchoMm: 99.1, altoMm: 67.7 }));
+  assert.match(g.html, /@page\{size:99.1mm 67.7mm/);
+  assert.ok(g.html.includes(`data-codigo="${val.idPublico}"`), 'el código a la hoja A4 sigue');
+  const diminuta = ok(await m.api.vistaEtiqueta(val.id, { anchoMm: 30, altoMm: 20 }));
+  assert.equal(diminuta.imprimible, false, 'si no cabe, no es imprimible');
+  assert.equal(ko(await m.api.vistaEtiqueta(val.id, { anchoMm: 5, altoMm: 20 })).codigo, 'VALIDACION');
+  assert.equal(ko(await m.api.vistaEtiqueta(val.id, { anchoMm: NaN, altoMm: 20 })).codigo, 'VALIDACION');
+});
