@@ -60,7 +60,7 @@ test('estado antes del primer uso: no inicializado, bloqueado, sin sesión', asy
   const e = entorno();
   try {
     const s = ok(await e.s.api.estado());
-    assert.deepEqual({ ...s, rutaDatos: undefined }, { inicializado: false, desbloqueado: false, sesion: null, version: '1.0.1', rutaDatos: undefined, esperaIntento: 0 });
+    assert.deepEqual({ ...s, rutaDatos: undefined, motivoSistemaNoDisponible: undefined }, { inicializado: false, desbloqueado: false, sesion: null, version: '1.0.2', rutaDatos: undefined, esperaIntento: 0, modoAcceso: null, accesoSistemaDisponible: false, motivoSistemaNoDisponible: undefined });
     assert.equal(s.rutaDatos, e.dir);
   } finally { await e.fin(); }
 });
@@ -451,6 +451,7 @@ test('ajustes por defecto', async () => {
       diasValidezSpd: 14, validezExtendidaPermitida: false, exigirConsentimientos: true, conservacionAniosTrasBaja: 2, bloqueoMinutos: 5, inicioDia: 'convencional', rotar180: false,
       sentidoTomas: 'izquierda_derecha', posicionInicial: 'izquierda', lector: { modo: 'teclado', separadorGs: '' },
       impresoraEtiquetas: null, impresoraDocumentos: null, carpetaCopias: null,
+      pedirPin: true, pedirUsuarioAlArrancar: true, usuarioPredeterminadoId: null,
     });
   } finally { await e.fin(); }
 });
@@ -907,7 +908,7 @@ test('la versión de estado es la indicada y los datos de estado no incluyen sec
     const s = crearSistema({ rutaDatos: dir, version: '9.9.9', kdf: KDF });
     const est = ok(await s.api.estado());
     assert.equal(est.version, '9.9.9');
-    assert.deepEqual(Object.keys(est).sort(), ['desbloqueado', 'esperaIntento', 'inicializado', 'rutaDatos', 'sesion', 'version']);
+    assert.deepEqual(Object.keys(est).sort(), ['accesoSistemaDisponible', 'desbloqueado', 'esperaIntento', 'inicializado', 'modoAcceso', 'motivoSistemaNoDisponible', 'rutaDatos', 'sesion', 'version']);
     await s.cerrar();
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

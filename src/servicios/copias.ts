@@ -25,13 +25,14 @@ const RE_NOMBRE = /^spd-(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})\.datos$/;
 export const COPIAS_MANUALES = 10;
 export const COPIAS_PREACTUALIZACION = 3;
 export const COPIAS_PRERESTAURACION = 3;
+export const COPIAS_PRECAMBIOACCESO = 3;
 
-export type OrigenCopia = 'automatica' | 'manual' | 'antes_actualizar' | 'antes_restaurar';
+export type OrigenCopia = 'automatica' | 'manual' | 'antes_actualizar' | 'antes_restaurar' | 'antes_cambio_acceso';
 /** Ficha que acompaña a cada copia (`<copia>.json`): sin datos de pacientes; el contenido de la copia sigue cifrado. */
 export interface MetaCopia { origen: OrigenCopia; motivo: string; versionApp: string; esquema: number | null }
 export interface CopiaInfo { nombre: string; fecha: Date; meta?: MetaCopia | null }
 
-const ORIGENES: OrigenCopia[] = ['automatica', 'manual', 'antes_actualizar', 'antes_restaurar'];
+const ORIGENES: OrigenCopia[] = ['automatica', 'manual', 'antes_actualizar', 'antes_restaurar', 'antes_cambio_acceso'];
 const rutaMeta = (ruta: string) => ruta + '.json';
 
 function leerMeta(ruta: string): MetaCopia | null {
@@ -147,6 +148,7 @@ export function rotarCopias(carpeta: string, proteger?: string | string[], ahora
   protegerUltimas('manual', COPIAS_MANUALES);
   protegerUltimas('antes_actualizar', COPIAS_PREACTUALIZACION);
   protegerUltimas('antes_restaurar', COPIAS_PRERESTAURACION);
+  protegerUltimas('antes_cambio_acceso', COPIAS_PRECAMBIOACCESO);
   const borradas: string[] = [];
   for (const c of copias) {
     if (conservar.has(c.nombre) || protegidas.has(c.nombre)) continue;

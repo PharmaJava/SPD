@@ -22,6 +22,10 @@ La primera vez, SPD te guía en siete pasos: bienvenida, datos de la farmacia, d
 
 ![Clave de recuperación: se muestra una sola vez](img/clave.png)
 
+**¿Contraseña obligatoria?** No: la casilla **«Proteger con contraseña (recomendado)»** viene marcada. Si la desmarcas, SPD abre sin pedir nada, con tu usuario de Windows. Los datos siguen cifrados en el disco, pero **cualquier persona que abra Windows con tu usuario podrá abrir SPD y ver los datos de los pacientes**. Seguirás teniendo clave de recuperación. Puedes cambiarlo después en **Ajustes → Seguridad** (solo el titular, con un motivo; antes se hace una copia de seguridad). Si usas SPD en otro equipo o con otro usuario de Windows, hará falta la clave de recuperación.
+
+**PIN y usuarios**: en **Ajustes → Seguridad → PIN y usuarios** el titular puede dejar de pedir el PIN y/o que se elija usuario al arrancar. Aunque no haya PIN, **para validar un blíster hay que elegir a un farmacéutico o al titular y confirmarlo**; la validación queda a su nombre.
+
 Si olvidas la contraseña: en la pantalla de entrada pulsa **«He perdido la contraseña»** y escribe la clave de recuperación.
 
 ## 3. Dar de alta a un paciente
@@ -115,7 +119,7 @@ Los datos están **solo en este ordenador**. Una avería o un robo sin copia sig
 
 **Ajustes → Copias de seguridad**: elige una carpeta (mejor un disco externo o la nube de la farmacia) y pulsa **Crear copia ahora**. Las copias van **cifradas**. Haz una al terminar cada jornada o al menos cada semana; si se atrasa, aparece un aviso arriba.
 
-**Restaurar**: en la lista de copias pulsa **Restaurar…**, escribe la contraseña de la farmacia y la palabra **RESTAURAR**. Cuidado: **sustituye todos los datos actuales** y se pierde lo hecho después de la copia (antes se guarda una copia del estado actual por si te arrepientes). Solo el titular puede restaurar.
+**Restaurar**: en la lista de copias pulsa **Restaurar…**, escribe la contraseña de la farmacia (si no usas contraseña de arranque, no hace falta) y la palabra **RESTAURAR**. Una copia hecha sin contraseña de arranque solo se abre en el mismo equipo y usuario de Windows; en otro hay que escribir su clave de recuperación. Cuidado: **sustituye todos los datos actuales** y se pierde lo hecho después de la copia (antes se guarda una copia del estado actual por si te arrepientes). Solo el titular puede restaurar.
 
 ![Copias de seguridad](img/ajustes-copias.png)
 
@@ -132,7 +136,8 @@ Los datos están **solo en este ordenador**. Una avería o un robo sin copia sig
 - **No imprime** → *Ajustes → Impresoras*, elige la impresora y pulsa la página de prueba.
 - **No me deja validar** → faltan consentimientos, hay una caja caducada o de otro paciente, o el usuario no es farmacéutico.
 - **Algo no cuadra tras actualizar** → restaura la copia «Antes de actualizar» (Ajustes → Copias de seguridad).
-- **El programa se bloquea solo** → es el bloqueo por inactividad: vuelve a entrar con la contraseña.
+- **El programa se bloquea solo** → es el bloqueo por inactividad: vuelve a entrar con la contraseña (sin contraseña de arranque, solo vuelve a pedir quién eres).
+- **«Windows no ha abierto los datos»** → los datos se crearon sin contraseña con otro usuario de Windows u otro equipo: usa la clave de recuperación.
 
 El historial de todo lo que se hace queda en **Auditoría**. Para dudas o errores escribe a través de **conveniodefarmacia.com**, indicando la versión (Ajustes → Acerca de) y **sin enviar nunca datos de pacientes**.
 

@@ -8,6 +8,7 @@
   import EditorMomentos, { type FilaMomento } from '../componentes/EditorMomentos.svelte';
   import { COMUNIDADES, copiarTexto, fortaleza, inicialesDe, avisar } from '../componentes/util.ts';
 
+  // `contrasena` llega vacía si se ha elegido empezar sin contraseña de arranque.
   let { onterminado }: { onterminado: (contrasena: string, pin: string) => void | Promise<void> } = $props();
 
   const PASOS = ['Bienvenida', 'Farmacia', 'Titular', 'Contraseña', 'Momentos', 'Clave', 'Listo'];
@@ -20,8 +21,11 @@
   let f = $state({ nombre: '', titular: '', nif: '', direccion: '', codigoPostal: '', municipio: '', provincia: '', comunidadAutonoma: '', telefono: '', email: '', numeroAutorizacion: '' });
   // 2 Titular
   let u = $state({ nombre: '', iniciales: '', pin: '', pin2: '' });
-  // 3 Contraseña
+  // 3 Contraseña (opcional; por defecto SÍ)
   let c = $state({ a: '', b: '' });
+  let conContrasena = $state(true); let entiendoRiesgo = $state(false); let sistemaOk = $state<boolean | null>(null); let motivoSistema = $state('');
+  $effect(() => { spd.estado().then(r => { if (r.ok) { sistemaOk = r.datos.accesoSistemaDisponible; motivoSistema = r.datos.motivoSistemaNoDisponible ?? ''; } }); });
+  const AVISO_SIN_CONTRASENA = 'Cualquier persona que abra Windows con tu usuario podrá abrir SPD y ver los datos de los pacientes. La base sigue cifrada en el disco, pero no protege frente a quien use tu sesión de Windows.';
   // 4 Momentos
   let momentos = $state<FilaMomento[]>([
     { nombre: 'Desayuno', hora: '08:00', activo: true }, { nombre: 'Comida', hora: '14:00', activo: true },
@@ -53,7 +57,10 @@
       else if (u.pin !== u.pin2) err.pin2 = 'Los dos PIN no coinciden.';
       if (Object.keys(err).length) return;
     }
-    if (paso === 3) {
+    if (paso === 3 && !conContrasena) {
+      if (!entiendoRiesgo) { err.riesgo = 'Marca la casilla para confirmar que has leído el aviso, o vuelve a proteger con contraseña.'; return; }
+      if (!sistemaOk) { err.riesgo = `En este equipo no se puede empezar sin contraseña: ${motivoSistema || 'Windows no ofrece su almacén de claves'}.`; return; }
+    } else if (paso === 3) {
       if (c.a.length < 10) { err.c = 'La contraseña debe tener al menos 10 caracteres.'; return; }
       if (fz.nivel < 2) { err.c = 'Es demasiado fácil de adivinar. Añade más caracteres o mezcla letras y números.'; return; }
       if (c.a !== c.b) { err.c2 = 'Las dos contraseñas no coinciden.'; return; }
@@ -71,7 +78,8 @@
     const farmacia: DatosFarmacia = { nombre: f.nombre.trim(), titular: f.titular.trim() };
     for (const k of ['nif', 'direccion', 'codigoPostal', 'municipio', 'provincia', 'comunidadAutonoma', 'telefono', 'email', 'numeroAutorizacion'] as const) { if (f[k].trim()) farmacia[k] = f[k].trim(); }
     farmacia.rgpdResponsable = farmacia.nombre;
-    const r = await spd.primerUso({ farmacia, titular: { nombre: u.nombre.trim(), iniciales: u.iniciales.trim().toUpperCase(), pin: u.pin }, contrasena: c.a,
+    const r = await spd.primerUso({ farmacia, titular: { nombre: u.nombre.trim(), iniciales: u.iniciales.trim().toUpperCase(), pin: u.pin },
+      ...(conContrasena ? { contrasena: c.a } : { sinContrasena: true, reconoceRiesgoSinContrasena: true }),
       momentos: lista.map(m => ({ nombre: m.nombre.trim(), hora: m.hora || undefined })) });
     ocupado = false;
     if (!r.ok) { errorGeneral = r.error; return; }
@@ -92,7 +100,7 @@
   }
   async function copiar() { if (resultado && await copiarTexto(resultado.claveRecuperacion)) avisar('Clave copiada. Pégala en un sitio seguro y bórrala del portapapeles.', 'info'); }
   function imprimir() { window.print(); }
-  async function terminar() { ocupado = true; await onterminado(c.a, u.pin); }
+  async function terminar() { ocupado = true; await onterminado(conContrasena ? c.a : '', u.pin); }
   const porcentaje = $derived(Math.round((paso / (PASOS.length - 1)) * 100));
 </script>
 
@@ -147,12 +155,20 @@
         </div>
       {:else if paso === 3}
         <h1>Contraseña de la farmacia</h1>
+        <label class="marca"><input type="checkbox" bind:checked={conContrasena} data-prueba="proteger-con-contrasena" />Proteger con contraseña (recomendado)</label>
+        {#if !conContrasena}
+          <Aviso tipo="atencion" titulo="Sin contraseña de arranque">{AVISO_SIN_CONTRASENA} Seguirás teniendo una clave de recuperación (en el paso siguiente). Podrás poner la contraseña más adelante en Ajustes → Seguridad.</Aviso>
+          {#if sistemaOk === false}<Aviso tipo="bloqueo" titulo="No disponible en este equipo">{motivoSistema || 'Windows no ofrece su almacén de claves.'} Usa una contraseña.</Aviso>{/if}
+          <label class="marca"><input type="checkbox" bind:checked={entiendoRiesgo} data-prueba="entiendo-riesgo" />Entiendo que quien use mi sesión de Windows podrá abrir SPD y ver los datos de los pacientes.</label>
+          {#if err.riesgo}<div class="error-texto" role="alert">{err.riesgo}</div>{/if}
+        {:else}
         <p class="suave sin-margen">Protege todos los datos de los pacientes: sin ella nadie puede abrirlos. Elige una frase larga que recuerdes (mínimo 10 caracteres).</p>
         <Campo etiqueta="Contraseña" tipo="contrasena" bind:valor={c.a} error={err.c} requerido autofocus autocomplete="new-password" onenter={siguiente}>
           {#if c.a}<div class="medidor" aria-hidden="true">{#each [1,2,3,4] as i}<span class={fz.nivel >= i ? 'on-' + fz.nivel : ''}></span>{/each}</div><div class="pequeno suave" aria-live="polite">Fortaleza: {fz.texto}</div>{/if}
         </Campo>
         <Campo etiqueta="Repite la contraseña" tipo="contrasena" bind:valor={c.b} error={err.c2} requerido autocomplete="new-password" onenter={siguiente} />
         <Aviso tipo="atencion" titulo="No se puede adivinar">Si la olvidas, solo podrás recuperar los datos con la clave de recuperación del paso siguiente.</Aviso>
+        {/if}
       {:else if paso === 4}
         <h1>Momentos de toma</h1>
         <p class="suave sin-margen">Los define el farmacéutico: son las filas del blíster. Te proponemos una plantilla que puedes cambiar, ordenar o ampliar.</p>
@@ -161,7 +177,7 @@
       {:else if paso === 5 && resultado}
         <div class="zona-impresion">
           <h1>Clave de recuperación</h1>
-          <Aviso tipo="atencion" titulo="Se muestra una sola vez">Esta clave es la <strong>única forma de recuperar los datos</strong> si olvidas la contraseña. Imprímela y guárdala fuera de este ordenador (caja fuerte, sobre cerrado). No la guardes en el mismo equipo.</Aviso>
+          <Aviso tipo="atencion" titulo="Se muestra una sola vez">Esta clave es la <strong>única forma de recuperar los datos</strong> si olvidas la contraseña{conContrasena ? '' : ' o si abres los datos desde otro equipo u otro usuario de Windows'}. Imprímela y guárdala fuera de este ordenador (caja fuerte, sobre cerrado). No la guardes en el mismo equipo.</Aviso>
           <ClaveGrupos {grupos} />
           <div class="fila" style="margin-top:1rem; align-items:flex-start">
             {#if qr}<div class="qr" aria-label="Código QR de la clave">{@html qr}</div>{/if}

@@ -41,6 +41,57 @@
   y la app, una comodidad.
 - Sin contraseña **ni** clave de recuperación, los datos son irrecuperables
   (es la propiedad que se busca). La pantalla de bloqueo lo dice.
+
+### 10.1.bis Contraseña de arranque OPCIONAL («sin contraseña»)
+
+La contraseña de arranque es **recomendada pero opcional** (primer uso: casilla
+«Proteger con contraseña (recomendado)», marcada; Ajustes → Seguridad para
+quitarla o ponerla después). Lo que cambia es **cómo se guarda la clave de
+datos**; el cifrado de la base es el mismo en los dos modos.
+
+| | Con contraseña (por defecto) | Sin contraseña de arranque |
+|---|---|---|
+| Fichero `spd.datos` | versión 1, `tipo: contrasena` | versión 2, `tipo: sistema` |
+| La clave de datos se envuelve con | scrypt(contraseña) + AES-256-GCM | Windows (**DPAPI** vía Electron `safeStorage`), ligada al **usuario de Windows** |
+| Al arrancar | pide la contraseña | abre solo (si Windows puede descifrar la clave) |
+| Intentos de contraseña | espera creciente | no existen (nada que adivinar) |
+| «Bloquear» / inactividad | cierra los datos | **cierra la sesión del usuario** y vuelve a «¿Quién eres?» (Windows reabriría los datos al instante); cerrar el programa sí lo cierra todo |
+| Clave de recuperación | = clave de datos | = clave de datos (**igual de válida**) |
+
+- **Qué NO protege el modo sin contraseña.** «Cualquier persona que abra
+  Windows con tu usuario podrá abrir SPD y ver los datos de los pacientes. La
+  base sigue cifrada en el disco, pero no protege frente a quien use tu sesión
+  de Windows.» Cualquier proceso que corra como ese usuario puede pedirle a
+  Windows que descifre la clave. Sí protege frente a quien se lleve el disco, el
+  fichero o una copia a otro equipo u otro usuario de Windows.
+- **`ProtectorClave`** (`seguridad.ts`) es la interfaz inyectada
+  (`disponible`/`cifrar`/`descifrar`); la implementa
+  `src/principal/protector-clave.ts` sobre `safeStorage` **sólo en el proceso
+  principal** (en Linux se rechaza el respaldo `basic_text`). Los servicios no
+  dependen de Electron y se prueban con un doble. Si `safeStorage` no está
+  disponible el modo **no se permite** y se explica por qué (primer uso y Ajustes).
+  Antes de dar nada por bueno se comprueba que lo cifrado se descifra a la misma
+  clave; si no, no se escribe nada.
+- **Migración, siempre con copia previa, motivo y auditoría**
+  (`antes_cambio_acceso`; sin carpeta de copias no se cambia nada):
+  - *Contraseña → sin contraseña*: pide la contraseña actual, motivo (≥ 5
+    letras) y confirmar el aviso. **No rota** la clave de datos: la clave de
+    recuperación sigue valiendo. Reescribe el fichero y su `.bak`.
+  - *Sin contraseña → contraseña*: pide contraseña nueva (política de siempre) y
+    motivo. **Rota** la clave de datos (mientras estuvo sin contraseña cualquier
+    proceso del usuario pudo leerla) y muestra una clave de recuperación nueva.
+  - El fichero `spd.estado` (HMAC con la clave de datos) conserva el contador al
+    rotar; el rollback se detecta igual en ambos modos.
+- **Cambiar de equipo o de usuario de Windows.** Los datos (y las **copias**
+  hechas en este modo) están ligados al usuario de Windows que los creó: otro
+  usuario/equipo los rechaza con «CLAVE_SISTEMA_ILEGIBLE». La salida es la
+  **clave de recuperación**: `recuperar(clave)` vuelve a ligar los datos al
+  usuario actual (o, si se da una contraseña nueva, pasan a modo contraseña).
+  **Restaurar** una copia de este modo en otro equipo exige su clave de
+  recuperación (`COPIA_SISTEMA_AJENA`, el mensaje lo dice). Con el mismo usuario
+  de Windows basta con el sistema.
+- Restaurar en modo sin contraseña: no hay contraseña que confirmar; basta ser
+  titular y escribir RESTAURAR.
 - Implementado y probado: `src/dominio/clave-recuperacion.ts`.
 - Rate limit a los intentos de contraseña (espera creciente).
 - Los adjuntos (escaneos, fotos) van dentro de la base cifrada.
@@ -52,15 +103,31 @@
   (preparar, **validar**, pautas), técnico (preparar, envases; **no valida** ni
   cambia pautas), administrativo (datos de contacto, consentimientos).
 - **Cambio rápido de usuario** con PIN para el día a día y bloqueo por
-  inactividad (5 min por defecto): en el mostrador la pantalla se queda
-  abierta.
+  inactividad (5 min por defecto; 0 = no bloquear): en el mostrador la pantalla
+  se queda abierta.
+- **PIN y elegir usuario, opcionales** (Ajustes → Seguridad → «PIN y usuarios»,
+  sólo el titular, con motivo, auditado). Dos ajustes **independientes**:
+  - `pedirPin` (por defecto sí). Desactivado: se elige usuario con un clic; el
+    `login` queda auditado como «Entrada sin PIN».
+  - `pedirUsuarioAlArrancar` (por defecto sí). Desactivado: al **abrir** los
+    datos entra solo el `usuarioPredeterminadoId` (tras bloquear o por
+    inactividad se vuelve a elegir). **Exige `pedirPin = false`**: si no, el
+    usuario predeterminado esquivaría el PIN (el servidor rechaza la combinación).
+  - **Validar sigue exigiendo un usuario con rol farmacéutico/titular
+    identificado.** Sin PIN, la entrada no identifica a nadie, así que validar
+    pide **elegir** al farmacéutico/titular y confirmar con un clic; la
+    validación, el consumo de cajas y la auditoría quedan a **su** nombre (y el
+    motivo anota quién tenía la sesión). Con PIN, valida la sesión abierta.
+  - Límite honesto: sin PIN los roles dependen de la honestidad de quien elige.
+    Es el coste de la comodidad; el aviso lo dice.
 - Las acciones críticas (validar, cambiar pauta, exportar datos) piden la
   clave aunque la sesión esté abierta.
 
 ## 10.3 Auditoría
 
 - Tabla `auditoria` encadenada por hash; sin `UPDATE` ni `DELETE`.
-- Se registra: inicio y fin de sesión, apertura de la ficha de un paciente,
+- Se registra: inicio y fin de sesión, cambios de cómo se abren los datos
+  (`modificar acceso`, con motivo y nombre de la copia previa), apertura de la ficha de un paciente,
   cada cambio (antes/después), impresiones, exportaciones, cambios de
   ajustes.
 - Al arrancar se comprueba la cadena; si está rota, aviso al titular.

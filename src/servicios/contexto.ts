@@ -13,6 +13,8 @@ export interface DatosAuditoria {
   antes?: unknown;
   despues?: unknown;
   motivo?: string | null;
+  /** Atribuye la entrada a este usuario en vez de al de la sesión (p. ej. quien valida sin PIN). `null` = nadie. */
+  usuarioId?: number | null;
 }
 
 export interface Contexto {
@@ -22,6 +24,11 @@ export interface Contexto {
   ahora(): Date;
   /** Usuario con sesión iniciada, o null. */
   sesion(): UsuarioPublico | null;
+  /**
+   * Quién actúa en una acción que exige un farmacéutico/titular IDENTIFICADO (validar). Con PIN es la sesión; sin PIN, el usuario
+   * elegido y confirmado (`validadorId`). Lanza si no se puede identificar. Si falta, vale `sesion()`.
+   */
+  identificarValidador?(validadorId?: number | null): { usuario: UsuarioPublico; sesion: UsuarioPublico; sinPin: boolean };
   /** Escribe en la auditoría encadenada. Debe llamarse DENTRO de la misma transacción que el cambio. */
   auditar(d: DatosAuditoria): void;
   /** Pide guardar la base cifrada en disco (puede agrupar varias llamadas). */

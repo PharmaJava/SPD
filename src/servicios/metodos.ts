@@ -15,7 +15,7 @@ export type GrupoMetodo = 'sistema' | 'clinica' | 'externa';
 
 export const GRUPO_DE_METODO: Record<NombreMetodo, GrupoMetodo> = {
   // ApiSistema
-  estado: 'sistema', primerUso: 'sistema', desbloquear: 'sistema', recuperar: 'sistema', bloquear: 'sistema',
+  estado: 'sistema', primerUso: 'sistema', desbloquear: 'sistema', desbloquearConSistema: 'sistema', quitarContrasenaArranque: 'sistema', ponerContrasenaArranque: 'sistema', recuperar: 'sistema', bloquear: 'sistema',
   cambiarContrasena: 'sistema', listarUsuarios: 'sistema', iniciarSesion: 'sistema', cerrarSesion: 'sistema',
   crearUsuario: 'sistema', obtenerFarmacia: 'sistema', guardarFarmacia: 'sistema', obtenerAjustes: 'sistema',
   guardarAjustes: 'sistema', listarMomentos: 'sistema', guardarMomentos: 'sistema', listarAuditoria: 'sistema',

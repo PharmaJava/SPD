@@ -22,6 +22,7 @@ import { crearVigilanteInactividad } from './inactividad.ts';
 import type { Vigilante } from './inactividad.ts';
 import { planificarCopias } from './planificador-copias.ts';
 import { plantillaMenu, textoAcercaDe } from './menu.ts';
+import { protectorDeSafeStorage } from './protector-clave.ts';
 import { leerModoPruebas } from './modo-pruebas.ts';
 import { crearActualizador } from './actualizaciones.ts';
 import { notasParaDialogo } from './texto-actualizacion.ts';
@@ -161,7 +162,8 @@ async function arrancar(): Promise<void> {
     buscarActualizaciones: () => actualizador.buscar({ manual: true }),
     listarVersiones: () => actualizador.listarVersiones(),
   };
-  servicios = crearServiciosApp({ rutaDatos, wasmPath, version: app.getVersion(), externo: externoCompleto, carpetaCopiasPorDefecto: path.join(app.getPath('userData'), 'copias') });
+  servicios = crearServiciosApp({ rutaDatos, wasmPath, version: app.getVersion(), externo: externoCompleto, carpetaCopiasPorDefecto: path.join(app.getPath('userData'), 'copias'),
+    protector: protectorDeSafeStorage(electron.safeStorage as never) });
   const sv = servicios;
   if (sv.faltan.length) registrar(`métodos sin implementar: ${sv.faltan.join(', ')}`);
 

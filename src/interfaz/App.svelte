@@ -52,6 +52,16 @@
     if (!r.ok) { sinConexion = mensajeError(r); return; }
     sinConexion = null; estado = r.datos;
     if (!r.datos.inicializado) primerUsoEnCurso = true;
+    // Sin contraseña de arranque los datos se abren solos con el usuario de Windows (una vez; si falla, Desbloqueo explica y ofrece la clave de recuperación).
+    if (r.datos.inicializado && !r.datos.desbloqueado && r.datos.modoAcceso === 'sistema' && !intentadoSistema) { intentadoSistema = true; void abrirConSistema(); }
+  }
+  let intentadoSistema = false;
+  let abriendoSistema = $state(false); let errorSistema = $state<string | null>(null);
+  async function abrirConSistema() {
+    abriendoSistema = true; errorSistema = null;
+    const r = await spd.desbloquearConSistema();
+    abriendoSistema = false;
+    if (r.ok) { estado = r.datos; await cargarEstado(); } else errorSistema = r.error;
   }
   onMount(() => {
     limpiarEfimero();   // restos de versiones anteriores que dejaban datos de pacientes en localStorage
@@ -152,7 +162,7 @@
   async function primerUsoTerminado(contrasena: string, pin: string) {
     primerUsoEnCurso = false;
     await cargarEstado();
-    if (estado && !estado.desbloqueado) { const d = await spd.desbloquear(contrasena); if (d.ok) estado = d.datos; }
+    if (estado && !estado.desbloqueado) { const d = contrasena ? await spd.desbloquear(contrasena) : await spd.desbloquearConSistema(); if (d.ok) estado = d.datos; }
     if (estado?.desbloqueado && !estado.sesion) {
       const l = await spd.listarUsuarios();
       const t = l.ok ? (l.datos.find(u => u.rol === 'titular') ?? l.datos[0]) : undefined;
@@ -215,7 +225,7 @@
 {:else if primerUsoEnCurso}
   <PrimerUso onterminado={primerUsoTerminado} />
 {:else if !estado.desbloqueado}
-  <Desbloqueo {estado} ondesbloqueado={(e) => { estado = e; cargarEstado(); }} />
+  <Desbloqueo {estado} {abriendoSistema} {errorSistema} reintentar={abrirConSistema} ondesbloqueado={(e) => { estado = e; cargarEstado(); }} />
 {:else if !estado.sesion}
   <InicioSesion alentrar={alentrarUsuario} />
 {:else}
@@ -284,7 +294,7 @@
         <div class="usuario-barra">
           <span class="avatar" aria-hidden="true">{estado.sesion.iniciales}</span>
           <div style="line-height:1.2"><strong>{estado.sesion.nombre}</strong><br><span class="suave pequeno">{nombreRol(estado.sesion.rol)}</span></div>
-          <button class="btn" onclick={bloquear}><Icono n="bloquear" tam={18} />Bloquear</button>
+          <button class="btn" onclick={bloquear}><Icono n="bloquear" tam={18} />{estado.modoAcceso === 'sistema' ? 'Cambiar de usuario' : 'Bloquear'}</button>
         </div>
       </header>
       {#if estado.avisoSeguridad}<Aviso tipo="bloqueo" titulo="Aviso de seguridad">{estado.avisoSeguridad}</Aviso>{/if}

@@ -250,7 +250,10 @@ export function crearClinicaPreparacion(ctx: Contexto): MetodosPreparacion {
 
     // ── validar: re-evalúa, descuenta unidades, todo o nada ──
     validarPreparacion: (id, opciones) => proteger(() => {
-      const u = exigirSesion(ctx);
+      const sesionAbierta = exigirSesion(ctx);
+      // Sin PIN no se puede validar «como nadie» ni como cualquiera: hay que elegir al farmacéutico/titular y la validación queda a su nombre.
+      const ident = ctx.identificarValidador ? ctx.identificarValidador(opciones?.validadorId) : { usuario: sesionAbierta, sesion: sesionAbierta, sinPin: false };
+      const u = ident.usuario;
       if (!puedeValidar(u.rol)) throw new ErrorSpd('Sólo un farmacéutico o el titular puede validar un SPD.', 'ROL_NO_PUEDE_VALIDAR');
       const db = bd(ctx);
       const prep = leerPrep(db, id);
@@ -305,14 +308,16 @@ export function crearClinicaPreparacion(ctx: Contexto): MetodosPreparacion {
             accion: 'modificar', entidad: 'envase', entidadId: nuevo.id,
             antes: { unidadesRestantes: previo.unidadesRestantes, estado: previo.estado },
             despues: { unidadesRestantes: nuevo.unidadesRestantes, estado: nuevo.estado },
-            motivo: `Consumo al validar la preparación ${prep.id}`,
+            motivo: `Consumo al validar la preparación ${prep.id}`, usuarioId: u.id,
           });
         }
         ctx.auditar({
           accion: 'validar', entidad: 'preparacion', entidadId: Number(prep.id),
           antes: { estado: 'preparado' },
           despues: { estado: 'validado', validadoPor: u.id, consumo: [...consumo].map(([envaseId, cuartos]) => ({ envaseId, unidades: cuartos / 4 })), caducidadSpd: prep.caducidad_spd },
+          usuarioId: u.id,
           motivo: [mismoUsuario ? 'validación por el mismo usuario que preparó' : null,
+            ident.sinPin ? `validador identificado sin PIN (confirmación con un clic); sesión abierta: ${ident.sesion.nombre}` : null,
             alergiasConfirmadas.length > 0 ? `posible alergia revisada y confirmada por el farmacéutico: ${alergiasConfirmadas.join(' | ')}` : null].filter(Boolean).join('; ') || null,
         });
       });

@@ -81,10 +81,12 @@
   // ───── Validez ─────
   let dias = $state<string | number>(14); let ext = $state(false); let pedirExt = $state(false); let validezCargada = false;
   $effect(() => { if (aj && !validezCargada) { dias = aj.diasValidezSpd; ext = aj.validezExtendidaPermitida; validezCargada = true; } });
-  async function guardarValidez(conExt = ext) {
+  async function guardarValidez(conExt = ext, motivo?: string) {
     const n = Number(dias);
     if (!Number.isInteger(n) || n < 1 || n > 14) { avisar('La validez estándar son entre 1 y 14 días.', 'atencion'); return; }
-    ext = conExt; await guardarAj({ diasValidezSpd: n, validezExtendidaPermitida: conExt });
+    // Activar la validez extendida exige un motivo escrito (el servidor lo comprueba y queda en la auditoría).
+    const ok = await guardarAj({ diasValidezSpd: n, validezExtendidaPermitida: conExt, ...(motivo ? { motivo } : {}) });
+    if (ok) ext = conExt;
   }
 
   // ───── Consentimientos: ¿se exigen firmados para validar? (sólo el titular; con motivo; queda auditado) ─────
@@ -127,21 +129,22 @@
     haciendo = true; const r = await spd.crearCopia(); haciendo = false;
     if (r.ok) { avisar('Copia de seguridad creada.'); copias = null; alcambiar(); } else avisar(r.error, 'bloqueo', 7000);
   }
-  const ORIGEN: Record<string, string> = { automatica: 'Automática', manual: 'Manual', antes_actualizar: 'Antes de actualizar', antes_restaurar: 'Antes de restaurar', desconocido: 'Sin ficha' };
+  const ORIGEN: Record<string, string> = { automatica: 'Automática', manual: 'Manual', antes_actualizar: 'Antes de actualizar', antes_restaurar: 'Antes de restaurar', antes_cambio_acceso: 'Antes de cambiar el acceso', desconocido: 'Sin ficha' };
   let lista = $state<CopiaDto[] | null>(null); let errLista = $state<string | null>(null);
   $effect(() => { if (activa === 'copias' && !lista) spd.listarCopias().then(r => { if (r.ok) lista = r.datos; else errLista = r.error; }); });
   const kb = (n: number) => (n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB');
   let resC = $state<CopiaDto | null>(null); let rc = $state({ pass: '', passCopia: '', frase: '' }); let pedirPassCopia = $state(false); let errRc = $state<string | null>(null); let restaurando = $state(false);
   function abrirRestaurar(c: CopiaDto) { resC = c; rc = { pass: '', passCopia: '', frase: '' }; pedirPassCopia = false; errRc = null; }
-  const restaurarListo = $derived(rc.frase.trim().toUpperCase() === 'RESTAURAR' && !!rc.pass);
+  const sinContrasenaArranque = $derived(estadoSis?.modoAcceso === 'sistema');
+  const restaurarListo = $derived(rc.frase.trim().toUpperCase() === 'RESTAURAR' && (sinContrasenaArranque || !!rc.pass));
   async function restaurar() {
     if (!resC) return;
     if (rc.frase.trim().toUpperCase() !== 'RESTAURAR') { errRc = 'Escribe RESTAURAR para confirmar.'; return; }
-    if (!rc.pass) { errRc = 'Escribe la contraseña de la farmacia.'; return; }
+    if (!sinContrasenaArranque && !rc.pass) { errRc = 'Escribe la contraseña de la farmacia.'; return; }
     restaurando = true; errRc = null;
     const r = await spd.restaurarCopia(resC.nombre, rc.pass, rc.passCopia || undefined); restaurando = false;
     if (r.ok) { resC = null; avisar(r.datos.aviso, 'ok', 15000); lista = null; copias = null; alcambiar(); }
-    else { errRc = r.error; if (r.codigo === 'CONTRASENA_COPIA') pedirPassCopia = true; }
+    else { errRc = r.error; if (r.codigo === 'CONTRASENA_COPIA' || r.codigo === 'COPIA_SISTEMA_AJENA') pedirPassCopia = true; }
   }
   async function elegirCarpeta() {
     const r = await spd.elegirCarpeta('Carpeta para las copias de seguridad');
@@ -149,6 +152,44 @@
   }
 
   // ───── Seguridad ─────
+  let estadoSis = $state<EstadoSistema | null>(null);
+  async function cargarEstadoSis() { const r = await spd.estado(); if (r.ok) estadoSis = r.datos; }
+  $effect(() => { if (activa === 'seguridad' || activa === 'copias') void cargarEstadoSis(); });
+  const AVISO_SIN_CONTRASENA = 'Cualquier persona que abra Windows con tu usuario podrá abrir SPD y ver los datos de los pacientes. La base sigue cifrada en el disco, pero no protege frente a quien use tu sesión de Windows.';
+  // Quitar la contraseña de arranque
+  let qc = $state({ actual: '', motivo: '', entiendo: false }); let errQc = $state<string | null>(null); let ocupadoQc = $state(false);
+  async function quitarContrasena() {
+    errQc = null;
+    if (!qc.actual) { errQc = 'Escribe la contraseña actual.'; return; }
+    if (qc.motivo.trim().length < 5) { errQc = 'Escribe un motivo de al menos 5 letras: queda en el historial.'; return; }
+    if (!qc.entiendo) { errQc = 'Marca la casilla para confirmar que has leído el aviso.'; return; }
+    ocupadoQc = true;
+    const r = await spd.quitarContrasenaArranque(qc.actual, qc.motivo.trim(), true);
+    ocupadoQc = false;
+    if (r.ok) { qc = { actual: '', motivo: '', entiendo: false }; estadoSis = r.datos; avisar('Contraseña de arranque quitada. Se hizo antes una copia de seguridad.', 'ok', 8000); alcambiar(); } else errQc = r.error;
+  }
+  // Poner la contraseña de arranque (desde «sin contraseña»): rota la clave de datos y enseña la clave de recuperación nueva
+  let pc = $state({ nueva: '', nueva2: '', motivo: '' }); let errPc = $state<Record<string, string>>({}); let ocupadoPc = $state(false);
+  const fzPc = $derived(fortaleza(pc.nueva));
+  async function ponerContrasena() {
+    errPc = {};
+    if (pc.nueva.length < 10) errPc.nueva = 'La contraseña debe tener al menos 10 caracteres.'; else if (fzPc.nivel < 2) errPc.nueva = 'Es demasiado fácil de adivinar.';
+    else if (pc.nueva !== pc.nueva2) errPc.nueva2 = 'Las dos contraseñas no coinciden.';
+    if (pc.motivo.trim().length < 5) errPc.motivo = 'Escribe un motivo de al menos 5 letras: queda en el historial.';
+    if (Object.keys(errPc).length) return;
+    ocupadoPc = true;
+    const r = await spd.ponerContrasenaArranque(pc.nueva, pc.motivo.trim());
+    ocupadoPc = false;
+    if (r.ok) { pc = { nueva: '', nueva2: '', motivo: '' }; avisar('Contraseña de arranque puesta.'); void cargarEstadoSis(); alcambiar(); abrirClaveNueva(r.datos); } else errPc.nueva = r.error;
+  }
+  // Identificación de las personas: PIN y elegir usuario al arrancar (sólo el titular, con motivo)
+  const AVISO_SIN_PIN = 'Cualquiera que tenga delante el programa abierto podrá entrar como cualquier usuario, sin PIN. Las acciones quedarán a nombre de quien elija. Validar un blíster seguirá exigiendo elegir a un farmacéutico o al titular y confirmarlo.';
+  let usuariosSeg = $state<UsuarioPublico[] | null>(null);
+  $effect(() => { if (activa === 'seguridad' && !usuariosSeg) spd.listarUsuarios().then(r => { if (r.ok) usuariosSeg = r.datos; }); });
+  let cambioId = $state<Partial<Pick<Ajustes, 'pedirPin' | 'pedirUsuarioAlArrancar' | 'usuarioPredeterminadoId'>> | null>(null);
+  let predeterminado = $state<number | null>(null); let predCargado = false;
+  $effect(() => { if (aj && !predCargado) { predeterminado = aj.usuarioPredeterminadoId; predCargado = true; } });
+  const bajaSeguridad = $derived(!!cambioId && (cambioId.pedirPin === false || cambioId.pedirUsuarioAlArrancar === false));
   let cs = $state({ actual: '', nueva: '', nueva2: '' }); let errCs = $state<Record<string, string>>({}); let bloqueoMin = $state<string | number>(10); let bmCargado = false;
   $effect(() => { if (aj && !bmCargado) { bloqueoMin = aj.bloqueoMinutos; bmCargado = true; } });
   const fz = $derived(fortaleza(cs.nueva));
@@ -395,12 +436,64 @@
       </div>
 
     {:else if activa === 'seguridad'}
-      <div class="tarjeta apilado"><h2>Cambiar la contraseña</h2>
+      <div class="tarjeta apilado"><h2>Cómo se abren los datos</h2>
+        {#if !estadoSis}<Cargando />
+        {:else if estadoSis.modoAcceso === 'sistema'}
+          <Aviso tipo="atencion" titulo="Sin contraseña de arranque">{AVISO_SIN_CONTRASENA} Las copias de seguridad hechas así sólo se abren en este equipo y con este usuario de Windows; en otro, hace falta la clave de recuperación.</Aviso>
+          {#if esTitular}
+            <h3 class="sin-margen">Volver a proteger con contraseña</h3>
+            <Campo etiqueta="Contraseña nueva" tipo="contrasena" bind:valor={pc.nueva} error={errPc.nueva} autocomplete="new-password" ayuda="Mínimo 10 caracteres.">
+              {#if pc.nueva}<div class="medidor" aria-hidden="true">{#each [1,2,3,4] as i}<span class={fzPc.nivel >= i ? 'on-' + fzPc.nivel : ''}></span>{/each}</div><div class="pequeno suave">Fortaleza: {fzPc.texto}</div>{/if}</Campo>
+            <Campo etiqueta="Repite la contraseña nueva" tipo="contrasena" bind:valor={pc.nueva2} error={errPc.nueva2} autocomplete="new-password" />
+            <Campo etiqueta="Motivo (queda en el historial)" bind:valor={pc.motivo} error={errPc.motivo} />
+            <p class="suave pequeno sin-margen">Antes se hace una copia de seguridad. Al poner la contraseña se renueva la clave de los datos y se muestra una clave de recuperación nueva (la de antes deja de valer para el fichero actual).</p>
+            <div class="fila fin"><button class="btn principal" onclick={ponerContrasena} disabled={ocupadoPc}>Poner contraseña de arranque</button></div>
+          {:else}<Aviso tipo="info">Solo el titular puede cambiar cómo se abren los datos.</Aviso>{/if}
+        {:else}
+          <p class="suave sin-margen">Los datos se abren con la contraseña de la farmacia al arrancar el programa (recomendado).</p>
+          {#if esTitular}
+            <details>
+              <summary>Quitar la contraseña de arranque…</summary>
+              <div class="apilado" style="margin-top:.8rem">
+                {#if !estadoSis.accesoSistemaDisponible}
+                  <Aviso tipo="info" titulo="No disponible en este equipo">{estadoSis.motivoSistemaNoDisponible ?? 'Windows no ofrece su almacén de claves.'}</Aviso>
+                {:else}
+                  <Aviso tipo="atencion" titulo="Léelo antes de seguir">{AVISO_SIN_CONTRASENA} La clave de recuperación sigue valiendo. Antes se hace una copia de seguridad. Las copias hechas sin contraseña sólo se abren en este equipo y con este usuario de Windows; en otro, hace falta la clave de recuperación.</Aviso>
+                  <Campo etiqueta="Contraseña actual" tipo="contrasena" bind:valor={qc.actual} autocomplete="current-password" />
+                  <Campo etiqueta="Motivo (queda en el historial)" bind:valor={qc.motivo} />
+                  <label class="marca"><input type="checkbox" bind:checked={qc.entiendo} data-prueba="entiendo-sin-contrasena" />Entiendo que quien use mi sesión de Windows podrá abrir SPD y ver los datos de los pacientes.</label>
+                  {#if errQc}<div class="error-texto" role="alert">{errQc}</div>{/if}
+                  <div class="fila fin"><button class="btn peligro" onclick={quitarContrasena} disabled={ocupadoQc}>Quitar la contraseña de arranque</button></div>
+                {/if}
+              </div>
+            </details>
+          {:else}<Aviso tipo="info">Solo el titular puede cambiar cómo se abren los datos.</Aviso>{/if}
+        {/if}
+      </div>
+      {#if estadoSis?.modoAcceso !== 'sistema'}
+      <div class="tarjeta apilado" style="margin-top:1rem"><h2>Cambiar la contraseña</h2>
         <Campo id="cs-actual" etiqueta="Contraseña actual" tipo="contrasena" bind:valor={cs.actual} error={errCs.actual} autocomplete="current-password" />
         <Campo etiqueta="Contraseña nueva" tipo="contrasena" bind:valor={cs.nueva} error={errCs.nueva} autocomplete="new-password" ayuda="Mínimo 10 caracteres.">
           {#if cs.nueva}<div class="medidor" aria-hidden="true">{#each [1,2,3,4] as i}<span class={fz.nivel >= i ? 'on-' + fz.nivel : ''}></span>{/each}</div><div class="pequeno suave">Fortaleza: {fz.texto}</div>{/if}</Campo>
         <Campo etiqueta="Repite la contraseña nueva" tipo="contrasena" bind:valor={cs.nueva2} error={errCs.nueva2} autocomplete="new-password" onenter={cambiarContrasena} />
         <div class="fila fin"><button class="btn principal" onclick={cambiarContrasena}>Cambiar contraseña</button></div>
+      </div>
+      {/if}
+      <div class="tarjeta apilado" style="margin-top:1rem"><h2>PIN y usuarios</h2>
+        {#if !aj}<Cargando />{:else}
+          <label class="marca"><input type="checkbox" checked={aj.pedirPin} disabled={!esTitular} data-prueba="pedir-pin"
+            onchange={(e) => { const q = e.currentTarget.checked; e.currentTarget.checked = aj!.pedirPin; cambioId = q ? { pedirPin: true } : { pedirPin: false }; }} />Pedir el PIN al elegir usuario (cambiar de usuario, volver tras el bloqueo)</label>
+          <label class="marca"><input type="checkbox" checked={aj.pedirUsuarioAlArrancar} disabled={!esTitular || aj.pedirPin} data-prueba="pedir-usuario"
+            onchange={(e) => { const q = e.currentTarget.checked; e.currentTarget.checked = aj!.pedirUsuarioAlArrancar; cambioId = q ? { pedirUsuarioAlArrancar: true } : { pedirUsuarioAlArrancar: false, usuarioPredeterminadoId: predeterminado ?? usuariosSeg?.[0]?.id ?? null }; }} />Pedir elegir usuario al arrancar</label>
+          {#if aj.pedirPin}<p class="suave pequeno sin-margen">Con el PIN activado siempre se elige usuario al arrancar. Para no elegir, desactiva antes el PIN.</p>{/if}
+          {#if !aj.pedirUsuarioAlArrancar && usuariosSeg}
+            <Campo etiqueta="Usuario con el que se abre el programa" tipo="seleccion" bind:valor={predeterminado} disabled={!esTitular}
+              opciones={usuariosSeg.map(u => ({ valor: u.id, texto: `${u.nombre} · ${nombreRol(u.rol)}` }))} />
+            {#if esTitular && predeterminado !== aj.usuarioPredeterminadoId && predeterminado !== null}<div class="fila fin"><button class="btn" onclick={() => (cambioId = { usuarioPredeterminadoId: predeterminado })}>Guardar usuario</button></div>{/if}
+          {/if}
+          {#if !aj.pedirPin}<Aviso tipo="atencion" titulo="PIN desactivado">{AVISO_SIN_PIN}</Aviso>{/if}
+          {#if !esTitular}<Aviso tipo="info">Solo el titular puede cambiar esto.</Aviso>{/if}
+        {/if}
       </div>
       <div class="tarjeta apilado" style="margin-top:1rem"><h2>Bloqueo automático</h2>
         <Campo etiqueta="Bloquear tras (minutos sin actividad)" tipo="numero" bind:valor={bloqueoMin} min={0} max={240} step={1} error={errBloqueo} ayuda="De 0 a 240 minutos; 0 = no bloquear solo. Recomendado en un mostrador con público. Se avisa 30 segundos antes de bloquear y el cambio se aplica al momento." disabled={!esTitular} onenter={guardarBloqueo} />
@@ -496,8 +589,12 @@
 <Dialogo abierto={resC !== null} titulo="Restaurar una copia" onclose={() => (resC = null)}>
   {#if resC}
     <Aviso tipo="bloqueo" titulo="Esto sustituye TODOS los datos actuales">Se volverá a la copia del {fechaHora(resC.fecha)}{resC.versionApp ? ` (hecha con la versión ${resC.versionApp})` : ''}: se pierde todo lo hecho después (pacientes, preparaciones, entregas, auditoría). Antes se guardará una copia del estado actual («Antes de restaurar») para poder deshacerlo. Tendrás que volver a iniciar sesión con tu PIN.</Aviso>
-    <Campo etiqueta="Contraseña de la farmacia" tipo="contrasena" bind:valor={rc.pass} requerido autofocus />
-    {#if pedirPassCopia}<Campo etiqueta="Contraseña (o clave de recuperación) que tenía la farmacia cuando se hizo la copia" tipo="contrasena" bind:valor={rc.passCopia} />{/if}
+    {#if sinContrasenaArranque}
+      <Aviso tipo="info" titulo="Datos sin contraseña de arranque">No hay contraseña que escribir: basta ser titular y escribir RESTAURAR. Si la copia se hizo con otro usuario de Windows u otro equipo, se pedirá su clave de recuperación.</Aviso>
+    {:else}
+      <Campo etiqueta="Contraseña de la farmacia" tipo="contrasena" bind:valor={rc.pass} requerido autofocus />
+    {/if}
+    {#if pedirPassCopia}<Campo etiqueta={sinContrasenaArranque ? 'Clave de recuperación de esa copia (la de cuando se hizo)' : 'Contraseña (o clave de recuperación) que tenía la farmacia cuando se hizo la copia'} tipo="contrasena" bind:valor={rc.passCopia} />{/if}
     <Campo etiqueta="Escribe RESTAURAR para confirmar" bind:valor={rc.frase} requerido onenter={restaurar} />
     <p class="suave pequeno sin-margen" id="rest-ayuda">El botón se activa cuando escribes la contraseña de la farmacia y la palabra RESTAURAR.</p>
     {#if errRc}<Aviso tipo="bloqueo" titulo="No se ha restaurado">{errRc}</Aviso>{/if}
@@ -505,9 +602,25 @@
   {#snippet pie()}<button class="btn" onclick={() => (resC = null)}>Cancelar</button><button class="btn peligro" onclick={restaurar} disabled={restaurando || !restaurarListo} aria-describedby="rest-ayuda">{restaurando ? 'Restaurando…' : 'Restaurar copia del ' + fechaHora(resC?.fecha)}</button>{/snippet}
 </Dialogo>
 
-<Confirmar abierto={pedirExt} titulo="¿Permitir hasta 30 días?" confirmarTexto="Sí, asumo la desviación" peligro
+<Confirmar abierto={pedirExt} pideMotivo etiquetaMotivo="Motivo (mínimo 5 letras; queda en el historial)" titulo="¿Permitir hasta 30 días?" confirmarTexto="Sí, asumo la desviación" peligro
   mensaje="Preparar para más de 14 días no es lo que recomiendan los documentos de referencia. La farmacia asume la responsabilidad y cada uso se justificará por escrito."
-  onconfirmar={async () => { pedirExt = false; await guardarValidez(true); }} oncancelar={() => (pedirExt = false)} />
+  onconfirmar={async (motivo) => {
+    if (motivo.length < 5) { avisar('Escribe un motivo de al menos 5 letras.', 'atencion'); return; }
+    pedirExt = false; await guardarValidez(true, motivo);
+  }} oncancelar={() => (pedirExt = false)} />
+
+<Confirmar abierto={cambioId !== null} pideMotivo etiquetaMotivo="Motivo (mínimo 5 letras; queda en el historial)" peligro={bajaSeguridad}
+  titulo={bajaSeguridad ? '¿Pedir menos identificación?' : 'Cambiar cómo se identifica quien trabaja'}
+  confirmarTexto={bajaSeguridad ? 'Sí, lo entiendo' : 'Guardar'}
+  mensaje={bajaSeguridad ? AVISO_SIN_PIN : 'El cambio queda anotado en el historial con tu motivo.'}
+  onconfirmar={async (motivo) => {
+    if (motivo.length < 5) { avisar('Escribe un motivo de al menos 5 letras.', 'atencion'); return; }
+    const c = cambioId; cambioId = null;
+    if (!c) return;
+    // Activar el PIN obliga a pedir usuario al arrancar (el servidor lo exige): se envía todo junto.
+    const envio = c.pedirPin === true ? { ...c, pedirUsuarioAlArrancar: true } : c.pedirPin === false ? { ...c } : c;
+    if (await guardarAj({ ...envio, motivo }, 'Ajuste de identificación guardado.')) predeterminado = aj?.usuarioPredeterminadoId ?? predeterminado;
+  }} oncancelar={() => { cambioId = null; predeterminado = aj?.usuarioPredeterminadoId ?? null; }} />
 
 <Confirmar abierto={pedirExig !== null} pideMotivo etiquetaMotivo="Motivo (mínimo 5 letras; queda en el historial)" peligro={pedirExig === false}
   titulo={pedirExig === false ? '¿Dejar de exigir los consentimientos?' : '¿Volver a exigir los consentimientos?'}

@@ -21,7 +21,20 @@
 
   const validada = $derived(preparacion.estado === 'validado' || preparacion.estado === 'entregado');
   const entregada = $derived(preparacion.estado === 'entregado');
-  const puede = $derived(puedeValidar(sesion?.rol));
+  // Sin PIN nadie queda identificado por entrar: validar pide ELEGIR al farmacéutico/titular y confirmar con un clic; la validación y
+  // la auditoría quedan a su nombre. No se puede validar «como nadie» ni como un técnico.
+  const sinPin = $derived(ajustes?.pedirPin === false);
+  const puede = $derived(sinPin || puedeValidar(sesion?.rol));
+  let candidatos = $state<UsuarioPublico[]>([]); let validadorId = $state<number | null>(null); let confirmoIdentidad = $state(false);
+  $effect(() => {
+    if (!sinPin || validada) return;
+    spd.listarUsuarios().then(r => {
+      if (!r.ok) return;
+      candidatos = r.datos.filter(u => puedeValidar(u.rol));
+      if (validadorId === null && sesion && candidatos.some(c => c.id === sesion.id)) validadorId = sesion.id;
+    });
+  });
+  const nombreValidador = $derived(candidatos.find(c => c.id === validadorId)?.nombre ?? '');
 
   let comparado = $state(false);
   let validando = $state(false); let errorValidar = $state('');
@@ -47,7 +60,10 @@
   async function validar() {
     validando = true; errorValidar = '';
     // La confirmación sólo viaja si la persona la ha marcado en pantalla Y hay una posible alergia delante.
-    const r = await spd.validarPreparacion(preparacion.id, alergiaSinConfirmar && alergiaRevisada ? { confirmarAlergias: true } : undefined);
+    const opc: { confirmarAlergias?: boolean; validadorId?: number } = {};
+    if (alergiaSinConfirmar && alergiaRevisada) opc.confirmarAlergias = true;
+    if (sinPin && validadorId !== null) opc.validadorId = validadorId;
+    const r = await spd.validarPreparacion(preparacion.id, Object.keys(opc).length ? opc : undefined);
     if (!r.ok) {
       errorValidar = mensajeError(r);
       const o = await spd.obtenerPreparacion(preparacion.id);
@@ -160,6 +176,20 @@
           <input type="checkbox" bind:checked={comparado} style="width:1.6rem;min-height:1.6rem" data-prueba="he-comparado" />
           <span class="negrita">He comparado el blíster con el mapa y con la descripción de cada comprimido.</span>
         </label>
+        {#if sinPin}
+          <div class="apilado" data-prueba="validador-sin-pin" style="margin-top:1rem">
+            <label for="validador" class="negrita">¿Quién valida? (farmacéutico o titular)</label>
+            <select id="validador" bind:value={validadorId} data-prueba="validador">
+              <option value={null}>— Elegir —</option>
+              {#each candidatos as c (c.id)}<option value={c.id}>{c.nombre} · {NOMBRE_ROL[c.rol] ?? c.rol}</option>{/each}
+            </select>
+            <label class="fila" style="gap:.8rem;cursor:pointer">
+              <input type="checkbox" bind:checked={confirmoIdentidad} style="width:1.6rem;min-height:1.6rem" data-prueba="confirmo-identidad" />
+              <span class="negrita">Confirmo que soy {nombreValidador || 'la persona elegida'} y que valido este blíster.</span>
+            </label>
+            <p class="suave pequeno sin-margen">El PIN está desactivado: la validación y la auditoría quedarán a nombre de la persona elegida.</p>
+          </div>
+        {/if}
       </section>
     {:else}
       <div class="fila"><button class="btn" type="button" onclick={() => (verBorrador = !verBorrador)}>{verBorrador ? 'Ocultar' : 'Ver'} la etiqueta provisional</button></div>
@@ -193,7 +223,7 @@
   <button class="btn" type="button" onclick={onAtras} disabled={validada}>← Volver a llenar</button>
   <span class="espacio"></span>
   {#if !validada}
-    {#if puede}<button class="btn principal grande" type="button" onclick={validar} disabled={!comparado || validando || (alergiaSinConfirmar && !alergiaRevisada)} data-prueba="validar">{validando ? 'Validando…' : 'Validar el blíster'}</button>{/if}
+    {#if puede}<button class="btn principal grande" type="button" onclick={validar} disabled={!comparado || validando || (alergiaSinConfirmar && !alergiaRevisada) || (sinPin && (validadorId === null || !confirmoIdentidad))} data-prueba="validar">{validando ? 'Validando…' : 'Validar el blíster'}</button>{/if}
   {:else if !entregada}
     <button class="btn principal grande" type="button" onclick={() => (entregando = true)} data-prueba="registrar-entrega">Registrar entrega</button>
   {:else}

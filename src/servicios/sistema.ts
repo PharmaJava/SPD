@@ -22,8 +22,8 @@ import type { MetaCopia } from './copias.ts';
 import { VERSION_ESQUEMA } from './db.ts';
 import { mkdtempSync, rmSync, statSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
-import { COD_CONTRASENA, exigirContrasenaValida, hashPin, limitadorContrasena, limitadorPin, verificarPin } from './seguridad.ts';
-import type { LimitadorFallos } from './seguridad.ts';
+import { COD_CONTRASENA, COD_PROTECTOR, exigirContrasenaValida, hashPin, limitadorContrasena, limitadorPin, verificarPin } from './seguridad.ts';
+import type { LimitadorFallos, ProtectorClave } from './seguridad.ts';
 import { claveDesdeTexto, textoRecuperacion, uriAutenticador } from '../dominio/clave-recuperacion.ts';
 import { crearEntrada, diferencias, HASH_GENESIS, verificarCadena } from '../dominio/auditoria.ts';
 import type { EntradaAuditoria } from '../dominio/auditoria.ts';
@@ -41,6 +41,8 @@ export interface OpcionesSistema {
   alError?: (e: Error) => void;
   /** Sólo pruebas: scrypt más barato. */
   kdf?: { n: number; r: number; p: number };
+  /** Almacén de claves del sistema operativo (Electron safeStorage; sólo en el proceso principal). Sin él no hay modo «sin contraseña». */
+  protector?: ProtectorClave;
 }
 
 export interface Sistema {
@@ -70,6 +72,7 @@ const AJUSTES_POR_DEFECTO: Ajustes = {
   diasValidezSpd: 14, validezExtendidaPermitida: false, exigirConsentimientos: true, conservacionAniosTrasBaja: 2, bloqueoMinutos: 5,
   inicioDia: 'convencional', rotar180: false, sentidoTomas: 'izquierda_derecha', posicionInicial: 'izquierda',
   lector: { modo: 'teclado', separadorGs: '' }, impresoraEtiquetas: null, impresoraDocumentos: null, carpetaCopias: null,
+  pedirPin: true, pedirUsuarioAlArrancar: true, usuarioPredeterminadoId: null,
 };
 
 const err = (m: string, c: string) => new ErrorSpd(m, c);
@@ -84,10 +87,10 @@ function validarPin(p: unknown): string {
 
 export function crearSistema(opciones: OpcionesSistema): Sistema {
   const ahora = opciones.ahora ?? (() => new Date());
-  const version = opciones.version ?? '1.0.1';
+  const version = opciones.version ?? '1.0.2';
   const almacen = crearAlmacen({
     rutaDatos: opciones.rutaDatos, wasmPath: opciones.wasmPath, ahora, debounceMs: opciones.debounceMs,
-    temporizador: opciones.temporizador, alError: opciones.alError, kdf: opciones.kdf,
+    temporizador: opciones.temporizador, alError: opciones.alError, kdf: opciones.kdf, protector: opciones.protector,
     // Sello de la auditoría para el fichero de estado (detección de marcha atrás): id y hash de la última entrada.
     sello: (base) => {
       const f = base.get<{ id: number; hash: string }>('SELECT id, hash FROM auditoria ORDER BY id DESC LIMIT 1');
@@ -127,7 +130,16 @@ export function crearSistema(opciones: OpcionesSistema): Sistema {
     db: () => almacen.db(),
     ahora: () => ahora(),
     sesion: () => sesion,
-    auditar: (d) => escribirAuditoria(d, sesion?.id ?? null),
+    auditar: (d) => escribirAuditoria(d, d.usuarioId !== undefined ? d.usuarioId : sesion?.id ?? null),
+    identificarValidador(validadorId) {
+      const s = exigirSesion();
+      if (leerAjustes(db()).pedirPin) return { usuario: s, sesion: s, sinPin: false };
+      // Sin PIN nadie queda identificado por entrar: validar exige ELEGIR al farmacéutico/titular y confirmarlo (el rol lo comprueba quien llama).
+      if (validadorId === undefined || validadorId === null) throw err('Sin PIN hay que decir quién valida: elige al farmacéutico o titular y confirma que eres tú.', 'VALIDADOR_REQUERIDO');
+      const f = db().get<Record<string, unknown>>('SELECT id, nombre, iniciales, rol FROM usuario WHERE id = ? AND activo = 1', [Number(validadorId)]);
+      if (!f) throw err('El usuario que valida no existe o está dado de baja.', 'USUARIO_NO_ENCONTRADO');
+      return { usuario: aPublico(f), sesion: s, sinPin: true };
+    },
     persistir: () => almacen.persistir(),
   };
 
@@ -145,10 +157,17 @@ export function crearSistema(opciones: OpcionesSistema): Sistema {
   function estadoSync(): EstadoSistema {
     let inicializado = false;
     try { inicializado = almacen.existe(); } catch { /* sin acceso a la carpeta: se dice como no inicializado */ }
+    let modoAcceso: 'contrasena' | 'sistema' | null = null;
+    try { modoAcceso = inicializado ? almacen.modoAcceso() : null; } catch { /* se queda sin saber */ }
+    const sistemaOk = almacen.accesoSistemaDisponible();
     return {
       inicializado, desbloqueado: almacen.estaDesbloqueado(), sesion,
       ...(almacen.estaDesbloqueado() && avisoSeguridad ? { avisoSeguridad } : {}),
-      version, rutaDatos: opciones.rutaDatos, esperaIntento: limContrasena.espera(),
+      version, rutaDatos: opciones.rutaDatos,
+      // Sin contraseña de arranque no hay intentos de contraseña que limitar.
+      esperaIntento: modoAcceso === 'sistema' ? 0 : limContrasena.espera(),
+      modoAcceso, accesoSistemaDisponible: sistemaOk,
+      ...(sistemaOk ? {} : { motivoSistemaNoDisponible: almacen.motivoSistemaNoDisponible() }),
     };
   }
 
@@ -164,6 +183,7 @@ export function crearSistema(opciones: OpcionesSistema): Sistema {
     conservacionAniosTrasBaja: 'conservacion_anios_tras_baja', bloqueoMinutos: 'bloqueo_minutos',
     inicioDia: 'inicio_dia', rotar180: 'rotar_180', sentidoTomas: 'sentido_tomas', posicionInicial: 'posicion_inicial',
     lector: 'lector', impresoraEtiquetas: 'impresora_etiquetas', impresoraDocumentos: 'impresora_documentos', carpetaCopias: 'carpeta_copias',
+    pedirPin: 'pedir_pin', pedirUsuarioAlArrancar: 'pedir_usuario_arranque', usuarioPredeterminadoId: 'usuario_predeterminado_id',
   } as const;
 
   function leerAjustes(base: Db): Ajustes {
@@ -188,6 +208,9 @@ export function crearSistema(opciones: OpcionesSistema): Sistema {
       impresoraEtiquetas: mapa.get('impresora_etiquetas') ?? null,
       impresoraDocumentos: mapa.get('impresora_documentos') ?? null,
       carpetaCopias: mapa.get('carpeta_copias') ?? null,
+      pedirPin: bool('pedir_pin', d.pedirPin),
+      pedirUsuarioAlArrancar: bool('pedir_usuario_arranque', d.pedirUsuarioAlArrancar),
+      usuarioPredeterminadoId: mapa.has('usuario_predeterminado_id') && Number.isInteger(Number(mapa.get('usuario_predeterminado_id'))) ? Number(mapa.get('usuario_predeterminado_id')) : null,
     };
   }
 
@@ -199,7 +222,8 @@ export function crearSistema(opciones: OpcionesSistema): Sistema {
     if (a.conservacionAniosTrasBaja !== undefined) rango(a.conservacionAniosTrasBaja, 1, 50, 'La conservación tras la baja (años)');
     // 0 = no bloquear solo (lo ofrece la interfaz con ese aviso); hasta 240 min.
     if (a.bloqueoMinutos !== undefined) rango(a.bloqueoMinutos, 0, 240, 'El bloqueo por inactividad (minutos)');
-    const bools: (keyof Ajustes)[] = ['validezExtendidaPermitida', 'exigirConsentimientos', 'rotar180'];
+    const bools: (keyof Ajustes)[] = ['validezExtendidaPermitida', 'exigirConsentimientos', 'rotar180', 'pedirPin', 'pedirUsuarioAlArrancar'];
+    if (a.usuarioPredeterminadoId !== undefined && a.usuarioPredeterminadoId !== null) rango(a.usuarioPredeterminadoId, 1, 2_000_000_000, 'El usuario predeterminado');
     for (const k of bools) if (a[k] !== undefined && typeof a[k] !== 'boolean') throw err(`«${k}» debe ser verdadero o falso.`, 'AJUSTE_INVALIDO');
     const enums: [keyof Ajustes, string[]][] = [
       ['inicioDia', ['convencional', 'cronologico']], ['sentidoTomas', ['izquierda_derecha', 'derecha_izquierda']], ['posicionInicial', ['izquierda', 'derecha']],
@@ -355,12 +379,26 @@ export function crearSistema(opciones: OpcionesSistema): Sistema {
     };
   }
 
+  /** Copia de seguridad obligatoria antes de cambiar cómo se abren los datos. Sin carpeta de copias no se cambia nada. */
+  async function copiaPrevia(usuarioId: number, motivo: string): Promise<string> {
+    try {
+      const r = await hacerCopia(usuarioId, { origen: 'antes_cambio_acceso', motivo }, true);
+      return r.ruta.split(/[\\/]/).pop()!;
+    } catch (e) {
+      if (e instanceof ErrorSpd && e.codigo === 'SIN_CARPETA_COPIAS') throw err('Antes de cambiar cómo se abren los datos se hace una copia de seguridad, y no hay carpeta de copias configurada. Elígela en Ajustes → Copias de seguridad.', 'SIN_CARPETA_COPIAS');
+      throw e;
+    }
+  }
+
   async function restaurar(nombre: string, contrasena: string, contrasenaCopia: string | undefined): Promise<ResultadoRestauracion> {
     db();
     const quien = exigirSesion('titular');
     exigirSinEspera();
-    if (!almacen.verificarContrasena(String(contrasena ?? ''))) fallarContrasena();
-    limContrasena.reiniciar();
+    // Con contraseña de arranque se confirma con ella; sin ella no hay contraseña que pedir (basta ser titular y escribir RESTAURAR en la interfaz).
+    if (almacen.modoAcceso() !== 'sistema') {
+      if (!almacen.verificarContrasena(String(contrasena ?? ''))) fallarContrasena();
+      limContrasena.reiniciar();
+    }
     // La copia sale de NUESTRAS carpetas por su nombre (patrón exacto): nunca una ruta recibida de la interfaz.
     let ruta: string | null = null, carpeta = '';
     for (const c of carpetasDeCopias()) { try { ruta = rutaDeCopia(c, nombre); carpeta = c; break; } catch { /* siguiente carpeta */ } }
@@ -370,8 +408,9 @@ export function crearSistema(opciones: OpcionesSistema): Sistema {
     const bytes = leerFicheroCopia(ruta);
     // Fase 1: descifrar, verificar y abrir (migrando si es anterior). Si algo falla, no se ha tocado nada.
     let r;
-    try { r = await almacen.prepararRestauracion(bytes, String(contrasenaCopia ?? contrasena)); }
+    try { r = await almacen.prepararRestauracion(bytes, String(contrasenaCopia ?? (almacen.modoAcceso() === 'sistema' ? '' : contrasena))); }
     catch (e) {
+      if (e instanceof ErrorSpd && (e.codigo === 'CLAVE_SISTEMA_ILEGIBLE' || e.codigo === 'COPIA_SISTEMA_AJENA')) throw err('Esa copia se hizo sin contraseña de arranque y está ligada al usuario de Windows (y al equipo) que la creó: aquí no se puede abrir con el sistema. Escribe su clave de recuperación (la de entonces).', 'COPIA_SISTEMA_AJENA');
       if (e instanceof ErrorSpd && e.codigo === COD_CONTRASENA) throw err(contrasenaCopia ? 'Ni la contraseña ni la clave de recuperación indicadas abren esa copia.' : 'La copia está protegida con otra contraseña (¿es de antes de cambiarla?). Indica la contraseña que tenía entonces (o su clave de recuperación).', 'CONTRASENA_COPIA');
       if (e instanceof ErrorSpd && e.codigo === 'VERSION_BASE') throw err(e.message, 'COPIA_MAS_NUEVA');
       throw e;
@@ -433,9 +472,36 @@ export function crearSistema(opciones: OpcionesSistema): Sistema {
     } else almacen.fijarEstado();
   }
 
+  /**
+   * Si el titular ha desactivado «pedir elegir usuario al arrancar», entra el usuario predeterminado (sin PIN: los ajustes lo
+   * obligan). Sólo al ABRIR los datos; después de bloquear o por inactividad se vuelve a elegir usuario.
+   */
+  function inicioAutomatico(): void {
+    const a = leerAjustes(almacen.db());
+    if (a.pedirUsuarioAlArrancar || a.pedirPin || a.usuarioPredeterminadoId === null) return;
+    const f = almacen.db().get<Record<string, unknown>>('SELECT id, nombre, iniciales, rol FROM usuario WHERE id = ? AND activo = 1', [a.usuarioPredeterminadoId]);
+    if (!f) return;   // el usuario ya no está: se pide elegir
+    sesion = aPublico(f);
+    auditarYGuardar({ accion: 'login', entidad: 'usuario', entidadId: sesion.id, motivo: 'Inicio automático: el titular ha desactivado pedir usuario al arrancar' }, sesion.id);
+  }
+
+  /** Abre unos datos «sin contraseña de arranque» con el almacén de claves de Windows. No cuenta intentos: no hay contraseña que adivinar. */
+  async function desbloqueoSistema(usarCopia: boolean): Promise<{ estado: EstadoSistema; aviso?: string }> {
+    if (almacen.estaDesbloqueado()) return { estado: estadoSync() };
+    if (!almacen.existe()) throw err('Todavía no hay datos: haz el primer uso.', 'NO_INICIALIZADO');
+    if (almacen.modoAcceso() !== 'sistema') throw err('Estos datos tienen contraseña de arranque: escríbela para abrirlos.', 'CON_CONTRASENA');
+    const r = await almacen.desbloquearConSistema({ usarCopia });
+    reiniciarSesion();
+    comprobarMarchaAtras();
+    auditarYGuardar({ accion: 'desbloquear', entidad: 'sistema', motivo: r.aviso ? 'Se restauró la copia anterior del fichero' : 'Apertura sin contraseña de arranque (usuario de Windows)' }, null);
+    inicioAutomatico();
+    return { estado: estadoSync(), ...(r.aviso ? { aviso: r.aviso } : {}) };
+  }
+
   async function desbloqueo(contrasena: string, usarCopia: boolean): Promise<{ estado: EstadoSistema; aviso?: string }> {
     if (almacen.estaDesbloqueado()) return { estado: estadoSync() };
     if (!almacen.existe()) throw err('Todavía no hay datos: haz el primer uso.', 'NO_INICIALIZADO');
+    if (almacen.modoAcceso() === 'sistema') return desbloqueoSistema(usarCopia);
     exigirSinEspera();
     let r: { aviso?: string };
     try { r = await almacen.desbloquear(String(contrasena ?? ''), { usarCopia }); }
@@ -444,19 +510,23 @@ export function crearSistema(opciones: OpcionesSistema): Sistema {
     reiniciarSesion();
     comprobarMarchaAtras();
     auditarYGuardar({ accion: 'desbloquear', entidad: 'sistema', motivo: r.aviso ? 'Se restauró la copia anterior del fichero' : null }, null);
+    inicioAutomatico();
     return { estado: estadoSync(), ...(r.aviso ? { aviso: r.aviso } : {}) };
   }
 
-  async function recuperacion(clave: string, nueva: string, usarCopia: boolean): Promise<{ estado: EstadoSistema; aviso?: string }> {
+  async function recuperacion(clave: string, nueva: string | undefined, usarCopia: boolean): Promise<{ estado: EstadoSistema; aviso?: string }> {
     if (almacen.estaDesbloqueado()) throw err('El programa ya está desbloqueado: usa «cambiar contraseña».', 'YA_DESBLOQUEADO');
     if (!almacen.existe()) throw err('Todavía no hay datos: haz el primer uso.', 'NO_INICIALIZADO');
-    validarContrasenaNueva(nueva);
+    // Con contraseña de arranque hace falta una nueva; sin ella es opcional (si no se da, los datos se ligan al usuario de Windows de ahora).
+    const modo = almacen.modoAcceso();
+    const conNueva = typeof nueva === 'string' && nueva !== '';
+    if (modo !== 'sistema' || conNueva) validarContrasenaNueva(nueva);
     exigirSinEspera();
     let bytes: Uint8Array;
     try { bytes = claveDesdeTexto(String(clave ?? '')); }
     catch (e) { throw err(e instanceof Error ? e.message : 'La clave de recuperación no es válida.', 'CLAVE_RECUPERACION_INVALIDA'); }
     let r: { aviso?: string };
-    try { r = await almacen.recuperar(bytes, nueva, { usarCopia }); }
+    try { r = await almacen.recuperar(bytes, conNueva ? nueva! : null, { usarCopia }); }
     catch (e) {
       // Con la clave de datos no hay «contraseña incorrecta»: si no abre, la clave no es la de esta base.
       if (e instanceof ErrorSpd && e.codigo === 'FICHERO_CORRUPTO') {
@@ -469,12 +539,24 @@ export function crearSistema(opciones: OpcionesSistema): Sistema {
     limContrasena.reiniciar();
     reiniciarSesion();
     comprobarMarchaAtras();
-    auditarYGuardar({ accion: 'recuperar', entidad: 'sistema', motivo: 'Contraseña restablecida con la clave de recuperación' }, null);
+    auditarYGuardar({ accion: 'recuperar', entidad: 'sistema', motivo: conNueva ? 'Contraseña restablecida con la clave de recuperación' : 'Acceso restablecido con la clave de recuperación: datos ligados de nuevo al usuario de Windows actual (sin contraseña de arranque)' }, null);
+    inicioAutomatico();
     return { estado: estadoSync(), ...(r.aviso ? { aviso: r.aviso } : {}) };
   }
 
-  async function bloqueo(motivo: string | null): Promise<EstadoSistema> {
+  /**
+   * Bloquear. Con contraseña de arranque cierra los datos (hay que volver a escribirla). SIN ella no hay nada que volver a pedir
+   * (Windows reabriría los datos al instante), así que bloquear = cerrar la sesión del usuario y volver a «¿Quién eres?»; los
+   * datos quedan abiertos en la memoria del programa. `total` (cierre del programa) lo cierra todo siempre.
+   */
+  async function bloqueo(motivo: string | null, total = false): Promise<EstadoSistema> {
     if (!almacen.estaDesbloqueado()) { reiniciarSesion(); return estadoSync(); }
+    if (!total && almacen.modoAcceso() === 'sistema') {
+      try { escribirAuditoria({ accion: 'bloquear', entidad: 'sistema', motivo: `${motivo ?? 'manual'} (sin contraseña de arranque: se cierra la sesión del usuario)` }, sesion?.id ?? null); almacen.persistir(); } catch { /* se cierra la sesión igual */ }
+      reiniciarSesion();
+      try { await almacen.flush(); } catch (e) { throw err(`Se ha cerrado la sesión, pero no se pudieron guardar los últimos cambios: ${e instanceof Error ? e.message : String(e)}`, 'ERROR_GUARDADO'); }
+      return estadoSync();
+    }
     try { escribirAuditoria({ accion: 'bloquear', entidad: 'sistema', motivo }, sesion?.id ?? null); almacen.persistir(); } catch { /* si no se puede auditar, se bloquea igual */ }
     reiniciarSesion(); avisoSeguridad = null;
     const r = await almacen.bloquear();
@@ -494,7 +576,13 @@ export function crearSistema(opciones: OpcionesSistema): Sistema {
       if (!nombreTitular || !iniciales) throw err('Faltan el nombre y las iniciales del titular.', 'TITULAR_INVALIDO');
       if (iniciales.length > 4) throw err('Las iniciales pueden tener como máximo 4 letras.', 'TITULAR_INVALIDO');
       const pin = validarPin(datos.titular.pin);
-      const contrasena = validarContrasenaNueva(datos.contrasena);
+      const sinContrasena = datos?.sinContrasena === true;
+      if (sinContrasena) {
+        if (datos.contrasena) throw err('Has indicado una contraseña y también empezar sin contraseña: elige una de las dos.', 'PRIMER_USO_INVALIDO');
+        if (datos.reconoceRiesgoSinContrasena !== true) throw err('Para empezar sin contraseña de arranque tienes que confirmar que has leído el aviso.', 'RIESGO_NO_RECONOCIDO');
+        if (!almacen.accesoSistemaDisponible()) throw err(`No se puede empezar sin contraseña en este equipo: ${almacen.motivoSistemaNoDisponible()}. Usa una contraseña.`, COD_PROTECTOR);
+      }
+      const contrasena = sinContrasena ? null : validarContrasenaNueva(datos.contrasena);
       validarMomentos((datos.momentos ?? []).map((m, i) => ({ nombre: m?.nombre, hora: m?.hora, orden: i + 1 })));
       const hash = hashPin(pin);
       let usuarioId = 0;
@@ -513,6 +601,7 @@ export function crearSistema(opciones: OpcionesSistema): Sistema {
         escribirAuditoria({ accion: 'crear', entidad: 'farmacia', entidadId: 1, despues: farmacia }, usuarioId);
         escribirAuditoria({ accion: 'crear', entidad: 'usuario', entidadId: usuarioId, despues: { nombre: nombreTitular, iniciales, rol: 'titular' } }, usuarioId);
         escribirAuditoria({ accion: 'crear', entidad: 'momentos_toma', despues: datos.momentos.map(m => m.nombre.trim()) }, usuarioId);
+        if (sinContrasena) escribirAuditoria({ accion: 'crear', entidad: 'acceso', despues: { modo: 'sistema' }, motivo: 'Primer uso SIN contraseña de arranque: clave de datos ligada al usuario de Windows; riesgo reconocido por el titular' }, usuarioId);
         escribirAuditoria({ accion: 'login', entidad: 'usuario', entidadId: usuarioId }, usuarioId);
       });
       await almacen.flush(true);
@@ -528,6 +617,8 @@ export function crearSistema(opciones: OpcionesSistema): Sistema {
       return { ...r.estado, aviso: r.aviso ?? '' };
     }),
 
+    desbloquearConSistema: () => proteger(async () => (await desbloqueoSistema(false)).estado),
+
     recuperar: (clave, nueva) => proteger(async () => (await recuperacion(clave, nueva, false)).estado),
 
     bloquear: () => proteger(() => bloqueo(null)),
@@ -535,6 +626,7 @@ export function crearSistema(opciones: OpcionesSistema): Sistema {
     cambiarContrasena: (actual, nueva) => proteger<ResultadoPrimerUso>(async () => {
       db();
       exigirSesion('titular');
+      if (almacen.modoAcceso() === 'sistema') throw err('No hay contraseña de arranque que cambiar. Puedes ponerla en Ajustes → Seguridad.', 'SIN_CONTRASENA');
       validarContrasenaNueva(nueva);
       exigirSinEspera();
       let claveDatos: Uint8Array;
@@ -549,12 +641,57 @@ export function crearSistema(opciones: OpcionesSistema): Sistema {
       } finally { claveDatos.fill(0); }
     }),
 
+    quitarContrasenaArranque: (actual, motivoTxt, confirmo) => proteger(async () => {
+      db();
+      const quien = exigirSesion('titular');
+      if (almacen.modoAcceso() === 'sistema') throw err('Los datos ya se abren sin contraseña de arranque.', 'YA_SIN_CONTRASENA');
+      if (confirmo !== true) throw err('Marca la casilla para confirmar que has leído el aviso.', 'RIESGO_NO_RECONOCIDO');
+      const m = texto(motivoTxt);
+      if (!m || m.length < 5) throw err('Quitar la contraseña de arranque exige un motivo escrito (mín. 5 letras): queda en el historial.', 'MOTIVO_OBLIGATORIO');
+      if (!almacen.accesoSistemaDisponible()) throw err(`No se puede quitar la contraseña en este equipo: ${almacen.motivoSistemaNoDisponible()}.`, COD_PROTECTOR);
+      exigirSinEspera();
+      if (!almacen.verificarContrasena(String(actual ?? ''))) fallarContrasena();
+      limContrasena.reiniciar();
+      const copia = await copiaPrevia(quien.id, 'Antes de quitar la contraseña de arranque');
+      try { await almacen.quitarContrasena(String(actual ?? '')); }
+      catch (e) { if (e instanceof ErrorSpd && e.codigo === COD_CONTRASENA) fallarContrasena(); throw e; }
+      limPines.clear();
+      auditarYGuardar({ accion: 'modificar', entidad: 'acceso', antes: { modo: 'contrasena' }, despues: { modo: 'sistema' },
+        motivo: `${m}. Ahora los datos se abren con el usuario de Windows, sin contraseña (la clave de recuperación sigue valiendo). Copia previa: ${copia}` });
+      await almacen.flush();
+      return estadoSync();
+    }),
+
+    ponerContrasenaArranque: (nueva, motivoTxt) => proteger<ResultadoPrimerUso>(async () => {
+      db();
+      const quien = exigirSesion('titular');
+      if (almacen.modoAcceso() !== 'sistema') throw err('Los datos ya tienen contraseña de arranque. Para cambiarla usa «Cambiar contraseña».', 'YA_CON_CONTRASENA');
+      const m = texto(motivoTxt);
+      if (!m || m.length < 5) throw err('Poner la contraseña de arranque exige un motivo escrito (mín. 5 letras): queda en el historial.', 'MOTIVO_OBLIGATORIO');
+      validarContrasenaNueva(nueva);
+      const copia = await copiaPrevia(quien.id, 'Antes de poner contraseña de arranque');
+      const { claveDatos } = await almacen.ponerContrasena(nueva);
+      limContrasena.reiniciar();
+      try {
+        auditarYGuardar({ accion: 'modificar', entidad: 'acceso', antes: { modo: 'sistema' }, despues: { modo: 'contrasena' },
+          motivo: `${m}. Clave de datos rotada (clave de recuperación nueva: la anterior ya no abre el fichero actual). Copia previa: ${copia}` });
+        await almacen.flush();
+        return { claveRecuperacion: textoRecuperacion(claveDatos), uriAutenticador: uriAutenticador(claveDatos, leerFarmacia(db())?.nombre || 'SPD') };
+      } finally { claveDatos.fill(0); }
+    }),
+
     listarUsuarios: () => proteger(() => db().all('SELECT id, nombre, iniciales, rol FROM usuario WHERE activo = 1 ORDER BY id').map(aPublico)),
 
     iniciarSesion: (usuarioId, pin) => proteger(async () => {
       const base = db();
       const u = base.get<Record<string, string | number>>('SELECT id, nombre, iniciales, rol, hash_clave FROM usuario WHERE id = ? AND activo = 1', [Number(usuarioId)]);
       if (!u) throw err('Usuario no encontrado.', 'USUARIO_NO_ENCONTRADO');
+      if (!leerAjustes(base).pedirPin) {
+        // El titular ha desactivado el PIN: basta elegir usuario. Queda constancia en la auditoría de que entró sin PIN.
+        sesion = aPublico(u);
+        auditarYGuardar({ accion: 'login', entidad: 'usuario', entidadId: sesion.id, motivo: 'Entrada sin PIN (desactivado por el titular)' }, sesion.id);
+        return sesion;
+      }
       const lim = limPin(u.id as number);
       const e = lim.espera();
       if (e > 0) throw err(`Demasiados intentos con este usuario. Espera ${e} s.`, 'USUARIO_BLOQUEADO');
@@ -635,6 +772,15 @@ export function crearSistema(opciones: OpcionesSistema): Sistema {
       if (despues.exigirConsentimientos !== antes.exigirConsentimientos) {
         if (quien.rol !== 'titular') throw err('Sólo el titular puede cambiar si se exigen los consentimientos para validar.', 'SIN_PERMISO');
         if (!motivo || motivo.length < 5) throw err('Cambiar si se exigen los consentimientos exige un motivo escrito: queda en el historial.', 'MOTIVO_OBLIGATORIO');
+      }
+      if (despues.pedirPin !== antes.pedirPin || despues.pedirUsuarioAlArrancar !== antes.pedirUsuarioAlArrancar || despues.usuarioPredeterminadoId !== antes.usuarioPredeterminadoId) {
+        if (quien.rol !== 'titular') throw err('Sólo el titular puede cambiar si se pide el PIN o elegir usuario al arrancar.', 'SIN_PERMISO');
+        if (!motivo || motivo.length < 5) throw err('Cambiar cómo se identifica quien trabaja exige un motivo escrito: queda en el historial.', 'MOTIVO_OBLIGATORIO');
+      }
+      if (despues.pedirPin && !despues.pedirUsuarioAlArrancar) throw err('Con PIN activado hay que elegir usuario al arrancar: si no, el usuario predeterminado entraría sin PIN.', 'AJUSTE_INCOHERENTE');
+      if (!despues.pedirUsuarioAlArrancar) {
+        const pred = despues.usuarioPredeterminadoId;
+        if (pred === null || !base.get('SELECT id FROM usuario WHERE id = ? AND activo = 1', [pred])) throw err('Para no pedir usuario al arrancar elige el usuario con el que se abre el programa (activo).', 'AJUSTE_INVALIDO');
       }
       if (despues.carpetaCopias && despues.carpetaCopias !== antes.carpetaCopias) exigirCarpetaCopiasUtil(despues.carpetaCopias);
       if (despues.diasValidezSpd > 14 && !despues.validezExtendidaPermitida) throw err('Una validez de más de 14 días exige activar antes la validez extendida (lo hace el titular, con motivo).', 'VALIDEZ_NO_PERMITIDA');
@@ -759,7 +905,7 @@ export function crearSistema(opciones: OpcionesSistema): Sistema {
     api, ctx,
     estaDesbloqueado: () => almacen.estaDesbloqueado(),
     async cerrar() {
-      try { await bloqueo('cierre del programa'); } catch { /* ya está bloqueado; el error de guardado lo vio quien llamó antes */ }
+      try { await bloqueo('cierre del programa', true); } catch { /* ya está bloqueado; el error de guardado lo vio quien llamó antes */ }
     },
     bloquearPorInactividad: () => proteger(() => bloqueo('inactividad')),
     recuperarConCopia: (clave, nueva) => proteger(async () => {

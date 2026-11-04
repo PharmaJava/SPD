@@ -7,6 +7,7 @@ import type { NombreMetodo } from '../servicios/api.ts';
 import { crearSistema } from '../servicios/sistema.ts';
 import { crearClinicaBase } from '../servicios/clinica-base.ts';
 import { crearClinicaPreparacion } from '../servicios/clinica-preparacion.ts';
+import type { ProtectorClave } from '../servicios/seguridad.ts';
 import { ensamblarApi } from './ensamblar.ts';
 
 export interface OpcionesServicios {
@@ -14,6 +15,8 @@ export interface OpcionesServicios {
   wasmPath?: string;
   version?: string;
   carpetaCopiasPorDefecto?: string;
+  /** Almacén de claves del sistema (safeStorage), para el modo sin contraseña de arranque. */
+  protector?: ProtectorClave;
   externo: Partial<ApiExterna>;
 }
 
@@ -30,7 +33,7 @@ export interface ServiciosApp {
 }
 
 export function crearServiciosApp(op: OpcionesServicios): ServiciosApp {
-  const sistema = crearSistema({ rutaDatos: op.rutaDatos, wasmPath: op.wasmPath, version: op.version, carpetaCopiasPorDefecto: op.carpetaCopiasPorDefecto });
+  const sistema = crearSistema({ rutaDatos: op.rutaDatos, wasmPath: op.wasmPath, version: op.version, carpetaCopiasPorDefecto: op.carpetaCopiasPorDefecto, protector: op.protector });
   const base = crearClinicaBase(sistema.ctx);
   const preparacion = crearClinicaPreparacion(sistema.ctx);
   const { api, faltan } = ensamblarApi({

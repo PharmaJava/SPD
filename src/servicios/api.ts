@@ -44,8 +44,13 @@ export interface EstadoSistema {
   avisoSeguridad?: string | null;
   /** Carpeta donde viven los datos cifrados (informativo). */
   rutaDatos: string;
-  /** Segundos de espera antes de poder volver a probar la contraseña (0 = ya se puede). */
+  /** Segundos de espera antes de poder volver a probar la contraseña (0 = ya se puede; sin contraseña de arranque siempre 0). */
   esperaIntento: number;
+  /** Cómo se protege la clave de los datos: con contraseña, o sin ella (ligada al usuario de Windows). null si aún no hay datos. */
+  modoAcceso: 'contrasena' | 'sistema' | null;
+  /** ¿Puede este equipo usar el modo sin contraseña (almacén de claves de Windows)? Si no, `motivoSistemaNoDisponible` lo explica. */
+  accesoSistemaDisponible: boolean;
+  motivoSistemaNoDisponible?: string;
 }
 
 export interface DatosFarmacia {
@@ -81,12 +86,21 @@ export interface Ajustes {
   impresoraEtiquetas?: string | null;
   impresoraDocumentos?: string | null;
   carpetaCopias?: string | null;
+  /** ¿Se pide el PIN al elegir usuario / cambiar de usuario? Si no, basta elegir y confirmar con un clic. Sólo el titular, con motivo. */
+  pedirPin: boolean;
+  /** ¿Se pide elegir usuario al arrancar? Si no, entra solo `usuarioPredeterminadoId` (exige `pedirPin = false`). Sólo el titular, con motivo. */
+  pedirUsuarioAlArrancar: boolean;
+  usuarioPredeterminadoId: number | null;
 }
 
 export interface PrimerUso {
   farmacia: DatosFarmacia;
   titular: { nombre: string; iniciales: string; pin: string };
-  contrasena: string;
+  /** Contraseña de arranque. Obligatoria salvo con `sinContrasena`. */
+  contrasena?: string;
+  /** Primer uso SIN contraseña de arranque (clave ligada al usuario de Windows). Exige `reconoceRiesgoSinContrasena` y que no haya `contrasena`. */
+  sinContrasena?: boolean;
+  reconoceRiesgoSinContrasena?: boolean;
   momentos: { nombre: string; hora?: string }[];
 }
 export interface ResultadoPrimerUso {
@@ -103,7 +117,7 @@ export interface EntradaAuditoriaDto {
 export interface EstadoCopias { ultima: string | null; atrasada: boolean; carpeta: string | null; total: number }
 export interface CopiaDto {
   nombre: string; fecha: string; tamano: number;
-  origen: 'automatica' | 'manual' | 'antes_actualizar' | 'antes_restaurar' | 'desconocido';
+  origen: 'automatica' | 'manual' | 'antes_actualizar' | 'antes_restaurar' | 'antes_cambio_acceso' | 'desconocido';
   motivo: string | null; versionApp: string | null; esquema: number | null;
   /** false si la copia es de un esquema posterior al de este programa, está vacía… */
   restaurable: boolean; avisoRestauracion: string | null;
@@ -121,8 +135,20 @@ export interface ApiSistema {
   desbloquear(contrasena: string): Promise<Resultado<EstadoSistema>>;
   /** Si el fichero principal está dañado y hay copia válida (error FICHERO_DANADO_COPIA_DISPONIBLE): restaura la copia. */
   desbloquearConCopia(contrasena: string): Promise<Resultado<EstadoSistema & { aviso: string }>>;
-  /** Restablece la contraseña con la clave de recuperación (texto). */
-  recuperar(claveRecuperacion: string, nuevaContrasena: string): Promise<Resultado<EstadoSistema>>;
+  /** Abre unos datos «sin contraseña de arranque» con el almacén de claves de Windows. Si no puede (otro usuario/equipo): CLAVE_SISTEMA_ILEGIBLE → clave de recuperación. */
+  desbloquearConSistema(): Promise<Resultado<EstadoSistema>>;
+  /**
+   * Restablece el acceso con la clave de recuperación (texto). Con contraseña de arranque hay que dar `nuevaContrasena`; sin ella
+   * (modo sistema) es opcional: si no se da, los datos se vuelven a ligar al usuario de Windows de ahora.
+   */
+  recuperar(claveRecuperacion: string, nuevaContrasena?: string): Promise<Resultado<EstadoSistema>>;
+  /**
+   * Contraseña → SIN contraseña de arranque. Sólo el titular; pide la contraseña actual, un motivo (≥ 5 letras) y `confirmo: true`
+   * (ha leído el aviso). Hace antes una copia de seguridad. No rota la clave de recuperación.
+   */
+  quitarContrasenaArranque(contrasenaActual: string, motivo: string, confirmo: boolean): Promise<Resultado<EstadoSistema>>;
+  /** Sin contraseña → contraseña. Sólo el titular; motivo ≥ 5 letras. ROTA la clave de datos: devuelve la clave de recuperación NUEVA. */
+  ponerContrasenaArranque(nueva: string, motivo: string): Promise<Resultado<ResultadoPrimerUso>>;
   bloquear(): Promise<Resultado<EstadoSistema>>;
   /**
    * Cambia la contraseña y ROTA la clave de datos (recifra la base). Devuelve la clave de recuperación NUEVA: la anterior
@@ -132,7 +158,8 @@ export interface ApiSistema {
   cambiarContrasena(actual: string, nueva: string): Promise<Resultado<ResultadoPrimerUso>>;
 
   listarUsuarios(): Promise<Resultado<UsuarioPublico[]>>;
-  iniciarSesion(usuarioId: number, pin: string): Promise<Resultado<UsuarioPublico>>;
+  /** `pin` es obligatorio salvo que el titular haya desactivado `pedirPin`. */
+  iniciarSesion(usuarioId: number, pin?: string): Promise<Resultado<UsuarioPublico>>;
   cerrarSesion(): Promise<Resultado<null>>;
   /** `avisos`: no bloquean (p. ej. otro usuario con las mismas iniciales, que saldrían iguales en los registros impresos). */
   crearUsuario(u: { nombre: string; iniciales: string; rol: RolUsuario; numColegiado?: string; pin: string }): Promise<Resultado<UsuarioPublico & { avisos?: string[] }>>;
@@ -367,7 +394,11 @@ export interface ApiClinica {
   crearPreparacion(p: EvaluarPreparacionParams & { temperatura?: number; humedad?: number; observaciones?: string }): Promise<Resultado<PreparacionDto>>;
   marcarPreparada(id: number): Promise<Resultado<PreparacionDto>>;
   /** Sólo farmacéutico/titular. Vuelve a evaluar, descuenta unidades y deja el estado «validado». */
-  validarPreparacion(id: number, opciones?: { confirmarAlergias?: boolean }): Promise<Resultado<PreparacionDto>>;
+  /**
+   * Sin PIN (`pedirPin = false`) hay que decir QUIÉN valida (`validadorId`: farmacéutico o titular activo); la validación y la
+   * auditoría quedan a su nombre. Con PIN, valida la persona con la sesión abierta y `validadorId` se ignora.
+   */
+  validarPreparacion(id: number, opciones?: { confirmarAlergias?: boolean; validadorId?: number }): Promise<Resultado<PreparacionDto>>;
   registrarEntrega(id: number, e: { entregadoA: string; contactoId?: number; observaciones?: string }): Promise<Resultado<PreparacionDto>>;
   anularPreparacion(id: number, motivo: string): Promise<Resultado<PreparacionDto>>;
   listarPreparaciones(filtro?: { pacienteId?: number; estado?: EstadoPreparacion | 'todas' }): Promise<Resultado<PreparacionDto[]>>;
