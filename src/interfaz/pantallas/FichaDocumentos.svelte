@@ -7,7 +7,7 @@
   import '../estilos/u2.css';
   import Modal from './preparacion/Modal.svelte';
   import Nota from './preparacion/Nota.svelte';
-  import { cargarSesion, guardarLocal, htmlDocumentoImprimible, ir, leerLocal, mdBasico, mensaje, puedeValidar, rutas } from './preparacion/util.ts';
+  import { cargarSesion, guardarLocal, htmlDocumentoImprimible, ir, nombrePdfSugerido, leerLocal, mdBasico, mensaje, puedeValidar, rutas } from './preparacion/util.ts';
   import { mensajeError } from '../componentes/util.ts';
 
   type Calidad = 'paciente' | 'representante_legal' | 'guardador_de_hecho';
@@ -132,6 +132,14 @@
     trabajando = false;
     mensajeOk = r.ok ? 'Enviado a la impresora.' : `No se pudo imprimir: ${r.error}`;
   }
+  async function guardarPdf() {
+    if (!vista || !actual) return;
+    trabajando = true;
+    const r = await spd.exportarPdf(htmlDocumentoImprimible(vista.texto, actual.titulo), nombrePdfSugerido(actual.codigo, nombrePaciente));
+    trabajando = false;
+    if (!r.ok) mensajeOk = `No se pudo guardar el PDF: ${r.error} Comprueba que la carpeta elegida existe y que puedes escribir en ella, o prueba con otra.`;
+    else if (r.datos) mensajeOk = `PDF guardado en ${r.datos.ruta}. Ya puedes imprimirlo desde otro equipo o programa.`;
+  }
   async function marcarFirmado(sustituir = false) {
     if (!actual) return;
     if (sustituir && motivoSust.trim().length < 5) { errorSust = 'Escribe el motivo de la sustitución (unas palabras bastan, mínimo 5 letras): queda en el historial.'; return; }
@@ -231,6 +239,7 @@
   {/if}
   {#snippet pie()}
     <button class="btn" type="button" onclick={() => (abierto = false)}>Cerrar</button>
+    <button class="btn" type="button" onclick={guardarPdf} disabled={!vista || trabajando} data-prueba="guardar-pdf">Guardar como PDF</button>
     <button class="btn" type="button" onclick={imprimir} disabled={!vista || trabajando}>Imprimir</button>
     <button class="btn principal" type="button" onclick={() => marcarFirmado()} disabled={!vista || trabajando || !firmanteListo || (vista?.faltan.length ?? 0) > 0} data-prueba="marcar-firmado">Marcar como firmado</button>
   {/snippet}

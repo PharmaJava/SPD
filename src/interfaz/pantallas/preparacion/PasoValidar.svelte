@@ -9,7 +9,7 @@
   import Mapa from './Mapa.svelte';
   import Nota from './Nota.svelte';
   import VistaPrevia from './VistaPrevia.svelte';
-  import { corto, ir, NOMBRE_ROL, puedeValidar } from './util.ts';
+  import { corto, ir, nombrePdfSugerido, NOMBRE_ROL, puedeValidar } from './util.ts';
   import { QUE_HACER, solucionComun } from './ayuda-bloqueos.ts';
   import { bloqueosParaMostrar } from '../../../dominio/preparacion.ts';
   import { mensajeError } from '../../componentes/util.ts';
@@ -208,7 +208,7 @@
       {#if vistas[pestana]}
         {#key pestana + preparacion.estado}
           <VistaPrevia titulo={pestana === 'etiqueta' ? 'Etiqueta del blíster' : 'Hoja del paciente (plan de administración)'} vista={vistas[pestana]!}
-            nombreArchivo={`${pestana === 'etiqueta' ? 'etiqueta' : 'hoja'}-${corto(preparacion.idPublico)}.pdf`}
+            nombreArchivo={nombrePdfSugerido(pestana === 'etiqueta' ? 'etiqueta' : 'hoja-paciente', preparacion.pacienteNombre)}
             impresora={pestana === 'etiqueta' ? ajustes?.impresoraEtiquetas : ajustes?.impresoraDocumentos}
             motivoNoImprimir={validada ? '' : motivoEtiqueta} />
         {/key}

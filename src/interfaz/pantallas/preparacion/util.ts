@@ -81,3 +81,16 @@ export function htmlDocumentoImprimible(texto: string, titulo: string): string {
 
 /** Identificador corto y legible de un blíster (el UUID completo no es para personas). */
 export const corto = (idPublico: string): string => 'SPD-' + idPublico.replace(/-/g, '').slice(0, 8).toUpperCase();
+
+/**
+ * Nombre SUGERIDO para guardar un documento como PDF: «tipo-apellidos-AAAA-MM-DD.pdf».
+ * Sólo lleva apellidos y fecha (nunca DNI/NIE ni el nombre de pila): es solo una sugerencia, el usuario elige la ruta.
+ * Con coma («García López, Ana») los apellidos son lo anterior; si no, todo menos la primera palabra.
+ */
+export function nombrePdfSugerido(tipo: string, nombreCompleto: string | undefined, fecha: Date = new Date()): string {
+  const limpio = (nombreCompleto ?? '').trim();
+  const ap = limpio.includes(',') ? limpio.split(',')[0]! : limpio.split(/\s+/).slice(limpio.split(/\s+/).length > 1 ? 1 : 0).join(' ');
+  const slug = ap.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+  const d = `${fecha.getFullYear()}-${String(fecha.getMonth() + 1).padStart(2, '0')}-${String(fecha.getDate()).padStart(2, '0')}`;
+  return [tipo, slug, d].filter(Boolean).join('-') + '.pdf';
+}

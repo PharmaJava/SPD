@@ -16,7 +16,7 @@
   import PasoValidar from './preparacion/PasoValidar.svelte';
   import type { EntradaPreparar } from './preparacion/tipos.ts';
   import VistaPrevia from './preparacion/VistaPrevia.svelte';
-  import { borrarLocal, cargarSesion, corto, guardarLocal, leerLocal, mensaje, tomarPaso } from './preparacion/util.ts';
+  import { borrarLocal, cargarSesion, corto, guardarLocal, leerLocal, mensaje, nombrePdfSugerido, tomarPaso } from './preparacion/util.ts';
   import { mensajeError } from '../componentes/util.ts';
 
   let { pacienteId }: { pacienteId?: number } = $props();
@@ -159,5 +159,5 @@
 {/if}
 
 <Modal titulo="Hoja de trabajo" bind:abierto={hojaAbierta} ancho>
-  {#if hojaVista}<VistaPrevia titulo="Hoja de trabajo para la mesa" vista={hojaVista} nombreArchivo="hoja-de-trabajo.pdf" impresora={ajustes?.impresoraDocumentos} />{/if}
+  {#if hojaVista}<VistaPrevia titulo="Hoja de trabajo para la mesa" vista={hojaVista} nombreArchivo={nombrePdfSugerido("hoja-de-trabajo", preparacion?.pacienteNombre)} impresora={ajustes?.impresoraDocumentos} />{/if}
 </Modal>

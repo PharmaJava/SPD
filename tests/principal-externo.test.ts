@@ -185,3 +185,14 @@ test('fetchExterno: en modo manual sigue las redirecciones y descarta lo que no 
   assert.equal(esHostGithub('https://github.com.evil.com/x'), false);
   assert.equal(esHostGithub('https://objects.githubusercontent.com/x'), true);
 });
+
+test('exportarPdf: con tamaño de etiqueta (ancho y alto) genera el PDF y acepta la ruta; tamaño incoherente se rechaza sin diálogo', async () => {
+  const { api, t } = doble();
+  const r = await api.exportarPdf('<p>Etiqueta</p>', 'etiqueta-garcia-2026-11-04.pdf', { anchoMm: 60, altoMm: 40 });
+  assert.deepEqual(r, { ok: true, datos: { ruta: '/docs/Hoja.pdf' } });
+  assert.equal((t.guardar[0] as any).rutaSugerida, '/docs/etiqueta-garcia-2026-11-04.pdf');
+  const m = doble();
+  const mal = await m.api.exportarPdf('<p>x</p>', 'a', { anchoMm: 60 });
+  assert.equal(mal.ok, false);
+  assert.equal(m.t.guardar.length, 0);
+});

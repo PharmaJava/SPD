@@ -40,8 +40,8 @@
     ocupado = true; mensajeEstado = '';
     const r = await spd.exportarPdf(vista.html, nombreArchivo, { anchoMm, altoMm });
     ocupado = false;
-    if (!r.ok) { tipoEstado = 'atencion'; mensajeEstado = `No se pudo guardar el PDF: ${r.error}`; }
-    else if (r.datos) { tipoEstado = 'ok'; mensajeEstado = `PDF guardado en ${r.datos.ruta}`; }
+    if (!r.ok) { tipoEstado = 'atencion'; mensajeEstado = `No se pudo guardar el PDF: ${r.error} Comprueba que la carpeta elegida existe y que puedes escribir en ella, o prueba con otra.`; }
+    else if (r.datos) { tipoEstado = 'ok'; mensajeEstado = `PDF guardado en ${r.datos.ruta}. Ya puedes imprimirlo desde otro equipo o programa.`; }
   }
   const puedeImprimir = $derived(vista.imprimible);
 </script>
@@ -49,7 +49,7 @@
 <div class="apilado" bind:this={envoltorio}>
   <div class="fila">
     <h3 class="sin-margen">{titulo}</h3><span class="espacio"></span>
-    <button class="btn" type="button" onclick={pdf} disabled={ocupado || !puedeImprimir}>Guardar PDF</button>
+    <button class="btn" type="button" onclick={pdf} disabled={ocupado || !puedeImprimir} data-prueba="guardar-pdf" title="Guarda el mismo documento, con el mismo tamaño, para imprimirlo fuera del programa">Guardar como PDF</button>
     <button class="btn principal" type="button" onclick={imprimir} disabled={ocupado || !puedeImprimir} data-prueba="imprimir">Imprimir</button>
   </div>
   {#if !vista.imprimible}

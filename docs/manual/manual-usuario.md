@@ -79,7 +79,7 @@ La **caducidad del SPD es de 14 días** desde su preparación (ajustable hasta 3
 
 Una vez validado el blíster aparecen **Etiqueta** y **Hoja del paciente** (plan de administración en A4):
 
-- Pulsa **Imprimir** o **Guardar PDF**. En Ajustes → *Impresoras* eliges la impresora y puedes imprimir una página de prueba; el tamaño de etiqueta es configurable.
+- Pulsa **Imprimir** o **Guardar como PDF**: el PDF sale con el mismo diseño y tamaño que el papel (etiqueta o A4), elige tú dónde guardarlo (el nombre sugerido lleva apellidos y fecha, nunca el DNI) y sirve para imprimir en otro equipo si fallan las impresoras. Lo mismo vale para la hoja de trabajo y los documentos de la ficha. En Ajustes → *Impresoras* eliges la impresora y puedes imprimir una página de prueba; el tamaño de etiqueta es configurable.
 - Si el paciente necesita **letra grande**, márcalo en su ficha y saldrá así.
 - Después se registra la **entrega** al paciente o cuidador.
 
