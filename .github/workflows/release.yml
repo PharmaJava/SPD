@@ -72,6 +72,9 @@ jobs:
         run: |
           Set-Location release
           Copy-Item ..\docs\manual\manual-usuario.pdf .\Manual-de-usuario-SPD.pdf
+          # Copia con nombre SIN versión: así los enlaces .../releases/latest/download/<nombre> apuntan siempre a la última.
+          $inst = Get-ChildItem -File -Filter 'SPD-*-win-x64.exe' | Select-Object -First 1
+          Copy-Item $inst.FullName .\SPD-Instalador-Windows.exe
           $ficheros = Get-ChildItem -File | Where-Object { $_.Extension -in '.exe', '.pdf' }
           if (-not ($ficheros | Where-Object { $_.Extension -eq '.exe' })) { throw 'No se generó ningún .exe en release/' }
           $lineas = foreach ($f in $ficheros) { $h = (Get-FileHash $f.FullName -Algorithm SHA256).Hash.ToLower(); "$h  $($f.Name)" }
@@ -87,7 +90,7 @@ jobs:
           repository: ${{ vars.DESCARGAS_REPO || github.repository }}
           token: ${{ secrets.DESCARGAS_TOKEN || secrets.GITHUB_TOKEN }}
           body: |
-            Instalador de Windows (`SPD-*-win-x64.exe`) y manual de usuario en PDF. Comprueba el SHA-256 con `SHA256SUMS.txt`.
+            Instalador de Windows (`SPD-Instalador-Windows.exe`) y manual de usuario en PDF (`Manual-de-usuario-SPD.pdf`). Comprueba el SHA-256 con `SHA256SUMS.txt`.
             Esta versión no está firmada: Windows SmartScreen puede avisar de «aplicación no reconocida».
             SPD NO es un producto sanitario; lee la licencia incluida.
           files: |
