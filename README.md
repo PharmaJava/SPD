@@ -22,7 +22,7 @@ gestiona su servicio de SPD de principio a fin:
 
 > **Programa gratuito (freeware)**: ver [LICENSE.txt](LICENSE.txt). Ámbito: España (nacional).
 
-> Estado: **versión 1.0**. Programa completo para Windows (instalador y portable en
+> Estado: **versión 1.0**. Programa completo para Windows (instalador y manual en PDF en
 > [Releases](https://github.com/PharmaJava/SPD/releases)). Pendiente antes de uso real:
 > revisión jurídica de los consentimientos (son borradores), prueba de la lectura de
 > CIMA e impresión con el hardware de cada farmacia, y firma de código (el instalador

@@ -76,9 +76,12 @@ function endurecerSesion(): void {
   s.setDevicePermissionHandler(() => false);
 }
 
+// Icono de la ventana (el del ejecutable lo pone electron-builder): se copia a dist/recursos al compilar.
+const rutaIcono = app.isPackaged ? path.join(process.resourcesPath, 'recursos', 'icon.png') : path.join(__dirname, '..', 'recursos', 'icon.png');
+
 function crearVentana(): BrowserWindow {
   const win = new BrowserWindow({
-    width: 1280, height: 800, minWidth: 1024, minHeight: 700, title: 'SPD', show: false, backgroundColor: '#ffffff',
+    width: 1280, height: 800, minWidth: 1024, minHeight: 700, title: 'SPD', show: false, backgroundColor: '#ffffff', icon: rutaIcono,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true,

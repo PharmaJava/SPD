@@ -1,6 +1,6 @@
 {
   "name": "spd",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "private": true,
   "description": "Gestión de Sistemas Personalizados de Dosificación para oficinas de farmacia (Windows)",
   "type": "module",
@@ -75,26 +75,21 @@
           "arch": [
             "x64"
           ]
-        },
-        {
-          "target": "portable",
-          "arch": [
-            "x64"
-          ]
         }
       ],
       "artifactName": "SPD-${version}-${os}-${arch}.${ext}",
-      "signAndEditExecutable": false
+      "signAndEditExecutable": true,
+      "icon": "build/icon.ico"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "license": "LICENSE.txt",
       "perMachine": false,
-      "language": "3082"
-    },
-    "portable": {
-      "artifactName": "SPD-${version}-portable.exe"
+      "language": "3082",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico"
     },
     "afterPack": "scripts/after-pack.cjs"
   }
