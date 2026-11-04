@@ -166,3 +166,22 @@ test('la red de CIMA y de las actualizaciones usa una sesión propia, no la que 
   assert.ok(!/net\.fetch/.test(ext.replace(/\/\/.*$/gm, '')), 'externo.ts no debe usar net.fetch (sesión por defecto)');
   assert.ok(!/net\.fetch/.test(main.replace(/\/\/.*$/gm, '')), 'main.ts no debe usar net.fetch (sesión por defecto)');
 });
+
+test('fetchExterno: en modo manual sigue las redirecciones y descarta lo que no acabe en GitHub', async () => {
+  const { fetchExterno, esHostGithub } = await import('../src/principal/externo.ts');
+  const visto: unknown[] = [];
+  const hacer = (urlFinal: string) => ({ session: { fromPartition: () => ({ fetch: async (_u: string, init: unknown) => { visto.push(init); return { url: urlFinal, status: 200, body: { cancel: async () => {} } }; } }) } }) as never;
+  const bien = fetchExterno(hacer('https://release-assets.githubusercontent.com/x'));
+  const r = await bien('https://github.com/PharmaJava/SPD/releases/download/v1/a.exe', { redirect: 'manual' } as never);
+  assert.equal(r.status, 200);
+  assert.deepEqual(visto[0], { redirect: 'follow' }, 'el fetch de Electron no admite manual: se sigue y se comprueba el destino');
+  const mal = fetchExterno(hacer('https://evil.example.com/a.exe'));
+  await assert.rejects(() => mal('https://github.com/x', { redirect: 'manual' } as never));
+  // CIMA (redirect error) no se toca
+  const cima = fetchExterno(hacer('https://cima.aemps.es/x'));
+  await cima('https://cima.aemps.es/x', { redirect: 'error' } as never);
+  assert.deepEqual(visto[2], { redirect: 'error' });
+  assert.equal(esHostGithub('http://github.com/x'), false);
+  assert.equal(esHostGithub('https://github.com.evil.com/x'), false);
+  assert.equal(esHostGithub('https://objects.githubusercontent.com/x'), true);
+});

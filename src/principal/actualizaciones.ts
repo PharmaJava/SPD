@@ -90,7 +90,7 @@ export function crearActualizador(deps: DepsActualizador): Actualizador {
       if (!permitida(actual)) throw new ErrorRed('Dirección no permitida.', 'URL_NO_PERMITIDA');
       let r: RespuestaHttp;
       try { r = await deps.fetch(actual, { redirect: 'manual', headers: { Accept: aceptar, 'User-Agent': CLIENTE }, signal: señal }); }
-      catch { throw new ErrorRed('No se pudo conectar con el servidor de actualizaciones (¿sin conexión a internet?).', 'SIN_RED'); }
+      catch (e) { deps.registrar?.('red: ' + (e instanceof Error ? e.message : '')); throw new ErrorRed('No se pudo conectar con el servidor de actualizaciones (¿sin conexión a internet?)' + (e instanceof Error && e.message ? ` Detalle técnico: ${e.message.slice(0, 120)}` : '.'), 'SIN_RED'); }
       if ([301, 302, 303, 307, 308].includes(r.status)) {
         const loc = r.headers.get('location');
         if (!loc) throw new ErrorRed('Respuesta no válida del servidor de actualizaciones.', 'RESPUESTA');

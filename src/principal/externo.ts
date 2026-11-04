@@ -160,10 +160,29 @@ type ModuloElectron = typeof import('electron');
  * Conecta `DepsExterno` con Electron. `electron` se pasa desde main.ts (no se importa aquí: así este fichero se
  * puede cargar en pruebas sin Electron). `ventanaPrincipal` sirve de padre de los diálogos.
  */
-/** `fetch` para CIMA y actualizaciones: sesión propia, sin los filtros de la ventana, con el proxy del sistema. */
+/** Servidores a los que puede acabar llegando una petición con redirecciones (GitHub y su almacén de ficheros). */
+export function esHostGithub(url: unknown): boolean {
+  let u: URL; try { u = new URL(String(url)); } catch { return false; }
+  const h = u.hostname.toLowerCase();
+  return u.protocol === 'https:' && (h === 'github.com' || h === 'api.github.com' || h === 'githubusercontent.com' || h.endsWith('.githubusercontent.com'));
+}
+
+/**
+ * `fetch` para CIMA y actualizaciones: sesión propia, sin los filtros de la ventana, con el proxy del sistema.
+ * El actualizador pide `redirect: 'manual'` (comprobar cada salto), pero el `fetch` de Electron no devuelve las
+ * redirecciones en manual y falla: se siguen y se comprueba que la respuesta FINAL venga de GitHub; si no, se descarta.
+ */
 export function fetchExterno(electron: ModuloElectron): FetchLike {
   const ses = electron.session.fromPartition('spd-red-externa');
-  return ((url: string, init: unknown) => ses.fetch(url, init as RequestInit)) as unknown as FetchLike;
+  return (async (url: string, init: { redirect?: string } & Record<string, unknown>) => {
+    const manual = init?.redirect === 'manual';
+    const r = await ses.fetch(url, (manual ? { ...init, redirect: 'follow' } : init) as RequestInit);
+    if (manual && !esHostGithub(r.url || url)) {
+      try { await r.body?.cancel(); } catch { /* ya cerrada */ }
+      throw new Error('La respuesta no viene de GitHub: se descarta.');
+    }
+    return r;
+  }) as unknown as FetchLike;
 }
 
 export function depsElectron(

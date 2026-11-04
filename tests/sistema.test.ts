@@ -60,7 +60,7 @@ test('estado antes del primer uso: no inicializado, bloqueado, sin sesión', asy
   const e = entorno();
   try {
     const s = ok(await e.s.api.estado());
-    assert.deepEqual({ ...s, rutaDatos: undefined, motivoSistemaNoDisponible: undefined }, { inicializado: false, desbloqueado: false, sesion: null, version: '1.0.2', rutaDatos: undefined, esperaIntento: 0, modoAcceso: null, accesoSistemaDisponible: false, motivoSistemaNoDisponible: undefined });
+    assert.deepEqual({ ...s, rutaDatos: undefined, motivoSistemaNoDisponible: undefined }, { inicializado: false, desbloqueado: false, sesion: null, version: '1.0.3', rutaDatos: undefined, esperaIntento: 0, modoAcceso: null, accesoSistemaDisponible: false, motivoSistemaNoDisponible: undefined });
     assert.equal(s.rutaDatos, e.dir);
   } finally { await e.fin(); }
 });
