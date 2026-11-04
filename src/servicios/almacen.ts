@@ -10,16 +10,17 @@
  *
  * Sin Electron: la carpeta llega por parámetro.
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, renameSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { abrirDb } from './db.ts';
 import type { Db } from './db.ts';
 import { ErrorSpd } from './contexto.ts';
 import {
-  abrirConClaveDeDatos, abrirConContrasena, COD_CONTRASENA, COD_FICHERO, crearAlmacenNuevo, guardarCarga, KDF_POR_DEFECTO, kdfPorMigrar,
-  pareceFicheroSpd, reenvolver, rotarClaveDeDatos,
+  abrirConClaveDeDatos, abrirConContrasena, abrirConProtector, BYTES_CABECERA, COD_CONTRASENA, COD_FICHERO, COD_PROTECTOR, COD_SIN_CONTRASENA,
+  crearAlmacenNuevo, crearAlmacenNuevoSistema, guardarCarga, KDF_POR_DEFECTO, kdfPorMigrar, pareceFicheroSpd, reenvolver, reenvolverConProtector,
+  rotarClaveDeDatos, tipoDeEnvoltura,
 } from './seguridad.ts';
-import type { AbiertoFichero, ParametrosKdf } from './seguridad.ts';
+import type { AbiertoFichero, ParametrosKdf, ProtectorClave, TipoEnvoltura } from './seguridad.ts';
 import { claveDesdeTexto } from '../dominio/clave-recuperacion.ts';
 import { escribirAtomico } from './fs-atomico.ts';
 import { debeActualizar, escribirEstado, evaluarRetroceso, leerEstado, NOMBRE_ESTADO } from './estado-local.ts';
@@ -51,6 +52,11 @@ export interface OpcionesAlmacen {
    * fichero de estado `spd.estado` y puede detectar una marcha atrás (ver estado-local.ts).
    */
   sello?: (db: Db) => Sello;
+  /**
+   * Almacén de claves del sistema operativo (Electron safeStorage, sólo en el proceso principal). Sin él, el modo «sin contraseña de
+   * arranque» ni se puede activar ni se pueden abrir unos datos que lo usen (error PROTECTOR_NO_DISPONIBLE, nunca un fallo raro).
+   */
+  protector?: ProtectorClave;
 }
 
 /** Una copia ya descifrada, comprobada y migrada, lista para sustituir al estado actual (o para descartarse). */
@@ -64,7 +70,7 @@ export interface Restauracion {
   descartar(): void;
 }
 
-export type Credencial = { contrasena: string } | { claveDatos: Uint8Array };
+export type Credencial = { contrasena: string } | { claveDatos: Uint8Array } | { sistema: true };
 
 export interface Almacen {
   readonly rutaFichero: string;
@@ -74,11 +80,34 @@ export interface Almacen {
   estaDesbloqueado(): boolean;
   /** Base abierta; lanza Error('bloqueado') si no lo está. */
   db(): Db;
-  /** Crea un almacén nuevo. `poblar` rellena la base ANTES del primer guardado (si lanza, no se escribe nada). */
-  crear(contrasena: string, poblar?: (db: Db) => void): Promise<{ claveDatos: Uint8Array }>;
+  /**
+   * Crea un almacén nuevo. `poblar` rellena la base ANTES del primer guardado (si lanza, no se escribe nada).
+   * `contrasena = null` = SIN contraseña de arranque: la clave de datos se envuelve con el sistema operativo (hace falta el protector).
+   */
+  crear(contrasena: string | null, poblar?: (db: Db) => void): Promise<{ claveDatos: Uint8Array }>;
   desbloquear(contrasena: string, opc?: { usarCopia?: boolean }): Promise<{ aviso?: string }>;
-  /** Abre con la clave de datos y fija una contraseña nueva (recuperación). */
-  recuperar(claveDatos: Uint8Array, nuevaContrasena: string, opc?: { usarCopia?: boolean }): Promise<{ aviso?: string }>;
+  /** Abre unos datos «sin contraseña de arranque» con el almacén de claves del sistema. Si el sistema no puede: CLAVE_SISTEMA_ILEGIBLE (→ clave de recuperación). */
+  desbloquearConSistema(opc?: { usarCopia?: boolean }): Promise<{ aviso?: string }>;
+  /**
+   * Abre con la clave de datos y rehace la envoltura (recuperación). Con contraseña nueva: pasa a (o sigue en) modo contraseña.
+   * Con `null`: sólo vale si los datos ya eran «sin contraseña» y se vuelven a ligar al usuario de Windows de ahora.
+   */
+  recuperar(claveDatos: Uint8Array, nuevaContrasena: string | null, opc?: { usarCopia?: boolean }): Promise<{ aviso?: string }>;
+  /** Cómo se protege la clave de datos (null si aún no hay datos). Lee sólo la cabecera del fichero, sin descifrar nada. */
+  modoAcceso(): TipoEnvoltura | null;
+  /** ¿Hay almacén de claves del sistema que funcione? (nunca lanza) */
+  accesoSistemaDisponible(): boolean;
+  motivoSistemaNoDisponible(): string;
+  /**
+   * Contraseña → sin contraseña de arranque. Pide la contraseña actual. NO rota la clave de datos (la clave de recuperación sigue
+   * valiendo). Reescribe el fichero y su `.bak`. Si el sistema no puede proteger la clave, no cambia nada.
+   */
+  quitarContrasena(contrasenaActual: string): Promise<void>;
+  /**
+   * Sin contraseña → contraseña. ROTA la clave de datos: mientras estuvo sin contraseña, cualquier proceso del usuario de Windows
+   * pudo leerla, así que la anterior no debe seguir valiendo. Devuelve la clave nueva (= clave de recuperación nueva, a mostrar).
+   */
+  ponerContrasena(nueva: string): Promise<{ claveDatos: Uint8Array }>;
   /**
    * Fase 1 de restaurar una copia: descifra y verifica la cabecera con la contraseña de ESA copia (o, si no es la
    * contraseña, con su clave de recuperación) y la abre (migrándola si es de un esquema anterior; si es posterior →
@@ -86,7 +115,7 @@ export interface Almacen {
    * aplicarla: la clave de recuperación vigente sigue valiendo. No cambia nada.
    */
   prepararRestauracion(bytesCopia: Uint8Array, contrasenaCopia: string): Promise<Restauracion>;
-  /** ¿Es esta la contraseña actual? (no cambia nada) */
+  /** ¿Es esta la contraseña actual? (no cambia nada). Sin contraseña de arranque lanza SIN_CONTRASENA (no es una contraseña errónea). */
   verificarContrasena(contrasena: string): boolean;
   /**
    * Cambia la contraseña ROTANDO la clave de datos: clave nueva, base recifrada, envoltura nueva. Devuelve la clave nueva
@@ -112,6 +141,18 @@ const temporizadorReal: Temporizador = {
   programar(fn, ms) { const t = setTimeout(fn, ms); t.unref?.(); return t; },
   cancelar(h) { clearTimeout(h as ReturnType<typeof setTimeout>); },
 };
+
+/** Sólo el principio del fichero (la cabecera), sin leerlo entero. null si no existe. */
+function leerPrincipio(ruta: string): Uint8Array | null {
+  let fd: number | null = null;
+  try {
+    fd = openSync(ruta, 'r');
+    const b = Buffer.alloc(BYTES_CABECERA);
+    const n = readSync(fd, b, 0, b.length, 0);
+    return new Uint8Array(b.subarray(0, n));
+  } catch (e) { if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null; throw e; }
+  finally { if (fd !== null) { try { closeSync(fd); } catch { /* nada */ } } }
+}
 
 function leer(ruta: string): Uint8Array | null {
   try { return new Uint8Array(readFileSync(ruta)); }
@@ -148,7 +189,8 @@ export function crearAlmacen(op: OpcionesAlmacen): Almacen {
   /** Descifra y abre un fichero concreto con la credencial. */
   const intentar = async (fichero: Uint8Array | null, cred: Credencial, nombre: string): Promise<{ db: Db; abierto: AbiertoFichero; fichero: Uint8Array }> => {
     if (!fichero) throw new ErrorSpd(`Falta el fichero ${nombre}.`, COD_FICHERO);
-    const abierto = 'contrasena' in cred ? abrirConContrasena(fichero, cred.contrasena) : abrirConClaveDeDatos(fichero, cred.claveDatos);
+    const abierto = 'contrasena' in cred ? abrirConContrasena(fichero, cred.contrasena)
+      : 'sistema' in cred ? abrirConProtector(fichero, op.protector) : abrirConClaveDeDatos(fichero, cred.claveDatos);
     try { return { db: await abrirBase(abierto.bytesDb), abierto, fichero }; }
     catch (e) { abierto.claveDatos.fill(0); throw e; }
   };
@@ -226,6 +268,35 @@ export function crearAlmacen(op: OpcionesAlmacen): Almacen {
     }
   };
 
+  /**
+   * Rota la clave de datos y escribe el fichero (y su .bak) con una envoltura de contraseña nueva. Lo usan «cambiar contraseña» y
+   * «poner contraseña». La base en memoria ya tiene que estar en el fichero (`flush(true)` antes). El contador del fichero de
+   * estado ya visto no se pierde al rotar.
+   */
+  const rotarYEscribir = async (nueva: string): Promise<{ claveDatos: Uint8Array }> => {
+    if (!db || !claveDatos || !ficheroActual) throw new Error('bloqueado');
+    const previo = ficheroActual;
+    const claveVieja = claveDatos;
+    const antes = leerEstado(rutaEstado, claveVieja);   // con la clave que aún vale
+    const rot = rotarClaveDeDatos(ficheroActual, claveVieja, nueva, kdfObjetivo);
+    try { await encolarEscritura(rot.fichero, rot.fichero); }   // la .bak TAMBIÉN: si no, seguiría abriendo con lo de antes
+    catch (e) {
+      try { escribirAtomico(rutaCopia, previo); } catch { /* la .bak anterior no se pudo reponer: sigue abriendo con lo de antes */ }
+      rot.claveDatos.fill(0);
+      throw e;
+    }
+    claveDatos = rot.claveDatos; ficheroActual = rot.fichero;
+    const sello = selloActual();
+    if (sello) {
+      try {
+        const base = antes.tipo === 'valido' && antes.sello.contador > sello.contador ? antes.sello : sello;
+        escribirEstado(rutaEstado, claveDatos, base);
+      } catch (e) { op.alError?.(e instanceof Error ? e : new Error(String(e))); }
+    }
+    claveVieja.fill(0);
+    return { claveDatos: new Uint8Array(claveDatos) };
+  };
+
   const almacen: Almacen = {
     rutaFichero, rutaCopia,
     existe: () => existsSync(rutaFichero) || existsSync(rutaCopia),
@@ -238,7 +309,9 @@ export function crearAlmacen(op: OpcionesAlmacen): Almacen {
       const nueva = await abrirDb(undefined, { wasmPath: op.wasmPath });
       try {
         poblar?.(nueva);
-        const { fichero, claveDatos: clave } = crearAlmacenNuevo(contrasena, nueva.exportar(), op.kdf);
+        const { fichero, claveDatos: clave } = contrasena === null
+          ? crearAlmacenNuevoSistema(op.protector, nueva.exportar())
+          : crearAlmacenNuevo(contrasena, nueva.exportar(), op.kdf);
         await encolarEscritura(fichero, null);
         instalar(nueva, clave, fichero);
         return { claveDatos: new Uint8Array(clave) };
@@ -261,11 +334,63 @@ export function crearAlmacen(op: OpcionesAlmacen): Almacen {
       return r.aviso ? { aviso: r.aviso } : {};
     },
 
+    async desbloquearConSistema(opc = {}) {
+      if (db) return {};
+      const r = await abrirConFallback({ sistema: true }, !!opc.usarCopia);
+      instalar(r.db, r.abierto.claveDatos, r.fichero);
+      return r.aviso ? { aviso: r.aviso } : {};
+    },
+
+    modoAcceso() {
+      for (const ruta of [rutaFichero, rutaCopia]) {
+        try { const b = leerPrincipio(ruta); if (b) return tipoDeEnvoltura(b); } catch { /* se prueba con la copia */ }
+      }
+      // Datos que existen pero cuya cabecera no se entiende: se trata como contraseña (la de siempre); al abrir se dirá que está dañado.
+      return almacen.existe() ? 'contrasena' : null;
+    },
+
+    accesoSistemaDisponible() {
+      try { return !!op.protector && op.protector.disponible(); } catch { return false; }
+    },
+    motivoSistemaNoDisponible() {
+      if (!op.protector) return 'este programa no tiene acceso al almacén de claves de Windows (sólo lo hay en la aplicación instalada)';
+      try { return op.protector.disponible() ? '' : op.protector.motivoNoDisponible(); } catch { return 'el almacén de claves del sistema no responde'; }
+    },
+
+    async quitarContrasena(contrasenaActual) {
+      if (!db || !claveDatos || !ficheroActual) throw new Error('bloqueado');
+      if (almacen.modoAcceso() === 'sistema') throw new ErrorSpd('Estos datos ya están abiertos sin contraseña de arranque.', 'YA_SIN_CONTRASENA');
+      if (!almacen.verificarContrasena(contrasenaActual)) throw new ErrorSpd('La contraseña actual no es correcta.', COD_CONTRASENA);
+      await flush(true);
+      const previo = ficheroActual;
+      // Si el sistema no puede proteger la clave, esto lanza ANTES de escribir nada.
+      const nuevo = reenvolverConProtector(ficheroActual, claveDatos, op.protector);
+      try { await encolarEscritura(nuevo, nuevo); }   // la .bak también: si no, seguiría pidiendo la contraseña antigua
+      catch (e) {
+        try { escribirAtomico(rutaCopia, previo); } catch { /* la .bak anterior no se pudo reponer: sigue abriendo con lo de antes */ }
+        throw e;
+      }
+      ficheroActual = nuevo;
+      // La clave de datos no cambia: el fichero de estado (rollback) sigue valiendo tal cual.
+    },
+
+    async ponerContrasena(nueva) {
+      if (!db || !claveDatos || !ficheroActual) throw new Error('bloqueado');
+      if (almacen.modoAcceso() === 'contrasena') throw new ErrorSpd('Estos datos ya tienen contraseña de arranque. Para cambiarla usa «Cambiar contraseña».', 'YA_CON_CONTRASENA');
+      await flush(true);
+      return rotarYEscribir(nueva);
+    },
+
     async recuperar(clave, nuevaContrasena, opc = {}) {
       if (db) throw new ErrorSpd('El programa ya está desbloqueado.', 'YA_DESBLOQUEADO');
       const r = await abrirConFallback({ claveDatos: clave }, !!opc.usarCopia);
       try {
-        const nuevo = reenvolver(r.fichero, r.abierto.claveDatos, nuevaContrasena, op.kdf);
+        let nuevo: Uint8Array;
+        if (nuevaContrasena === null) {
+          // Sólo tiene sentido si los datos ya eran «sin contraseña»: se vuelven a ligar al usuario de Windows de ahora.
+          if (tipoDeEnvoltura(r.fichero) !== 'sistema') throw new ErrorSpd('Estos datos tienen contraseña: para recuperarlos hay que poner una contraseña nueva.', COD_SIN_CONTRASENA);
+          nuevo = reenvolverConProtector(r.fichero, r.abierto.claveDatos, op.protector);
+        } else nuevo = reenvolver(r.fichero, r.abierto.claveDatos, nuevaContrasena, op.kdf);
         await encolarEscritura(nuevo, r.fichero);
         instalar(r.db, r.abierto.claveDatos, nuevo);
       } catch (e) { r.db.cerrar(); r.abierto.claveDatos.fill(0); throw e; }
@@ -277,9 +402,13 @@ export function crearAlmacen(op: OpcionesAlmacen): Almacen {
       if (!pareceFicheroSpd(bytesCopia)) throw new ErrorSpd('Ese fichero no es una copia de SPD (cabecera no válida).', 'COPIA_INVALIDA');
       // Contraseña de la copia; si no es esa, se prueba como clave de recuperación (la de entonces).
       let abierto: AbiertoFichero;
-      try { abierto = abrirConContrasena(bytesCopia, contrasenaCopia); }
-      catch (e) {
-        if (!(e instanceof ErrorSpd) || e.codigo !== COD_CONTRASENA) throw e;
+      try {
+        // Una copia hecha SIN contraseña de arranque está ligada al usuario de Windows que la hizo: aquí sólo abre si es el mismo
+        // usuario y equipo; si no, hace falta su clave de recuperación (se prueba en el bloque de abajo).
+        abierto = tipoDeEnvoltura(bytesCopia) === 'sistema' ? abrirConProtector(bytesCopia, op.protector) : abrirConContrasena(bytesCopia, contrasenaCopia);
+      } catch (e) {
+        if (e instanceof ErrorSpd && e.codigo === COD_PROTECTOR && !contrasenaCopia) throw new ErrorSpd(`Esta copia se hizo sin contraseña de arranque y ${almacen.motivoSistemaNoDisponible() || 'no se puede abrir con el almacén de claves de Windows'}. Hace falta su clave de recuperación.`, 'COPIA_SISTEMA_AJENA');
+        if (!(e instanceof ErrorSpd) || (e.codigo !== COD_CONTRASENA && e.codigo !== 'CLAVE_SISTEMA_ILEGIBLE' && e.codigo !== COD_PROTECTOR)) throw e;
         let clave: Uint8Array | null = null;
         try { clave = claveDesdeTexto(contrasenaCopia); } catch { /* no tiene forma de clave de recuperación */ }
         if (!clave) throw e;
@@ -320,26 +449,7 @@ export function crearAlmacen(op: OpcionesAlmacen): Almacen {
       if (!db || !claveDatos || !ficheroActual) throw new Error('bloqueado');
       if (!almacen.verificarContrasena(actual)) throw new ErrorSpd('La contraseña actual no es correcta.', COD_CONTRASENA);
       await flush(true);   // la base en memoria, ya en el fichero
-      const previo = ficheroActual;
-      const claveVieja = claveDatos;
-      const antes = leerEstado(rutaEstado, claveVieja);   // con la clave que aún vale: el contador ya visto no se pierde al rotar
-      const rot = rotarClaveDeDatos(ficheroActual, claveVieja, nueva, kdfObjetivo);
-      try { await encolarEscritura(rot.fichero, rot.fichero); }   // la .bak TAMBIÉN: si no, seguiría abriendo con la contraseña/clave de antes
-      catch (e) {
-        try { escribirAtomico(rutaCopia, previo); } catch { /* la .bak anterior no se pudo reponer: sigue abriendo con lo de antes */ }
-        rot.claveDatos.fill(0);
-        throw e;
-      }
-      claveDatos = rot.claveDatos; ficheroActual = rot.fichero;
-      const sello = selloActual();
-      if (sello) {
-        try {
-          const base = antes.tipo === 'valido' && antes.sello.contador > sello.contador ? antes.sello : sello;
-          escribirEstado(rutaEstado, claveDatos, base);
-        } catch (e) { op.alError?.(e instanceof Error ? e : new Error(String(e))); }
-      }
-      claveVieja.fill(0);
-      return { claveDatos: new Uint8Array(claveDatos) };
+      return rotarYEscribir(nueva);
     },
 
     comprobarEstado() {
